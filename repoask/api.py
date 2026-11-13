@@ -49,9 +49,9 @@ def error_status(code):
         return 404
     if code in {'rate_limited', 'provider_rate_limited'}:
         return 429
-    if code in {'upstream_timeout', 'provider_timeout'}:
+    if code in {'timeout', 'upstream_timeout', 'provider_timeout'}:
         return 504
-    if code in {'invalid_output', 'embedding_mismatch','provider_rejected','upstream_rejected','upstream_redirect'}:
+    if code in {'malformed_output', 'invalid_output', 'embedding_mismatch','provider_rejected','upstream_rejected','upstream_redirect'}:
         return 502
     if code in {'storage_busy', 'secret_store_unavailable', 'upstream_unavailable','provider_unavailable'}:
         return 503

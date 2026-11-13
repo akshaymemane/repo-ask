@@ -186,6 +186,17 @@ class JobQueue:
             job = self._update(conn, row['id'], **values)
             return HeartbeatResult(job.lease_expires_at, job.cancel_requested)
 
+    def release_safe(self, lease):
+        """Yield owned safe work on shutdown without consuming a failure attempt."""
+        with self.store.transaction() as conn:
+            row = self._owned(conn, lease)
+            if row['effect'] != 'safe':
+                raise InvalidTransition('External work requires reconciliation.')
+            if row['cancel_requested']:
+                return self._finish(conn, row['id'], 'cancelled')
+            return self._finish(conn, row['id'], 'queued', run_after=self.clock(),
+                                attempts=max(0, row['attempts'] - 1))
+
     def complete(self, lease, *, result=None):
         encoded = json_object(result) if result is not None else None
         with self.store.transaction() as conn:

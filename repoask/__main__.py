@@ -93,6 +93,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 services = getattr(self.server, "services", None)
                 if services is not None:
                     if url.path == "/api/workspace":
+                        result["contract"] = "opendevin.workspace/m1.1"
                         result["catalog"]["github"] = services.github.status_summary()
                         result["providers"]["profiles"] = {"status": "available", **services.providers.status_summary()}
                         result["navigation"][1]["status"] = "available"

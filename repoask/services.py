@@ -6,8 +6,26 @@ from .api import FeatureAPI
 from .github import GitHubService
 from .providers import ProviderService
 from .platform import Worker
+from .platform.worker import JobInterrupted
 from .platform.clock import new_id
 from .platform.errors import LeaseLost, PlatformError
+
+
+class ShutdownContext:
+    def __init__(self, context, stop_event):
+        self.context, self.stop_event = context, stop_event
+        self.queue, self.lease, self.lease_ms = context.queue, context.lease, context.lease_ms
+
+    def checkpoint(self, data):
+        self.context.checkpoint(data)
+        if self.stop_event.is_set():
+            raise JobInterrupted()
+
+    @property
+    def cancel_requested(self):
+        if self.stop_event.is_set():
+            raise JobInterrupted()
+        return self.context.cancel_requested
 
 
 class ApplicationServices:
@@ -33,7 +51,9 @@ class ApplicationServices:
             heartbeat = Thread(target=maintain, name='opendevin-job-heartbeat')
             heartbeat.start()
             try:
-                return handler(job, context)
+                if self.stop_event.is_set():
+                    raise JobInterrupted()
+                return handler(job, ShutdownContext(context, self.stop_event))
             finally:
                 finished.set()
                 heartbeat.join()

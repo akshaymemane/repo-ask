@@ -12,6 +12,9 @@ class PermanentError(Exception):
 class CancelledError(Exception):
     """Handler confirms it stopped without unrecorded external effects."""
 
+class JobInterrupted(BaseException):
+    """Cooperative application shutdown, separate from handler failures/cancellation."""
+
 class UnknownOutcomeError(Exception):
     code = 'unknown_outcome'
 
@@ -45,6 +48,11 @@ class Worker:
                 result = self.handlers[lease.job.kind](lease.job, context)
                 if result is not None:
                     json_object(result)
+            except JobInterrupted:
+                if lease.job.effect == 'safe':
+                    self.queue.release_safe(lease)
+                else:
+                    self.queue.mark_unknown_outcome(lease, code='unknown_outcome', message='Worker interrupted')
             except LeaseLost:
                 raise
             except CancelledError:

@@ -57,3 +57,40 @@ class ApplicationServiceTests(TestCase):
         from repoask.api import error_status
         self.assertEqual(error_status('validation'), 400)
         self.assertEqual(error_status('auth'), 409)
+        self.assertEqual(error_status('timeout'), 504)
+        self.assertEqual(error_status('malformed_output'), 502)
+
+    def test_shutdown_checkpoints_and_releases_safe_work_without_attempt_penalty(self):
+        platform = Platform.open(None)
+        self.addCleanup(platform.close)
+        services = ApplicationServices(platform)
+        entered, proceed = Event(), Event()
+        def handler(job, context):
+            entered.set()
+            self.assertTrue(proceed.wait(3))
+            context.checkpoint({'cursor': 42})
+            raise AssertionError('must yield before continuing work')
+        services.handlers = {'test.resume': handler}
+        job = platform.jobs.enqueue('test.resume', {})
+        services.start()
+        self.assertTrue(entered.wait(3))
+        services.stop_event.set()
+        proceed.set()
+        services.close()
+        saved = platform.jobs.get(job.id)
+        self.assertEqual(saved.state, 'queued')
+        self.assertEqual(saved.attempts, 0)
+        self.assertEqual(saved.checkpoint, {'cursor': 42})
+        self.assertIsNone(saved.lease_owner)
+        resumed = platform.jobs.claim('next-process')
+        self.assertEqual(resumed.job.checkpoint, {'cursor': 42})
+
+    def test_shutdown_never_requeues_an_uncertain_external_effect(self):
+        from repoask.platform.worker import Worker, JobInterrupted
+        platform = Platform.open(None)
+        self.addCleanup(platform.close)
+        job = platform.jobs.enqueue('test.external', {}, effect='external')
+        def interrupted(job, context):
+            raise JobInterrupted()
+        Worker(platform.jobs, {'test.external': interrupted}, worker_id='owner').run_once()
+        self.assertEqual(platform.jobs.get(job.id).state, 'needs_reconciliation')
