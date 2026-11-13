@@ -1,0 +1,700 @@
+"""Durable immutable context; no shared entrypoints or schema mutation."""
+from collections import Counter
+from pathlib import Path
+import json
+import re
+import time
+from ..platform.clock import now_ms, new_id
+from ..platform.errors import PlatformError, NotFound, LeaseLost
+from ..platform.worker import CancelledError
+from .safety import CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks
+from .snapshots import local_snapshot, github_snapshot
+from .vectors import VectorStore, VectorUnavailable
+
+
+def encoded(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+class IndexError(PlatformError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+class StopRun(Exception):
+    pass
+
+
+class IndexService:
+    def __init__(self, store, jobs, github, providers, *, data_dir=None, vector_store=None,
+                 snapshot_reader=None, clock=now_ms):
+        self.store, self.jobs, self.github, self.providers = store, jobs, github, providers
+        self.clock, self.snapshot_reader = clock, snapshot_reader
+        if data_dir is None and store.persistent:
+            with store.read() as db:
+                filename = db.execute('PRAGMA database_list').fetchone()[2]
+            data_dir = str(Path(filename).parent)
+        self.vectors = vector_store if vector_store is not None else VectorStore(data_dir)
+        if github is not None:
+            github.register_eligibility_listener(self._eligibility_changed)
+            github.register_purge_hook('indexing', self.purge_repository)
+
+    def _one(self, db, table, ident):
+        row = db.execute('SELECT * FROM ' + table + ' WHERE id=?', (ident,)).fetchone()
+        if row is None:
+            raise NotFound('Context record unavailable.')
+        return dict(row)
+
+    def _source(self, db, repository_id):
+        source = self._one(db, 'index_sources', repository_id)
+        source['exclusions'] = json.loads(source['exclusions_json'])
+        return source
+
+    def _eligible(self, source):
+        return source['metadata_json'] != encoded({'purging':True}) and bool(source['index_enabled']) and (source['kind'] != 'github' or self.github.is_eligible(source['github_repository_id']))
+
+    def _require(self, source):
+        if not self._eligible(source):
+            raise IndexError('repository_unavailable')
+        if source['kind'] == 'github':
+            self.github.require_access(source['github_repository_id'])
+
+    def _eligibility_changed(self, repository_id, eligible):
+        if eligible:
+            with self.store.transaction() as db:
+                db.execute("UPDATE index_sources SET index_enabled=1,updated_at=? WHERE id=? AND kind='github'",(self.clock(),repository_id))
+        else:
+            with self.store.transaction() as db:
+                db.execute("UPDATE index_runs SET state='cancelled',error_code='repository_unavailable',updated_at=? WHERE repository_id=? AND state IN ('queued','running','waiting','paused')", (self.clock(), repository_id))
+
+    def register_local(self, name, path, exclusions=()):
+        root = Path(path).expanduser().resolve(strict=True)
+        if not root.is_dir() or not isinstance(name, str) or not 1 <= len(name) <= 200:
+            raise ValueError('Invalid local source.')
+        patterns = validate_exclusions(exclusions)
+        with self.store.transaction() as db:
+            row = db.execute('SELECT id FROM index_sources WHERE local_path=?', (str(root),)).fetchone()
+            if row:
+                return self.get_state(row[0])
+            from uuid import uuid4
+            ident, now = 'local:' + str(uuid4()), self.clock()
+            db.execute("INSERT INTO index_sources(id,kind,name,local_path,exclusions_json,created_at,updated_at) VALUES(?,'local',?,?,?,?,?)", (ident, name, str(root), encoded(patterns), now, now))
+        return self.get_state(ident)
+
+    def register_demo(self, snapshot):
+        if not isinstance(snapshot.name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', snapshot.name):
+            raise ValueError('Invalid demo name.')
+        ident = 'demo:' + snapshot.name
+        # Demo source is bounded, filtered and cached privately, never job payload data.
+        files, size = {}, 0
+        for path, lines in snapshot.files.items():
+            if len(files) >= 2000:
+                break
+            if excluded(path):
+                continue
+            text = '\n'.join(lines)
+            raw = text.encode()
+            if len(raw) > 256*1024 or size + len(raw) > 16*1024*1024 or decode(raw) is None:
+                continue
+            files[path] = text
+            size += len(raw)
+        metadata = encoded({'files': files, 'revision': digest(encoded(files)), 'limited': bool(snapshot.limited)})
+        now = self.clock()
+        with self.store.transaction() as db:
+            existing = db.execute('SELECT metadata_json FROM index_sources WHERE id=?',(ident,)).fetchone()
+            if existing and json.loads(existing[0]).get('purging'):
+                raise IndexError('purge_pending')
+            db.execute("INSERT INTO index_sources(id,kind,name,metadata_json,created_at,updated_at) VALUES(?,'demo',?,?,?,?) ON CONFLICT(id) DO UPDATE SET metadata_json=excluded.metadata_json,updated_at=excluded.updated_at", (ident, snapshot.name, metadata, now, now))
+        return self.get_state(ident)
+
+    def _ensure_source(self, repository_id):
+        with self.store.read() as db:
+            existing = db.execute('SELECT 1 FROM index_sources WHERE id=?', (repository_id,)).fetchone()
+        if existing:
+            return
+        if not isinstance(repository_id, str) or not re.fullmatch(r'gh:[1-9][0-9]*', repository_id) or self.github is None:
+            raise NotFound('Repository unavailable.')
+        repo = self.github.get_repository(repository_id)
+        with self.store.transaction() as db:
+            db.execute("INSERT OR IGNORE INTO index_sources(id,kind,github_repository_id,name,created_at,updated_at) VALUES(?,'github',?,?,?,?)", (repository_id, repository_id, repo.get('full_name', repo['name']), self.clock(), self.clock()))
+
+    def request_index(self, repository_id, revision=None, priority=0, embedding_version_id=None, limits=None):
+        caps = validate_limits(limits)
+        if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', revision)):
+            raise ValueError('An immutable revision is required.')
+        self._ensure_source(repository_id)
+        if embedding_version_id is None and self.providers:
+            embedding_version_id = self.providers.roles().get('embedding', {}).get('version_id')
+        if embedding_version_id:
+            self.providers.embedding_namespace(embedding_version_id)
+        with self.store.transaction() as db:
+            self._require(self._source(db, repository_id))
+            row = db.execute("SELECT id FROM index_runs WHERE repository_id=? AND state IN ('queued','running','waiting','paused')", (repository_id,)).fetchone()
+            if row:
+                return self._public_run(self._one(db, 'index_runs', row[0]))
+            ident, now = new_id('ix'), self.clock()
+            job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': ident}, priority=priority, idempotency_key=ident + ':0')
+            db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded(caps), now, now))
+            return self._public_run(self._one(db, 'index_runs', ident))
+
+    def _public_run(self, row):
+        keys = ('id','repository_id','snapshot_id','job_id','state','phase','continuation','error_code','retry_at','created_at','updated_at')
+        result = {key: row[key] for key in keys}
+        result['progress'] = json.loads(row['progress_json'])
+        return result
+
+    def get_run(self, run_id):
+        with self.store.read() as db:
+            return self._public_run(self._one(db, 'index_runs', run_id))
+
+    def pause(self, run_id):
+        with self.store.transaction() as db:
+            row = self._one(db, 'index_runs', run_id)
+            if row['state'] in ('queued','running','waiting'):
+                db.execute("UPDATE index_runs SET state='paused',updated_at=? WHERE id=?", (self.clock(),run_id))
+        return self.get_run(run_id)
+
+    def _continue(self, run_id, states):
+        with self.store.transaction() as db:
+            run = self._one(db, 'index_runs', run_id)
+            self._require(self._source(db, run['repository_id']))
+            if run['state'] not in states:
+                return self._public_run(run)
+            if run['job_id']:
+                old = self.jobs.get(run['job_id'])
+                if old.state == 'leased' and old.lease_expires_at >= self.clock():
+                    raise IndexError('checkpoint_pending')
+                self.jobs._reconcile(db)
+                if self.jobs.get(run['job_id']).state == 'queued':
+                    # Cancel the stale pending job in this same transaction.
+                    self.jobs._finish(db, run['job_id'], 'cancelled')
+            continuation = run['continuation'] + 1
+            job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': run_id}, idempotency_key=f'{run_id}:{continuation}')
+            db.execute("UPDATE index_runs SET state='queued',job_id=?,continuation=?,error_code=NULL,retry_at=NULL,updated_at=? WHERE id=?", (job.id,continuation,self.clock(),run_id))
+        return self.get_run(run_id)
+
+    def resume(self, run_id):
+        return self._continue(run_id, ('paused',))
+
+    def retry(self, run_id):
+        return self._continue(run_id, ('failed','waiting','cancelled'))
+
+    def set_local_selection(self, repository_id, index_enabled, exclusions=None):
+        if type(index_enabled) is not bool:
+            raise ValueError('Invalid selection.')
+        patterns = None if exclusions is None else validate_exclusions(exclusions)
+        with self.store.transaction() as db:
+            source = self._source(db, repository_id)
+            if source['metadata_json'] == encoded({'purging':True}):
+                raise IndexError('purge_pending')
+            if source['kind'] == 'github':
+                raise IndexError('selection_authoritative_in_github')
+            db.execute('UPDATE index_sources SET index_enabled=?,exclusions_json=?,updated_at=? WHERE id=?', (index_enabled, source['exclusions_json'] if patterns is None else encoded(patterns), self.clock(), repository_id))
+        return self.get_state(repository_id)
+
+    def get_state(self, repository_id):
+        self._ensure_source(repository_id)
+        with self.store.read() as db:
+            source = self._source(db, repository_id)
+            eligible = self._eligible(source)
+            active = self._one(db, 'repository_snapshots', source['active_snapshot_id']) if source['active_snapshot_id'] else None
+            row = db.execute('SELECT * FROM index_runs WHERE repository_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1', (repository_id,)).fetchone()
+            run = dict(row) if row else None
+            status = 'metadata_only'
+            if active:
+                coverage = json.loads(active['coverage_json'])
+                status = 'partial' if coverage.get('partial') else 'ready'
+                if source['updated_at'] > active['activated_at'] or coverage.get('selection_hash') != digest(encoded(source['exclusions'])):
+                    status = 'stale'
+                if source['kind'] == 'github':
+                    current_repo = self.github.get_repository(repository_id)
+                    stamp = digest(encoded([current_repo['default_branch'],current_repo.get('pushed_at')]))
+                    if stamp != coverage.get('catalog_stamp'):
+                        status = 'stale'
+            if run and run['state'] in ('queued','running','waiting','paused'):
+                status = 'stale' if active else 'indexing'
+            elif run and run['state'] == 'failed':
+                status = 'stale' if active else 'failed'
+            if not eligible:
+                status = 'excluded'
+            public_active = None
+            if active and eligible:
+                public_active = {k: active[k] for k in ('id','revision','revision_kind','branch','activated_at')}
+                public_active.update(coverage=json.loads(active['coverage_json']), mode='hybrid' if active['namespace_id'] else 'lexical_only')
+            implementation = False
+            if source['kind'] == 'github':
+                implementation = self.github.get_repository(repository_id)['implementation_enabled']
+            return dict(repository_id=repository_id,name=source['name'],kind=source['kind'],eligible=eligible,
+                        implementation_enabled=implementation,status=status,active_snapshot=public_active,
+                        active_run=self._public_run(run) if run and run['state'] in ('queued','running','waiting','paused') else None)
+
+    def _fence(self, db, job, context, *, allow_paused=False):
+        run = self._one(db, 'index_runs', job.payload['run_id'])
+        row = db.execute('SELECT * FROM jobs WHERE id=?', (job.id,)).fetchone()
+        lease = context.lease
+        if (row is None or row['state'] != 'leased' or row['lease_owner'] != lease.owner or
+            row['lease_token'] != lease.token or row['lease_expires_at'] <= self.clock() or run['job_id'] != job.id):
+            raise LeaseLost('Index lease lost.')
+        if row['cancel_requested']:
+            raise CancelledError()
+        if run['state'] == 'paused' and not allow_paused:
+            raise StopRun()
+        if run['state'] not in ('queued','running','waiting','paused'):
+            raise StopRun()
+        source = self._source(db, run['repository_id'])
+        self._require(source)
+        return run, source
+
+    def _boundary(self, job, context):
+        # Validate expiry before heartbeat; platform heartbeat itself only checks token.
+        with self.store.transaction() as db:
+            run, source = self._fence(db, job, context)
+        context.checkpoint({'phase':run['phase']})
+        return run, source
+
+    def _cancel_guard(self, job, context, paths):
+        service = self
+        class Guard:
+            def is_set(self):
+                try:
+                    with service.store.read() as db:
+                        _, source = service._fence(db,job,context)
+                        return any(excluded(path,source['exclusions']) for path in paths)
+                except (PlatformError,StopRun,CancelledError):
+                    return True
+        return Guard()
+
+    def _snapshot(self, source, revision, caps):
+        if self.snapshot_reader and source['kind'] != 'demo':
+            return self.snapshot_reader(source, revision, caps)
+        if source['kind'] == 'local':
+            return local_snapshot(source, revision, caps)
+        if source['kind'] == 'github':
+            return github_snapshot(self.github, source, revision, caps)
+        meta = json.loads(source['metadata_json'])
+        if revision and revision != meta['revision']:
+            raise IndexError('demo_revision_unavailable')
+        return dict(revision=meta['revision'],revision_kind='content_hash',branch=None,
+                    files=({'path': p,'content': t.encode()} for p,t in sorted(meta['files'].items())), limited=meta['limited'])
+
+    def run_index(self, job, context):
+        try:
+            return self._run_index(job, context)
+        except StopRun:
+            return {'run_id':job.payload['run_id'],'state':self.get_run(job.payload['run_id'])['state']}
+        except LeaseLost:
+            raise
+        except CancelledError:
+            with self.store.transaction() as db:
+                run, _ = self._fence_for_error(db, job, context)
+                db.execute("UPDATE index_runs SET state='cancelled',updated_at=? WHERE id=?", (self.clock(),run['id']))
+            raise
+        except Exception as exc:
+            # Only stable content-free codes enter durable diagnostics.
+            code = getattr(exc, 'code', 'index_failed')
+            if code not in {'repository_unavailable','rate_limited','timeout','auth','cost_unavailable','disk_limit'}:
+                code = 'index_failed'
+            with self.store.transaction() as db:
+                run, _ = self._fence_for_error(db, job, context)
+                if run['state'] in ('paused','cancelled'):
+                    return {'run_id':run['id'],'state':run['state']}
+                state = 'waiting' if code == 'rate_limited' else 'failed'
+                retry_at = getattr(exc,'retry_at',None)
+                db.execute('UPDATE index_runs SET state=?,error_code=?,retry_at=?,updated_at=? WHERE id=?', (state,code,retry_at,self.clock(),run['id']))
+                if state == 'waiting':
+                    continuation = run['continuation'] + 1
+                    next_job = self.jobs.enqueue_in_transaction(db,'index.run',{'run_id':run['id']},
+                        idempotency_key=f"{run['id']}:{continuation}",run_after=max(self.clock()+1000,retry_at or 0))
+                    db.execute('UPDATE index_runs SET job_id=?,continuation=? WHERE id=?',(next_job.id,continuation,run['id']))
+            return {'run_id':job.payload['run_id'],'state':state,'error_code':code}
+
+    def _fence_for_error(self, db, job, context):
+        # Error handling must fence too, but permission loss is itself the error.
+        run = self._one(db, 'index_runs', job.payload['run_id'])
+        row = db.execute('SELECT * FROM jobs WHERE id=?', (job.id,)).fetchone()
+        if not row or run['job_id'] != job.id or row['state'] != 'leased' or row['lease_token'] != context.lease.token or row['lease_owner'] != context.lease.owner or row['lease_expires_at'] <= self.clock():
+            raise LeaseLost('Index lease lost.')
+        if row['cancel_requested']:
+            run['state'] = 'cancelled'
+            db.execute("UPDATE index_runs SET state='cancelled',updated_at=? WHERE id=?",(self.clock(),run['id']))
+        return run, None
+
+    def _pause_limit(self, db, run, code):
+        db.execute("UPDATE index_runs SET state='paused',error_code=?,updated_at=? WHERE id=?", (code,self.clock(),run['id']))
+
+    def _run_index(self, job, context):
+        run, source = self._boundary(job, context)
+        caps = json.loads(run['limits_json'])
+        started = time.monotonic()
+        with self.store.transaction() as db:
+            self._fence(db,job,context)
+            active = db.execute("SELECT count(*) FROM index_runs r JOIN jobs j ON j.id=r.job_id WHERE r.state='running' AND j.state='leased' AND j.lease_expires_at>? AND r.id!=?",(self.clock(),run['id'])).fetchone()[0]
+            if active >= 2:
+                self._pause_limit(db,run,'worker_limit')
+                return {'state':'paused'}
+            db.execute("UPDATE index_runs SET state='running',phase=CASE WHEN phase='queued' THEN 'acquiring' ELSE phase END,updated_at=? WHERE id=?", (self.clock(),run['id']))
+        if run['snapshot_id']:
+            with self.store.read() as db:
+                snapshot = self._one(db,'repository_snapshots',run['snapshot_id'])
+            revision = snapshot['revision']
+        else:
+            revision = run['requested_revision']
+        if run['phase'] not in ('embedding','activation'):
+            data = self._snapshot(source, revision, caps)
+            rev, kind = data.get('revision'), data.get('revision_kind')
+            if kind not in ('git','content_hash') or not isinstance(rev,str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})' if kind == 'git' else r'[0-9a-f]{64}',rev) or (revision and revision != rev):
+                raise IndexError('invalid_snapshot')
+            if source['kind'] != 'demo' and kind != 'git':
+                raise IndexError('invalid_snapshot')
+            with self.store.transaction() as db:
+                run, source = self._fence(db,job,context)
+                sid = run['snapshot_id'] or new_id('snap')
+                if not run['snapshot_id']:
+                    db.execute("INSERT INTO repository_snapshots(id,repository_id,revision,revision_kind,branch,state,chunker_version,parser_version,created_at) VALUES(?,?,?,?,?,'staging',?,?,?)", (sid,source['id'],rev,kind,data.get('branch'),CHUNKER,PARSER,self.clock()))
+                    db.execute('UPDATE index_runs SET snapshot_id=? WHERE id=?',(sid,run['id']))
+            skips, seen, total, count, chunk_count = Counter(), set(), 0, 0, 0
+            for entry in data['files']:
+                run, source = self._boundary(job,context)
+                path = entry.get('path')
+                reason = excluded(path,source['exclusions'])
+                if time.monotonic() - started > caps['elapsed_ms']/1000:
+                    skips['elapsed_limit'] += 1
+                    break
+                if len(seen) >= caps['files']*4:
+                    skips['tree_limit'] += 1
+                    break
+                if path in seen:
+                    continue
+                seen.add(path)
+                reason = reason or entry.get('kind')
+                if reason:
+                    skips[reason if reason in {'unsafe_path','generated','sensitive','configured','symlink','submodule','file_bytes','tree_limit','unsupported'} else 'unsupported'] += 1
+                    continue
+                raw = entry.get('content')
+                if not isinstance(raw,bytes) or len(raw)>caps['file_bytes']:
+                    skips['file_bytes'] += 1
+                    continue
+                text = decode(raw)
+                if text is None:
+                    skips['binary_or_sensitive'] += 1
+                    continue
+                if count >= caps['files'] or total+len(raw)>caps['source_bytes']:
+                    skips['source_limit'] += 1
+                    break
+                parts = list(chunks(text))
+                if chunk_count + len(parts)>caps['chunks']:
+                    skips['chunk_limit'] += 1
+                    break
+                with self.store.transaction() as db:
+                    run, current = self._fence(db,job,context)
+                    if excluded(path,current['exclusions']):
+                        skips['configured'] += 1
+                        continue
+                    if self.store.size_bytes() + self.vectors.size_bytes() + len(raw)*4 > caps['disk_bytes']:
+                        self._pause_limit(db,run,'disk_limit')
+                        return {'state':'paused'}
+                    db.execute('INSERT OR IGNORE INTO snapshot_files VALUES(?,?,?,?,?,?)',(sid,path,digest(raw),len(raw),len(text.splitlines()),text))
+                    for first,last,body in parts:
+                        cid = digest(encoded([sid,path,first,last]))
+                        cur = db.execute('INSERT OR IGNORE INTO code_chunks(id,snapshot_id,path,start_line,end_line,content_hash,text,language) VALUES(?,?,?,?,?,?,?,?)',(cid,sid,path,first,last,digest(body),body,Path(path).suffix.lstrip('.')))
+                        if cur.rowcount:
+                            db.execute('INSERT INTO code_chunks_fts VALUES(?,?,?)',(cid,re.sub(r'[^\w]',' ',path),body))
+                    count += 1
+                    total += len(raw)
+                    chunk_count += len(parts)
+                    progress = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps)
+                    db.execute("UPDATE index_runs SET phase='ingesting',progress_json=?,checkpoint_json=?,updated_at=? WHERE id=?",(encoded(progress),encoded({'files':count}),self.clock(),run['id']))
+            coverage = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps,partial=bool(skips) or bool(data.get('limited')))
+            coverage['selection_hash'] = digest(encoded(source['exclusions']))
+            if source['kind'] == 'github':
+                repo = self.github.get_repository(source['id'])
+                coverage['catalog_stamp'] = digest(encoded([repo['default_branch'],repo.get('pushed_at')]))
+            with self.store.transaction() as db:
+                run,_ = self._fence(db,job,context)
+                db.execute('UPDATE repository_snapshots SET coverage_json=? WHERE id=?',(encoded(coverage),sid))
+                db.execute("UPDATE index_runs SET phase='embedding',progress_json=?,checkpoint_json='{}' WHERE id=?",(encoded(coverage),run['id']))
+        run,source = self._boundary(job,context)
+        sid = run['snapshot_id']
+        namespace_id = None
+        degradation = 'embedding_unassigned'
+        if run['profile_version_id'] and self.vectors.available:
+            spec = self.providers.embedding_namespace(run['profile_version_id'])
+            namespace_id = digest(encoded([spec['key'],run['profile_version_id'],spec['dimensions'],'none',CHUNKER]))
+            with self.store.transaction() as db:
+                self._fence(db,job,context)
+                # canonical identity includes immutable profile version as required.
+                provider_key = digest(encoded([spec['key'],run['profile_version_id']]))
+                db.execute('INSERT OR IGNORE INTO embedding_namespaces VALUES(?,?,?,?,?,?,?)',(namespace_id,provider_key,run['profile_version_id'],spec['dimensions'],'none',CHUNKER,self.clock()))
+                db.execute('UPDATE repository_snapshots SET namespace_id=? WHERE id=?',(namespace_id,sid))
+            with self.store.read() as db:
+                rows = [dict(r) for r in db.execute('SELECT * FROM code_chunks WHERE snapshot_id=? ORDER BY path,start_line',(sid,))]
+            tokens = 0
+            checkpoint = json.loads(run['checkpoint_json'])
+            cursor = checkpoint.get('embedded',0)
+            tokens = checkpoint.get('tokens',0)
+            price = self.providers.get_version(run['profile_version_id'])['config'].get('input_price_per_million')
+            offset = cursor
+            while offset < len(rows):
+                run, source = self._boundary(job,context)
+                batch, batch_bytes = [], 0
+                for row in rows[offset:offset+caps['batch_size']]:
+                    size = len(row['text'].encode())
+                    if batch_bytes + size > caps['batch_tokens']:
+                        break
+                    batch.append(row)
+                    batch_bytes += size
+                if not batch:
+                    # A caller-lowered per-batch cap may not fit one chunk. Retain
+                    # source/FTS, declare partial semantic coverage, activate lexical.
+                    namespace_id = None
+                    degradation = 'embedding_token_limit'
+                    break
+                if any(excluded(r['path'],source['exclusions']) for r in batch):
+                    # Selection changed mid-run: force a new ingestion with new policy.
+                    raise IndexError('selection_changed')
+                estimate = sum(len(r['text'].encode()) for r in batch) # conservative tokens <= bytes
+                if tokens+estimate>caps['embedding_tokens']:
+                    namespace_id = None
+                    degradation = 'embedding_token_limit'
+                    break
+                if 'monetary_cap' in caps and (price is None or (tokens+estimate)*price/1000000>caps['monetary_cap']):
+                    with self.store.transaction() as db:
+                        self._fence(db,job,context)
+                        self._pause_limit(db,run,'cost_unavailable' if price is None else 'cost_limit')
+                    return {'state':'paused'}
+                values = [self.vectors.cached(source['id'],namespace_id,r['content_hash']) for r in batch]
+                missing = [i for i,v in enumerate(values) if v is None]
+                if missing:
+                    result = self.providers.embed(run['profile_version_id'],[batch[i]['text'] for i in missing],contains_source=True,cancel_event=self._cancel_guard(job,context,[r['path'] for r in batch]))
+                    if result.get('namespace',{}).get('key') != spec['key'] or len(result['vectors']) != len(missing):
+                        raise IndexError('namespace_mismatch')
+                    for i,v in zip(missing,result['vectors']):
+                        values[i] = v
+                with self.store.transaction() as db:
+                    run,source = self._fence(db,job,context)
+                    if any(excluded(r['path'],source['exclusions']) for r in batch):
+                        raise IndexError('selection_changed')
+                    # Vector DB commits precede metadata checkpoint; replay is idempotent.
+                    if self.store.size_bytes()+self.vectors.size_bytes()+estimate*4+len(batch)*spec['dimensions']*8 > caps['disk_bytes']:
+                        self._pause_limit(db,run,'disk_limit')
+                        return {'state':'paused'}
+                    for row,vector in zip(batch,values):
+                        self.vectors.put(namespace_id,spec['dimensions'],source['id'],sid,row['id'],row['content_hash'],vector)
+                    tokens += estimate
+                    db.execute('UPDATE index_runs SET checkpoint_json=?,updated_at=? WHERE id=?',(encoded({'embedded':offset+len(batch),'tokens':tokens}),self.clock(),run['id']))
+                offset += len(batch)
+                if time.monotonic()-started>caps['elapsed_ms']/1000:
+                    with self.store.transaction() as db:
+                        self._fence(db,job,context)
+                        self._pause_limit(db,run,'elapsed_limit')
+                    return {'state':'paused'}
+            if namespace_id:
+                if self.vectors.count(namespace_id,sid) != len(rows):
+                    raise IndexError('vector_incomplete')
+                degradation = None
+        elif run['profile_version_id']:
+            degradation = 'vector_unavailable'
+        with self.store.transaction() as db:
+            run,source = self._fence(db,job,context)
+            files = list(db.execute('SELECT path,source_hash,line_count FROM snapshot_files WHERE snapshot_id=? ORDER BY path',(sid,)))
+            if any(excluded(f['path'],source['exclusions']) for f in files):
+                raise IndexError('selection_changed')
+            evidence = []
+            for f in files:
+                if Path(f['path']).name.lower() in ('readme.md','pyproject.toml','package.json','cargo.toml','makefile') and f['line_count']:
+                    evidence.append(dict(repository_id=source['id'],snapshot_id=sid,path=f['path'],start_line=1,end_line=min(20,f['line_count'])))
+            snapshot = self._one(db,'repository_snapshots',sid)
+            for item in evidence:
+                item['revision'] = snapshot['revision']
+            summary = 'Observed repository files: ' + ', '.join(e['path'] for e in evidence[:10]) if evidence else 'No README or manifest evidence retained.'
+            observations = []
+            for item in evidence[:10]:
+                text = db.execute('SELECT text FROM snapshot_files WHERE snapshot_id=? AND path=?',(sid,item['path'])).fetchone()[0]
+                for line in text.splitlines()[:item['end_line']]:
+                    if re.match(r'^#{1,3}\s+\S',line) or re.match(r'^\s*(?:"?(?:name|description)"?)\s*[:=]',line):
+                        observations.append(line.strip()[:200])
+            if observations:
+                summary += ' Observed headings/metadata (untrusted source quotations): ' + encoded(observations)[:2000]
+            summary += ' Architecture, runtime behavior and validation commands have not been inferred.'
+            db.execute('INSERT OR REPLACE INTO repository_summaries(snapshot_id,text,evidence_json,generation_json,created_at) VALUES(?,?,?,?,?)',(sid,summary,encoded(evidence),encoded({'method':'deterministic-v1','gaps':['architecture','validation_commands']}),self.clock()))
+            coverage = json.loads(snapshot['coverage_json'])
+            if degradation == 'embedding_token_limit':
+                coverage['partial'] = True
+                coverage.setdefault('skipped',{})['embedding_token_limit'] = 1
+            coverage.update(mode='hybrid' if namespace_id else 'lexical_only',degradation_code=degradation,embedding_tokens=tokens if namespace_id else 0)
+            manifest = digest(encoded([list(f) for f in files]))
+            if source['active_snapshot_id']:
+                db.execute("UPDATE repository_snapshots SET state='retained' WHERE id=?",(source['active_snapshot_id'],))
+            db.execute("UPDATE repository_snapshots SET state='ready',namespace_id=?,manifest_hash=?,coverage_json=?,profile_text=?,profile_evidence_json=?,activated_at=? WHERE id=?",(namespace_id,manifest,encoded(coverage),summary,encoded(evidence),self.clock(),sid))
+            db.execute('UPDATE index_sources SET active_snapshot_id=? WHERE id=?',(sid,source['id']))
+            db.execute("UPDATE index_runs SET state='completed',phase='completed',progress_json=?,updated_at=? WHERE id=?",(encoded(coverage),self.clock(),run['id']))
+        return {'run_id':run['id'],'state':'completed','snapshot_id':sid}
+
+    def _scopes(self, repository_ids, snapshot_ids):
+        if not isinstance(repository_ids,(list,tuple)) or not 1 <= len(repository_ids) <= 50 or len(set(repository_ids)) != len(repository_ids):
+            raise ValueError('Invalid repository scopes.')
+        if snapshot_ids is not None and (not isinstance(snapshot_ids,dict) or set(snapshot_ids)-set(repository_ids)):
+            raise ValueError('Invalid snapshot scopes.')
+        scopes = {}
+        with self.store.read() as db:
+            for ident in repository_ids:
+                source = self._source(db,ident)
+                self._require(source)
+                sid = (snapshot_ids or {}).get(ident,source['active_snapshot_id'])
+                if sid is None:
+                    continue
+                snap = self._one(db,'repository_snapshots',sid)
+                if snap['repository_id'] != ident or snap['state'] not in ('ready','retained'):
+                    raise IndexError('snapshot_unavailable')
+                scopes[ident] = (source,snap)
+        return scopes
+
+    def search(self, query, repository_ids, snapshot_ids=None, limit=10, context_token_budget=4000, semantic=True):
+        if not isinstance(query,str) or not 1 <= len(query) <= 4000 or type(limit) is not int or not 1 <= limit <= 100 or type(context_token_budget) is not int or not 1 <= context_token_budget <= 32000 or type(semantic) is not bool:
+            raise ValueError('Invalid search request.')
+        scopes = self._scopes(repository_ids,snapshot_ids)
+        ids = [snap['id'] for _,snap in scopes.values()]
+        ranked, methods, rows_by_id = {}, {}, {}
+        tokens = re.findall(r'\w+',query,flags=re.UNICODE)[:32]
+        expression = ' OR '.join('"'+t+'"' for t in tokens)
+        if ids:
+            with self.store.read() as db:
+                placeholders = ','.join('?' for _ in ids)
+                if expression:
+                    rows = db.execute('SELECT c.*,s.repository_id,s.revision,bm25(code_chunks_fts) AS score FROM code_chunks_fts JOIN code_chunks c ON c.id=code_chunks_fts.chunk_id JOIN repository_snapshots s ON s.id=c.snapshot_id WHERE code_chunks_fts MATCH ? AND c.snapshot_id IN ('+placeholders+') ORDER BY score,c.id LIMIT 1000',(expression,*ids)).fetchall()
+                    for row in rows:
+                        source = scopes[row['repository_id']][0]
+                        if excluded(row['path'],source['exclusions']):
+                            continue
+                        rank = len(ranked)+1
+                        ranked[row['id']] = 1/(60+rank)
+                        methods[row['id']] = ['lexical']
+                        rows_by_id[row['id']] = dict(row)
+        degradation = None if semantic else 'semantic_disabled'
+        semantic_used = False
+        if semantic and ids:
+            namespaces = {}
+            for _,snap in scopes.values():
+                if snap['namespace_id']:
+                    namespaces.setdefault(snap['namespace_id'],[]).append(snap['id'])
+            if not namespaces:
+                degradation = 'embedding_unassigned'
+            elif not self.vectors.available:
+                degradation = 'vector_unavailable'
+            else:
+                for namespace,snapshot_list in namespaces.items():
+                    try:
+                        # Validate all scopes again immediately before query transmission.
+                        self._scopes(repository_ids,snapshot_ids)
+                        with self.store.read() as db:
+                            ns = self._one(db,'embedding_namespaces',namespace)
+                        result = self.providers.embed(ns['profile_version_id'],[query],contains_source=False)
+                        spec = self.providers.embedding_namespace(ns['profile_version_id'])
+                        if result['namespace']['key'] != spec['key'] or digest(encoded([spec['key'],ns['profile_version_id'],spec['dimensions'],'none',CHUNKER])) != namespace:
+                            raise IndexError('namespace_mismatch')
+                        hits = self.vectors.query(namespace,result['vectors'][0],snapshot_list,min(100,limit*4))
+                        semantic_used = True
+                        with self.store.read() as db:
+                            for rank,(cid,_) in enumerate(hits,1):
+                                row = db.execute('SELECT c.*,s.repository_id,s.revision FROM code_chunks c JOIN repository_snapshots s ON s.id=c.snapshot_id WHERE c.id=?',(cid,)).fetchone()
+                                if row is None or row['snapshot_id'] not in snapshot_list:
+                                    continue
+                                if excluded(row['path'],scopes[row['repository_id']][0]['exclusions']):
+                                    continue
+                                ranked[cid] = ranked.get(cid,0)+1/(60+rank)
+                                methods.setdefault(cid,[]).append('semantic')
+                                rows_by_id[cid] = dict(row)
+                    except Exception:
+                        degradation = 'semantic_unavailable'
+        # Revalidate eligibility/exclusions after provider I/O, under Store lock.
+        result_hits, used, truncated = [], 0, False
+        with self.store.read() as db:
+            current = self._scopes(repository_ids,snapshot_ids)
+            for cid in sorted(ranked,key=lambda c:(-ranked[c],c)):
+                row = rows_by_id[cid]
+                if row['repository_id'] not in current or row['snapshot_id'] != current[row['repository_id']][1]['id'] or excluded(row['path'],current[row['repository_id']][0]['exclusions']):
+                    continue
+                cost = len(row['text'].encode())
+                if used+cost>context_token_budget:
+                    truncated = True
+                    continue
+                if len(result_hits)>=limit:
+                    truncated = True
+                    break
+                used += cost # UTF-8 bytes is a conservative upper bound on tokens.
+                result_hits.append(dict(chunk_id=cid,**{k:row[k] for k in ('repository_id','snapshot_id','revision','path','start_line','end_line','text')},rank=len(result_hits)+1,methods=methods[cid]))
+            snapshots = {ident:dict(id=snap['id'],revision=snap['revision'],revision_kind=snap['revision_kind'],coverage=json.loads(snap['coverage_json'])) for ident,(_,snap) in current.items()}
+        return dict(mode='hybrid' if semantic_used else 'lexical_only',degradation_code=degradation,hits=result_hits,snapshots=snapshots,truncated=truncated)
+
+    def source(self, repository_id, snapshot_id, path, start_line, end_line, context_lines=5):
+        if not safe_path(path) or any(type(v) is not int for v in (start_line,end_line,context_lines)) or not 1 <= start_line <= end_line or end_line-start_line>=500 or not 0 <= context_lines <= 50:
+            raise ValueError('Invalid source range.')
+        with self.store.read() as db:
+            scopes = self._scopes([repository_id],{repository_id:snapshot_id})
+            source,snapshot = scopes[repository_id]
+            if excluded(path,source['exclusions']):
+                raise IndexError('source_unavailable')
+            row = db.execute('SELECT text FROM snapshot_files WHERE snapshot_id=? AND path=?',(snapshot_id,path)).fetchone()
+            if row is None:
+                raise NotFound('Source unavailable.')
+            lines = row[0].splitlines()
+            if end_line>len(lines):
+                raise ValueError('Source range outside retained file.')
+            first,last = max(1,start_line-context_lines),min(len(lines),end_line+context_lines)
+            return dict(repository_id=repository_id,snapshot_id=snapshot_id,revision=snapshot['revision'],path=path,first_line=first,lines=lines[first-1:last],total_lines=len(lines))
+
+    def catalog_candidates(self, query, pinned_repository_ids=(), limit=20):
+        if not isinstance(query,str) or len(query)>4000 or type(limit) is not int or not 1 <= limit <= 100 or not isinstance(pinned_repository_ids,(list,tuple)) or len(pinned_repository_ids)>50:
+            raise ValueError('Invalid candidate query.')
+        # Catalog metadata is safe without a source snapshot; source-derived summaries
+        # are visible only if all their current evidence paths remain allowed.
+        if self.github:
+            cursor = None
+            while True:
+                page = self.github.list_repositories(cursor=cursor,limit=100)
+                for repo in page['items']:
+                    if self.github.is_eligible(repo['id']):
+                        self._ensure_source(repo['id'])
+                cursor = page['next_cursor']
+                if cursor is None:
+                    break
+        terms = set(re.findall(r'\w+',query.lower()))
+        candidates = []
+        with self.store.read() as db:
+            sources = [self._source(db,r[0]) for r in db.execute('SELECT id FROM index_sources')]
+            for source in sources:
+                if not self._eligible(source):
+                    continue
+                fields = {'name':source['name']}
+                if source['kind'] == 'github':
+                    repo = self.github.get_repository(source['id'])
+                    fields.update(description=repo['description'],topics=' '.join(repo['topics']))
+                if source['active_snapshot_id']:
+                    snap = self._one(db,'repository_snapshots',source['active_snapshot_id'])
+                    evidence = json.loads(snap['profile_evidence_json'])
+                    if evidence and all(not excluded(e['path'],source['exclusions']) for e in evidence):
+                        fields['profile'] = snap['profile_text']
+                reasons = [dict(field=key,terms=sorted(terms & set(re.findall(r'\w+',value.lower())))) for key,value in fields.items() if terms & set(re.findall(r'\w+',value.lower()))]
+                score = sum(len(r['terms']) for r in reasons)
+                pinned = source['id'] in pinned_repository_ids
+                if score or pinned:
+                    candidates.append(dict(repository_id=source['id'],name=source['name'],score=score,pinned=pinned,reasons=reasons,state=self.get_state(source['id'])))
+        return sorted(candidates,key=lambda c:(not c['pinned'],-c['score'],c['repository_id']))[:limit]
+
+    def purge_repository(self, repository_id):
+        # First remove visibility. A durable tombstone makes partial vector cleanup
+        # retryable even if either process/database fails before final metadata deletion.
+        with self.store.transaction() as db:
+            row = db.execute('SELECT kind FROM index_sources WHERE id=?',(repository_id,)).fetchone()
+            if row:
+                db.execute("UPDATE index_sources SET active_snapshot_id=NULL,index_enabled=0,metadata_json=?,updated_at=? WHERE id=?",(encoded({'purging':True}),self.clock(),repository_id))
+                db.execute("UPDATE index_runs SET state='cancelled',updated_at=? WHERE repository_id=? AND state IN ('queued','running','waiting','paused')",(self.clock(),repository_id))
+        # Always attempt vector deletion, including orphan staging after a crash.
+        self.vectors.purge(repository_id)
+        with self.store.transaction() as db:
+            # Retain the disabled registry identity/local path, not derived source.
+            db.execute('DELETE FROM index_runs WHERE repository_id=?',(repository_id,))
+            db.execute('DELETE FROM repository_snapshots WHERE repository_id=?',(repository_id,))
+            db.execute("UPDATE index_sources SET metadata_json='{}',index_enabled=0 WHERE id=?",(repository_id,))
+        return {'repository_id':repository_id,'state':'completed'}
