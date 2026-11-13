@@ -273,6 +273,7 @@ class JobQueue:
     def recent_failures(self, *, limit: int = 5) -> list[dict]: ...     # {job_id, kind, code, at}
 
 # repoask/platform/worker.py  (in-process, NOT started by the server in M0)
+class CancelledError(Exception): ...  # handler positively confirmed safe stop; acknowledges requested cancel
 class RetryableError(Exception): code: str = "transient"
 class PermanentError(Exception): code: str = "invalid_input"
 class UnknownOutcomeError(Exception): code: str = "unknown_outcome"
@@ -307,7 +308,8 @@ Expiry alone does not invalidate a token; only reconciliation (which clears it) 
 | `queued` | `claim` | `run_after<=now`, kind filter; order `priority DESC, run_after, created_at, id` | `leased` | `attempts+=1`, new `lease_token`, `lease_owner`, `lease_expires_at=now+lease_ms` |
 | `leased` | `heartbeat` | valid lease | `leased` | extend expiry; store checkpoint if given; return `cancel_requested` |
 | `leased` | `complete` | valid lease | `succeeded` | `result`, clear lease, `finished_at` |
-| `leased` | `fail` | `retryable` and `attempts<max_attempts` | `queued` | clear lease; `run_after=now+min(BASE*2**(attempts-1), CAP)`; error fields |
+| `leased` | `fail` | `retryable`, not cancelled, and `attempts<max_attempts` | `queued` | clear lease; `run_after=now+min(BASE*2**(attempts-1), CAP)`; error fields |
+| `leased` | `fail` | retryable with cancel requested | `cancelled` | clear lease; `finished_at`; never retry |
 | `leased` | `fail` | otherwise | `failed` | clear lease; error fields; `finished_at` |
 | `leased` | `mark_unknown_outcome` | valid lease | `needs_reconciliation` | clear lease; error fields |
 | `leased` | `acknowledge_cancel` | valid lease and `cancel_requested` | `cancelled` | clear lease; `finished_at` (else `InvalidTransition`) |
@@ -320,8 +322,8 @@ Expiry alone does not invalidate a token; only reconciliation (which clears it) 
 | `leased` | `reconcile_expired` | expired, safe, `attempts<max_attempts` | `queued` | clear lease; `run_after=now`; `last_error_code='lease_expired'` |
 | `leased` | `reconcile_expired` | expired, safe, attempts exhausted | `failed` | clear lease; `last_error_code='lease_expired'`; `finished_at` |
 | `needs_reconciliation` | `resolve_reconciliation` | `succeeded` / `failed` | that state | `finished_at` |
-| `needs_reconciliation` | `resolve_reconciliation` | `requeue` and `attempts<max_attempts` | `queued` | `run_after=now`; attempts not reset |
-| `needs_reconciliation` | `resolve_reconciliation` | `requeue` and `attempts>=max_attempts` | unchanged | `InvalidTransition`; resolve as `succeeded`/`failed` instead |
+| `needs_reconciliation` | `resolve_reconciliation` | `requeue`, not cancelled, and `attempts<max_attempts` | `queued` | `run_after=now`; attempts not reset |
+| `needs_reconciliation` | `resolve_reconciliation` | `requeue` with cancellation or `attempts>=max_attempts` | unchanged | `InvalidTransition`; resolve as `succeeded`/`failed` instead |
 
 "Clear lease" = `lease_owner=lease_token=lease_expires_at=NULL`. `claim()` runs
 `reconcile_expired()` inside the same transaction before selecting. Restart does **not**
@@ -332,6 +334,11 @@ Only the owning feature service (with external-state evidence) may call
 
 Error codes written to `last_error_code`: `transient`, `rate_limited`, `timeout`, `auth`,
 `invalid_input`, `unsupported`, `unknown_outcome`, `lease_expired`, `internal`.
+A normal handler return means completed work and must preserve the result even when a
+cancel request arrived too late. Only explicit `CancelledError` confirms stopped work;
+unknown external effects require reconciliation. Invalid result serialization is classified
+as an internal failure for safe jobs and unknown outcome for external jobs, never left leased.
+
 `Worker.run_once` maps handler outcomes:
 
 | Handler raises | `effect='safe'` | `effect='external'` |

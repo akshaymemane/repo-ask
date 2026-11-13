@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-13T15:30:30.669479+00:00",
+  "updated": "2026-11-13T15:53:10.074243+00:00",
   "phase": "M0_parallel_builders_running",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -17,7 +17,7 @@
     "integrated",
     "archived"
   ],
-  "note": "Work packages are sequencing defaults, not runnable task assignments. Proposed module paths require architecture acceptance. No implementation sessions launched.",
+  "note": "Active coordinated development. Workers are monitored and receive next dependency-ready assignments after review/integration; terminal activity alone does not count as completion.",
   "work_packages": [
     {
       "id": "CONTRACT-01",
@@ -57,7 +57,7 @@
       "id": "M0-PLATFORM",
       "milestone": "M0",
       "title": "Persistent storage, migrations and durable job skeleton",
-      "state": "running",
+      "state": "review",
       "feature_ids": [
         "F12"
       ],
@@ -78,13 +78,13 @@
       "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
       "branch": "task/m0-platform",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-platform",
-      "reviewer_session": null,
+      "reviewer_session": "6b330910-5691-45e3-97e9-a50ef5746200",
       "handoff": "docs/agents/runs/M0-PLATFORM/handoff.md",
-      "heartbeat_at": "2026-11-13T15:30:02.833669+00:00",
-      "submitted_sha": null,
+      "heartbeat_at": "2026-11-13T15:53:10.074243+00:00",
+      "submitted_sha": "ff0cdb90ec6aad4ab173b09e769df94b885dec87",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
+      "next_action": "Exact revision approved by Claude; coordinator integrating reviewed commits and tracking minor followups.",
       "completion_depends_on": []
     },
     {
@@ -112,13 +112,13 @@
       "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
       "branch": "task/m0-experience",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-experience",
-      "reviewer_session": null,
+      "reviewer_session": "Codex CLI independent review",
       "handoff": "docs/agents/runs/M0-EXPERIENCE/handoff.md",
-      "heartbeat_at": "2026-11-13T15:30:03.001527+00:00",
-      "submitted_sha": null,
+      "heartbeat_at": "2026-11-13T15:50:22.220433+00:00",
+      "submitted_sha": "f1fc0b4a954c0012f527970415b2a15dd650927e",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
+      "next_action": "Claude author fixing Codex review: visible keyboard focus when returning to Ask; real browser QA follows.",
       "completion_depends_on": []
     },
     {
@@ -901,5 +901,6 @@
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
-  "launch_gate": "User explicitly said START; dependency-ready implementation is authorized. Contracts must be accepted before builders."
+  "launch_gate": "User explicitly said START; dependency-ready implementation is authorized. Contracts must be accepted before builders.",
+  "continuous_authorization": "User requested periodic monitoring, continuous useful worker assignments, and end-to-end completion while away. Keep concurrency/review gates; record external prerequisites truthfully."
 }
