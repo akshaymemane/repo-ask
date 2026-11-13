@@ -4,9 +4,25 @@
 
 - Author/harness and session ID: Claude (Claude Code, Opus 5.5), session `82ea8cad-ecaa-40a4-8e7d-342e90429085`
 - Persona, branch and worktree: experience; `task/m0-experience`; `/Users/apple/workspace/vibe-coding/opendevin-m0-experience`
-- Base SHA and submitted commit SHA(s): base `bd8c3afd18a6fe23dd984455c194743595935577`; implementation `9e95d162c5ba7f091589d2227b0e564ca6e11eed`; this handoff/status is in the next commit on the same branch (docs only)
+- Base SHA and submitted commit SHA(s): base `bd8c3afd18a6fe23dd984455c194743595935577`; implementation `9e95d162c5ba7f091589d2227b0e564ca6e11eed`; handoff `f1fc0b4a954c0012f527970415b2a15dd650927e`; review-r1 fix = the commit that contains this revision of the handoff (child of `f1fc0b4`, SHA reported to the coordinator)
 - Task card and requirement IDs: `docs/agents/runs/M0-EXPERIENCE/task.json` (coordinator-owned, left untracked/unmodified); F11 UX-02, UX-03 (hash routes only), UX-07, UX-08, UX-10
 - Status: review
+
+## Review-r1 fix (Major, UX-10: invisible focus on return to Ask)
+
+The Ask `h1` (`#ask-title`) stays the route focus target and the page's main heading, so heading hierarchy and IDs
+are unchanged. It stays visually hidden at rest, but `.conversation > .view-title.sr-only:focus` (`styles.css`) un-clips
+it while it has focus: it shows as a labelled "Ask" chip, absolutely positioned over the top of the thread, with
+a 2px accent outline. Because of the absolute positioning there's no layout shift, and it disappears when focus moves on.
+It applies on `:focus`, not only `:focus-visible`, so the new focus location is always visible. No JS or API change;
+conversation, answers and source pane are untouched (still covered by the Ask flow test).
+
+Regression check: `tests/ui/css.mjs` computes which `styles.css` declarations win for an element (selector matching,
+specificity, order, `!important`, `:focus` state = real `document.activeElement` in the stand-in). The new test asserts
+the Ask title is clipped at rest and, after Settings → Ask navigation, is focused with `clip-path: none`, non-1px size,
+non-hidden overflow and a solid outline; Settings/Repositories titles get a solid outline. Mutation check: changing the
+new rule's `:focus` to `:hover` makes this test fail (14/15), revert passes 15/15. Limits: desktop rules only (`@media`
+skipped), no `var()` resolution or layout, so it proves the cascade, not pixels — the real-browser check below remains.
 
 ## Outcome
 
@@ -51,7 +67,8 @@ Vanilla HTML/CSS/JS only; no npm, build step, new dependency or Python change. C
 Changed files (all within exclusive scope `repoask/web/`, `tests/ui/`, `docs/agents/runs/M0-EXPERIENCE/`):
 
 - `repoask/web/index.html`, `repoask/web/app.js`, `repoask/web/styles.css`
-- `tests/ui/dom.mjs` (minimal DOM stand-in, test-only), `tests/ui/app.test.mjs` (14 behavior tests)
+- `tests/ui/dom.mjs` (minimal DOM stand-in, test-only), `tests/ui/css.mjs` (cascade helper, review-r1),
+  `tests/ui/app.test.mjs` (15 behavior tests after review-r1)
 - `docs/agents/runs/M0-EXPERIENCE/status.md`, `docs/agents/runs/M0-EXPERIENCE/handoff.md`
 
 Fixtures are used only as test inputs in `tests/ui/`; the shipped UI contains no fixture data or hardcoded responses.
@@ -64,7 +81,9 @@ No new static asset file was added, because `ASSETS` in `__main__.py` (coordinat
 | Acceptance 6: JS syntax | `node --check repoask/web/app.js` (Node v20.19.5) | exit 0 |
 | Acceptance 6: baseline Python | `python3 -m unittest discover -s tests` (Python 3.12.0 local; no Python changed) | `Ran 4 tests … OK` |
 | Contract fixtures | `python3 -I docs/agents/runs/CONTRACT-01/check_fixtures.py` | `OK: 3 workspace, 4 health, 3 error fixtures consistent` |
-| UX-02/03/07/08/10 behavior | `node --test tests/ui/` | 14 tests, 14 pass, 0 fail |
+| UX-02/03/07/08/10 behavior | `node --test tests/ui/` | 14 tests, 14 pass, 0 fail (at `9e95d16`) |
+| Review-r1 fix | `node --test tests/ui/` after fix; `python3 -m unittest discover -s tests`; `node --check repoask/web/app.js` | 15/15 pass; `Ran 4 tests … OK`; exit 0 |
+| Review-r1 regression sensitivity | Changed new rule `:focus` → `:hover`, ran `node --test tests/ui/`, reverted | 1 failure (focus-visibility test), 15/15 after revert |
 | Test sensitivity | Temporarily mutated app.js (no focus move; any 4xx treated as fallback; unknown enum → OK), ran `node --test tests/ui/`, then reverted | 4 tests failed under mutation (1, 3, 4, 9); 14/14 pass after revert |
 
 What `tests/ui/app.test.mjs` exercises (real `index.html` + real `app.js`, fake `fetch` serving contract fixtures):
@@ -96,13 +115,20 @@ ask 400 shown and question restored.
 2. Enter on Settings link: URL `#/settings`, heading focused, title "Settings · OpenDevin"; before M0-INTEGRATE it shows only "Status unavailable in this build."
 3. After M0-INTEGRATE: Settings shows demo cards; stop the server and press Refresh status → distinct error and polite announcement, focus stays on the button.
 4. Ask: example, ask, open citation, go to Repositories, browser Back → source pane and conversation still present; Escape closes source and returns focus to the citation.
+4a. **Focus visibility (review-r1):** from Settings and from Repositories, activate the Ask link with the keyboard (Tab to it, Enter)
+    and with the mouse. Look at the screen, not DevTools: a visible "Ask" chip with an accent outline must appear at the
+    top of the conversation, and `document.activeElement` must be `#ask-title`. Press Tab: the chip disappears and focus
+    moves visibly to the next control with no layout jump. Repeat with an answer and open source pane present (chip must not
+    hide the source pane or move the thread) and at ≤860px and ≤640px widths. Also confirm the Settings and Repositories
+    `h1` show an outline after keyboard navigation.
 5. Narrow widths (≤860px, ≤640px): nav wraps to a second row; sidebar/inspector overlays still sit below the top bar.
 6. VoiceOver/NVDA: nav announced as "Workspace navigation", current page announced; status chips read as text (icons hidden).
 
 ## Risks and next action
 
 - Known gaps, failing checks and unsupported behavior: real-browser, layout, contrast and screen-reader checks not run (above).
-  `#/ask` focus target is a visually hidden `h1`, so its focus ring is invisible by design. The scope button's pre-load label
+  The `#/ask` focus target is now visibly rendered while focused (review-r1 fix); real-browser visibility not verified by
+  the author (checklist 4a). The scope button's pre-load label
   "Repositories" matches the nav link label until repos load (then "N repositories"); it carries a distinguishing `title`.
   UX-03 conversation/plan URL persistence is out of M0 scope; only view hashes persist.
 - Migrations/configuration needed (no secrets): none. M0-INTEGRATE wires `/api/workspace` and `/api/health`; no UI change

@@ -87,23 +87,40 @@ class FakeText extends FakeNode {
   }
 }
 
+// Supports compound selectors (tag, *, #id, .class, [attr], [attr="v"]) joined
+// by descendant (space) or child (>) combinators. Anything else throws.
 function parseSelector(selector) {
-  return selector.trim().split(/\s+/).map((compound) => {
-    const parts = { tag: null, id: null, classes: [], attrs: [] };
-    const pattern = /([a-zA-Z][a-zA-Z0-9-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]/g;
-    let match;
-    let consumed = 0;
-    while ((match = pattern.exec(compound))) {
-      if (match.index !== consumed) break;
-      consumed += match[0].length;
-      if (match[1]) parts.tag = match[1].toUpperCase();
-      else if (match[2]) parts.id = match[2];
-      else if (match[3]) parts.classes.push(match[3]);
-      else parts.attrs.push([match[4], match[5]]);
+  const chain = [];
+  let combinator = " ";
+  for (const compound of selector.trim().replace(/\s*>\s*/g, " > ").split(/\s+/)) {
+    if (compound === ">") {
+      combinator = ">";
+      continue;
     }
-    if (consumed !== compound.length) throw new Error(`Unsupported selector in DOM shim: ${selector}`);
-    return parts;
-  });
+    const parts = parseCompound(compound, selector);
+    parts.combinator = chain.length ? combinator : null;
+    chain.push(parts);
+    combinator = " ";
+  }
+  return chain;
+}
+
+function parseCompound(compound, selector) {
+  const parts = { tag: null, id: null, classes: [], attrs: [] };
+  const body = compound.startsWith("*") ? compound.slice(1) : compound;
+  const pattern = /([a-zA-Z][a-zA-Z0-9-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="([^"]*)")?\]/g;
+  let match;
+  let consumed = 0;
+  while ((match = pattern.exec(body))) {
+    if (match.index !== consumed) break;
+    consumed += match[0].length;
+    if (match[1]) parts.tag = match[1].toUpperCase();
+    else if (match[2]) parts.id = match[2];
+    else if (match[3]) parts.classes.push(match[3]);
+    else parts.attrs.push([match[4], match[5]]);
+  }
+  if (consumed !== body.length) throw new Error(`Unsupported selector in DOM shim: ${selector}`);
+  return parts;
 }
 
 function matchesCompound(element, parts) {
@@ -113,15 +130,19 @@ function matchesCompound(element, parts) {
   return parts.attrs.every(([name, value]) => element.hasAttribute(name) && (value === undefined || element.getAttribute(name) === value));
 }
 
-function matchesChain(element, chain) {
-  if (!matchesCompound(element, chain.at(-1))) return false;
-  let index = chain.length - 2;
-  let ancestor = element.parentNode;
-  while (index >= 0 && ancestor && ancestor.nodeType === 1) {
-    if (matchesCompound(ancestor, chain[index])) index -= 1;
-    ancestor = ancestor.parentNode;
+function matchesChain(element, chain, end = chain.length - 1) {
+  if (!element || element.nodeType !== 1 || !matchesCompound(element, chain[end])) return false;
+  if (end === 0) return true;
+  if (chain[end].combinator === ">") return matchesChain(element.parentNode, chain, end - 1);
+  for (let ancestor = element.parentNode; ancestor && ancestor.nodeType === 1; ancestor = ancestor.parentNode) {
+    if (matchesChain(ancestor, chain, end - 1)) return true;
   }
-  return index < 0;
+  return false;
+}
+
+// Does `element` match a simple selector list (see parseSelector)?
+export function matches(element, selector) {
+  return selector.split(",").some((part) => matchesChain(element, parseSelector(part)));
 }
 
 class FakeElement extends FakeNode {

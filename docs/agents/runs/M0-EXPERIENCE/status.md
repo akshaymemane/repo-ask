@@ -16,3 +16,5 @@
   Live-server smoke script denied by sandbox (not run).
 - Implementation committed locally: 9e95d162c5ba7f091589d2227b0e564ca6e11eed.
 - State: review. Handoff: docs/agents/runs/M0-EXPERIENCE/handoff.md. Stopped; no further tasks started.
+- Review-r1 (CHANGES_REQUESTED, Major UX-10) received for f1fc0b4. Fix: Ask h1 un-clipped and outlined while focused
+  (CSS only) + cascade regression test (tests/ui/css.mjs). node --test tests/ui 15/15; Python 4 OK. Committed; state: review.

@@ -11,11 +11,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { declaredStyle } from "./css.mjs";
 import { createBrowser, input, install, keydown, settle, visibleText } from "./dom.mjs";
 
 const root = new URL("../../", import.meta.url);
 const html = readFileSync(new URL("repoask/web/index.html", root), "utf8");
 const appUrl = pathToFileURL(fileURLToPath(new URL("repoask/web/app.js", root))).href;
+const css = readFileSync(new URL("repoask/web/styles.css", root), "utf8");
 const fixtures = JSON.parse(readFileSync(new URL("docs/contracts/m0-fixtures.json", root), "utf8"));
 
 const LEGACY_404 = fixtures.ui.legacy_fallback.workspace_response;
@@ -86,6 +88,32 @@ test("navigation exposes Ask, Repositories and Settings as keyboard links with a
     assert.equal(app.document.activeElement, app.byId(title), `${href} moves focus to its h1`);
     assert.equal(app.byId(title).tagName, "H1");
   }
+});
+
+test("route focus targets are not clipped or outline-less once focused (review-r1 UX-10)", async () => {
+  // Uses the real styles.css cascade (see css.mjs limits); a real browser check is still in the handoff checklist.
+  const app = await boot({ api: legacyApi() });
+  const focusedStyle = (id) => declaredStyle(app.byId(id), css, { focused: app.document.activeElement === app.byId(id) });
+
+  const resting = focusedStyle("ask-title");
+  assert.equal(resting["clip-path"], "inset(50%)", "Ask h1 stays visually hidden until focused");
+  assert.equal(resting.width, "1px");
+
+  await app.go("#/settings");
+  assert.match(focusedStyle("settings-title").outline || "", /solid/);
+  await app.go("#/repositories");
+  assert.match(focusedStyle("repositories-title").outline || "", /solid/);
+
+  await app.go("#/ask");
+  assert.equal(app.document.activeElement, app.byId("ask-title"));
+  assert.equal(app.byId("ask-title").tagName, "H1", "Ask keeps its main heading");
+  const focused = focusedStyle("ask-title");
+  assert.equal(focused["clip-path"], "none");
+  assert.notEqual(focused.width, "1px");
+  assert.notEqual(focused.height, "1px");
+  assert.notEqual(focused.overflow, "hidden");
+  assert.match(focused.outline || "", /solid/);
+  assert.notEqual(focused.display, "none");
 });
 
 test("legacy 404 fallback: derives sample mode from /api/repos and invents no status", async () => {
