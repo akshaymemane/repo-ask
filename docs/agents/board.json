@@ -1,11 +1,11 @@
 {
   "version": 1,
   "updated": "2026-11-13",
-  "phase": "workflow_setup_only",
+  "phase": "implementation_started_contract_gate",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
-  "baseline_sha": null,
+  "baseline_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
   "baseline_note": "Planning and workflow files are included in the authorized baseline commit. Resolve and record the exact baseline_sha at implementation launch; do not infer it from a later mutable HEAD.",
   "contract_status": "not_started",
   "state_vocabulary": [
@@ -23,7 +23,7 @@
       "id": "CONTRACT-01",
       "milestone": "M0",
       "title": "Minimal storage/API/provider and UI fixture contracts",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F12",
         "F07",
@@ -40,17 +40,17 @@
         "Producer and consumer examples accepted by coordinator",
         "Job/secret/error contracts and migration ownership explicit"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
+      "owner_session": "6cf6a390-9b08-4792-aa22-fcda0f9faa11",
+      "base_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
+      "branch": "task/contract-01",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-contract-01",
       "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "handoff": "docs/agents/runs/CONTRACT-01/handoff.md",
+      "heartbeat_at": "2026-11-13T15:18:18.171377+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "Architect writes packet; coordinator reviews for both platform producer and UI consumer before acceptance",
       "completion_depends_on": []
     },
     {
@@ -901,5 +901,5 @@
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
-  "launch_gate": "User authorized committing setup only. Wait for an explicit start instruction before launching implementation agents or workers."
+  "launch_gate": "User explicitly said START; dependency-ready implementation is authorized. Contracts must be accepted before builders."
 }

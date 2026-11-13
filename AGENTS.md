@@ -10,9 +10,9 @@ are backlog work packages, not authorization to start implementation.
 
 ## Current launch gate
 
-The user authorized committing this setup and explicitly deferred implementation until
-they say to start. Do not launch implementation agents or workers before that instruction.
-Once given, schedule dependency-ready work under the concurrency limits below.
+The user explicitly said START after committing the planning baseline. Launch
+dependency-ready work under the concurrency limits below. The contract gate precedes
+the first parallel builders; publication and remote merges remain separately scoped.
 
 ## Collaboration contract
 

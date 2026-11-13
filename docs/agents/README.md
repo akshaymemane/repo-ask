@@ -15,7 +15,6 @@ It is not the implementation of OpenDevin's own agent runtime.
 `.claude/agents/` contains selectable Claude role definitions. Codex reads the same
 canonical persona through an explicit task prompt rather than an invented CLI flag.
 
-Setup status: instructions and backlog prepared; no product implementation agents
-launched, no new worktrees created, no packages installed. Both CLIs and tmux are
-present, but authenticated model calls have not been tested. Herder was not on PATH
-when checked on 2026-11-13.
+Runtime status: the user authorized START after baseline commit `37e635a`.
+See `board.json` for actual task/session state. Vendor login checks passed at launch;
+model execution is verified separately through real worker output. Herder is not required.

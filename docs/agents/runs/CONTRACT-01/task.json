@@ -1,0 +1,70 @@
+{
+  "id": "CONTRACT-01",
+  "title": "M0 contract packet for platform and workspace builders",
+  "state": "running",
+  "feature_ids": [
+    "F12",
+    "F07",
+    "F11"
+  ],
+  "requirement_ids": [
+    "OP-01",
+    "OP-02",
+    "OP-04",
+    "OP-09",
+    "UX-02",
+    "UX-08",
+    "UX-10"
+  ],
+  "persona": "architect",
+  "harness": "claude",
+  "owner_session": "6cf6a390-9b08-4792-aa22-fcda0f9faa11",
+  "depends_on": [],
+  "base_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
+  "branch": "task/contract-01",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-contract-01",
+  "write_scope": [
+    "docs/contracts/",
+    "docs/architecture/",
+    "docs/agents/runs/CONTRACT-01/"
+  ],
+  "read_inputs": [
+    "Master PRD.md",
+    "docs/features/12-platform-operations.md",
+    "docs/features/11-workspace-experience.md",
+    "docs/features/07-providers-and-agents.md",
+    "repoask/__main__.py",
+    "repoask/index.py",
+    "repoask/web/"
+  ],
+  "contract_versions": {},
+  "acceptance": [
+    "Define minimal M0 Python storage/migration/job/secret-provider interface with method signatures and states; no third-party dependency needed for the foundation",
+    "Define versioned workspace API error/health/catalog/provider summary examples and JSON fixtures for demo/unconfigured UI; preserve current /api/repos and /api/ask behavior",
+    "Keep source read-only and loopback; explicitly separate current demo from future GitHub and execution; no implied support for future APIs",
+    "Define exact M0 platform and experience slice boundaries and validation expectations; defer M1+ implementation",
+    "Provide concise handoff and actual validation; commit only assigned artifacts locally and report submitted SHA"
+  ],
+  "checks": [
+    "Validate all JSON fixtures parse",
+    "Check fixture field consistency against interface document",
+    "Run python3 -m unittest discover -s tests to establish unchanged baseline"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "codex",
+    "session": "coordinator-independent-contract-review"
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/CONTRACT-01/handoff.md",
+  "status_artifact": "docs/agents/runs/CONTRACT-01/status.md",
+  "heartbeat_at": "2026-11-13T15:18:18.171377+00:00",
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Architect writes packet; coordinator reviews for both platform producer and UI consumer before acceptance",
+  "completion_depends_on": [],
+  "review_packet": null
+}

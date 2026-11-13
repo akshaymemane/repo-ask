@@ -1,6 +1,6 @@
 # Codex + Claude development workflow
 
-Date: 2026-11-13 | Status: configured workflow, implementation not started
+Date: 2026-11-13 | Status: implementation started; initial contract gate in progress
 
 ## Team model
 
