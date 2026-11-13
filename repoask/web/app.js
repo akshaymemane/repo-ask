@@ -884,7 +884,10 @@ function action(text, handler) {
 }
 function control(parent, label, value = "", type = "text") {
   const wrap = node("label", label, "setting-field");
-  const input = node(type === "pem" ? "textarea" : "input"); input.type = type; input.value = String(value);
+  const input = node(type === "pem" ? "textarea" : "input");
+  // textarea.type is read-only in browsers; only input elements accept a type.
+  if (type !== "pem") input.type = type;
+  input.value = String(value);
   if (type === "password" || type === "pem") { input.autocomplete = "new-password"; input.setAttribute("autocomplete", "new-password"); }
   wrap.append(input); parent.append(wrap); return input;
 }

@@ -321,6 +321,13 @@ class FakeElement extends FakeNode {
   }
 }
 
+// HTMLTextAreaElement.type is a getter-only property in browsers. Keep this
+// distinct from writable HTMLInputElement.type so field helpers cannot silently
+// assign a made-up input type to a textarea.
+class FakeTextAreaElement extends FakeElement {
+  get type() { return "textarea"; }
+}
+
 class FakeDocument extends FakeElement {
   constructor() {
     super(null, "#document");
@@ -337,7 +344,9 @@ class FakeDocument extends FakeElement {
     for (const element of this.descendants()) if (element.id === id) return element;
     return null;
   }
-  createElement(tag) { return new FakeElement(this, tag); }
+  createElement(tag) {
+    return tag.toLowerCase() === "textarea" ? new FakeTextAreaElement(this, tag) : new FakeElement(this, tag);
+  }
   createTextNode(text) { return new FakeText(this, text); }
 }
 
