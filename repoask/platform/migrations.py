@@ -1,7 +1,7 @@
 """Append-only migration registry and transactional runner."""
 from dataclasses import dataclass
 import hashlib
-import sqlite3
+from .storage_files import private_backup
 from .errors import SchemaTooNew, MigrationChecksumMismatch, MigrationFailed
 
 @dataclass(frozen=True)
@@ -30,9 +30,7 @@ def apply_migrations(conn, *, db_path, clock):
     if pending and recorded and db_path is not None:
         target = db_path.parent / "backups" / f"opendevin.pre-v{pending[0].version}.sqlite3"
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with sqlite3.connect(target) as backup:
-            conn.backup(backup)
-        target.chmod(0o600)
+        private_backup(conn, target)
     for migration in pending:
         try:
             conn.execute("BEGIN IMMEDIATE")

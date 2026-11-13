@@ -6,6 +6,7 @@ from threading import RLock
 from .clock import now_ms
 from .errors import StorageBusy, PlatformError
 from .migrations import apply_migrations
+from .storage_files import startup_lock, private_backup
 
 DB_FILENAME = "opendevin.sqlite3"
 
@@ -22,13 +23,14 @@ class Store:
                 directory = Path(data_dir)
                 directory.mkdir(mode=0o700, parents=True, exist_ok=True)
                 path = directory / DB_FILENAME
-            self.conn = sqlite3.connect(str(path) if path else ":memory:", isolation_level=None, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
-            if path:
-                path.chmod(0o600)
-            for pragma in ("foreign_keys=ON", "busy_timeout=5000", "journal_mode=WAL", "synchronous=FULL"):
-                self.conn.execute("PRAGMA " + pragma)
-            apply_migrations(self.conn, db_path=path, clock=clock)
+            with startup_lock(path):
+                self.conn = sqlite3.connect(str(path) if path else ":memory:", isolation_level=None, check_same_thread=False)
+                self.conn.row_factory = sqlite3.Row
+                if path:
+                    path.chmod(0o600)
+                for pragma in ("foreign_keys=ON", "busy_timeout=5000", "journal_mode=WAL", "synchronous=FULL"):
+                    self.conn.execute("PRAGMA " + pragma)
+                apply_migrations(self.conn, db_path=path, clock=clock)
             return self
         except Exception as exc:
             if hasattr(self, "conn"):
@@ -72,9 +74,7 @@ class Store:
     def backup_to(self, target):
         with self.read() as conn:
             try:
-                with sqlite3.connect(target) as backup:
-                    conn.backup(backup)
-                Path(target).chmod(0o600)
+                private_backup(conn, target)
             except (OSError, sqlite3.Error):
                 raise PlatformError("Storage backup failed.") from None
 

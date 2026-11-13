@@ -1,6 +1,6 @@
 """Explicit single-step worker; no production handlers or background threads."""
 from typing import Callable, Mapping, Any
-from .jobs import DEFAULT_LEASE_MS, Job
+from .jobs import DEFAULT_LEASE_MS, Job, json_object
 from .errors import LeaseLost
 
 class RetryableError(Exception):
@@ -8,6 +8,9 @@ class RetryableError(Exception):
 
 class PermanentError(Exception):
     code = 'invalid_input'
+
+class CancelledError(Exception):
+    """Handler confirms it stopped without unrecorded external effects."""
 
 class UnknownOutcomeError(Exception):
     code = 'unknown_outcome'
@@ -40,8 +43,12 @@ class Worker:
         try:
             try:
                 result = self.handlers[lease.job.kind](lease.job, context)
+                if result is not None:
+                    json_object(result)
             except LeaseLost:
                 raise
+            except CancelledError:
+                self.queue.acknowledge_cancel(lease)
             except UnknownOutcomeError as exc:
                 self.queue.mark_unknown_outcome(lease, code=exc.code, message=type(exc).__name__)
             except (RetryableError, PermanentError) as exc:
@@ -52,10 +59,7 @@ class Worker:
                 else:
                     self.queue.fail(lease, code='internal', message=type(exc).__name__, retryable=False)
             else:
-                if context.cancel_requested:
-                    self.queue.acknowledge_cancel(lease)
-                else:
-                    self.queue.complete(lease, result=result)
+                self.queue.complete(lease, result=result)
         except LeaseLost:
             pass  # Another owner has fenced this worker; never write another outcome.
         return True

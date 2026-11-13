@@ -112,8 +112,11 @@ class QueueTests(unittest.TestCase):
         self.assertEqual('needs_reconciliation', self.q.get(job.id).state)
         with self.assertRaises(LeaseLost):
             self.q.mark_unknown_outcome(lease, code='internal')
-        self.assertEqual('queued', self.q.resolve_reconciliation(job.id, outcome='requeue').state)
-        self.assertEqual(2, self.q.claim('worker').job.attempts)
+        before = self.q.get(job.id)
+        with self.assertRaises(InvalidTransition):
+            self.q.resolve_reconciliation(job.id, outcome='requeue')
+        self.assertEqual(before, self.q.get(job.id))
+        self.assertEqual('failed', self.q.resolve_reconciliation(job.id, outcome='failed').state)
 
     def test_cancellation_backoff_and_result(self):
         job = self.q.enqueue('test.echo', {})
@@ -150,6 +153,7 @@ class QueueTests(unittest.TestCase):
         def cancel_handler(job, ctx):
             self.q.cancel(job.id)
             self.assertTrue(ctx.cancel_requested)
+            raise CancelledError()
         job = self.q.enqueue('test.cancel', {})
         Worker(self.q, {'test.cancel': cancel_handler}, worker_id='worker').run_once()
         self.assertEqual('cancelled', self.q.get(job.id).state)
