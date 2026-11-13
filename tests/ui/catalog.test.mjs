@@ -123,3 +123,23 @@ test('lost mutation response is explicit and never blindly retried',async()=>{
  assert.match(visibleText(root),/outcome is unknown/);assert.match(visibleText(root),/Refresh and inspect saved state/);
  assert.equal(app.requests.filter(x=>x.method==='PATCH').length,1);
 });
+
+
+test('GitHub settings renders with browser-like getter-only textarea.type', async () => {
+ const app = await boot();
+ const textarea = app.document.createElement('textarea');
+ assert.equal(textarea.type, 'textarea');
+ assert.throws(() => { textarea.type = 'pem'; }, TypeError);
+ const ordinaryInput = app.document.createElement('input');
+ ordinaryInput.type = 'password';
+ assert.equal(ordinaryInput.type, 'password');
+ const root = app.document.getElementById('settings-content');
+ assert.doesNotMatch(visibleText(root), /GitHub unavailable/);
+ const form = formFor(root, 'Save App configuration');
+ assert.ok(form, 'App configuration form must finish construction');
+ const key = input(form, 'RSA private key PEM (never redisplayed)');
+ assert.equal(key.tagName, 'TEXTAREA');
+ assert.equal(key.type, 'textarea');
+ assert.equal(key.hasAttribute('type'), false);
+ assert.equal(input(form, 'App ID').type, 'number');
+});
