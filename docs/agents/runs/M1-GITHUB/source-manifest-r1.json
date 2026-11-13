@@ -1,0 +1,12 @@
+{
+  "reviewed_base_sha": "64231ae16456fbd2c05aba26821ec27bf59c76fd",
+  "branch": "task/m1-github",
+  "files": {
+    "repoask/github/__init__.py": "0987d7c1c8d34a49472acb8c9e163f6875cce54545aadce42ecd100f93479f95",
+    "repoask/github/client.py": "fa2a559d3c28d52325913936c7fcd49a5f98897bf6ea0f58f09ec579cab23c57",
+    "repoask/github/errors.py": "5c0b44c244cbcc8e198ad1eebef00348d6f0bf415e5f38aa8f8fb50504d125b3",
+    "repoask/github/service.py": "101036402524bd93680b21b2d70e82b78ebb5c92564a0600efca469884278892",
+    "tests/test_github_client.py": "c868ebc72a59f1b1f6137c3f8d7b9bc8c1d79a77a0b4202164f08ee56ef9f42c",
+    "tests/test_github_service.py": "e482c4e33da79dd20b35c70c262d652ccc98e7b6a80d6b934246fc5db747825d"
+  }
+}

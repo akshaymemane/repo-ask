@@ -121,3 +121,81 @@ assigned worktree. `source-manifest.json` records SHA256 hashes for the exact si
 package/test files tested above. Coordinator owns committing/capturing this preserved
 source in a permitted context and creating the immutable independent review packet.
 Do not interpret the base HEAD as a submitted implementation commit.
+
+## R1 corrections — supersedes earlier source/submission status
+
+Review input: `review-r1.md`, changes requested against
+`64231ae16456fbd2c05aba26821ec27bf59c76fd`. The coordinator committed the earlier
+submission at that SHA; this work preserves it and applies only the requested delta.
+Current branch is `task/m1-github`, in the same assigned worktree. Independent approval
+is still required for the corrected commit. The review input itself was left unchanged.
+
+### Changes
+
+1. **GH-05/GH-08: fence stale discovery after a verified callback.** Successful callback
+   grant updates now atomically cancel the connection's active discovery run and its
+   pending continuation/job, then create a new run/job/generation in that same transaction.
+   Existing `_live` checks prevent the old installation metadata or fetched repository page
+   from writing after the callback. This uses durable run identity/state, not timestamps,
+   and works across service instances and same-millisecond callbacks. Conservative restart
+   also covers a callback that adds an installation while the old run has a fixed snapshot.
+   The replacement starts from an empty checkpoint and fresh verified metadata. No migration
+   or new shared interface was added; `_create_refresh` reuses the existing atomic enqueue API.
+2. **GH-08: discovery token minting 404.** A 404 from the discovery access-token endpoint
+   now invalidates that installation and deletes its grants through the existing invalidation
+   path, recalculates access and emits eligibility changes, then continues other installations.
+   Other valid grants remain accessible. Invalidation checks the current discovery run under
+   the transaction so an already fenced run cannot invalidate a newer callback's grants.
+
+Product/test delta is limited to `repoask/github/service.py` and
+`tests/test_github_service.py`; remaining changes are task-local status/handoff/manifest.
+No shared platform, schema, migration, entrypoint, web, existing tests outside the owning
+file, dependency, account access, remote mutation, push or subagent was involved.
+
+### Regression evidence actually run
+
+Before implementation, the three precise review reproductions were added and run with:
+`python3 -m unittest discover -s tests -p 'test_github_service.py' -k review_r1`.
+All three failed against the submitted implementation: two restored write access and one
+kept the revoked installation's repositories eligible. After implementation those three
+passed. A fourth test then covered replacement of an already waiting rate-limit continuation.
+
+Final-source checks:
+
+| Check | Actual result |
+| --- | --- |
+| `python3 -m unittest discover -s tests -p 'test_github_*.py'` | Exit0; 36 tests passed in11.065s. |
+| `python3 -m unittest discover -s tests` | Exit1; 81 tests in11.532s: 76 passed, the same five pre-existing HTTP socket-bind errors listed above, no assertion failures. |
+| `git diff --check` | Exit0. |
+| Python3.10 `ast.parse` on both changed Python files | Passed syntax; not an actual Python3.10 runtime check. |
+
+New scenarios: constant-clock verified downgrade while the repository page is in flight;
+constant-clock downgrade while older installation metadata is in flight; waiting continuation
+cancelled and replaced durably with a fresh generation; successful installation validation
+followed by access-token404, with immediate exclusion of single-grant repositories and
+continued access through a second valid installation. Tests also verify the replacement
+finishes without restoring write permissions. All requests remain injected synthetic transport.
+
+The five HTTP errors remain `PermissionError: [Errno1] Operation not permitted` from
+loopback socket bind. Coordinator must rerun the full suite outside that sandbox restriction.
+No live App credentials, OS-vault integration or live GitHub connectivity is claimed. Existing
+runtime/dependency and listener/consumer integration limitations documented above still apply.
+No owned background process remains.
+
+### R1 submission
+
+Source base/HEAD before local delta commit: `64231ae16456fbd2c05aba26821ec27bf59c76fd`.
+`source-manifest-r1.json` binds the exact six final package/test files; the original manifest
+is retained as historical evidence. Local scoped staging/commit outcome follows below.
+Next action: coordinator submits this delta for exact-commit independent quality/security
+re-review. It is not approved or integrated by this handoff.
+
+R1 scoped staging was attempted once with only the two changed Python files and the
+three R1 task artifacts named above. It exited128:
+
+`fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-github/index.lock': Operation not permitted`
+
+No R1 commit was created, no permission bypass was attempted and HEAD remains
+`64231ae16456fbd2c05aba26821ec27bf59c76fd`. The two code/test modifications and task
+artifacts are preserved in the assigned worktree; coordinator must commit this delta
+in a permitted context, then bind independent re-review to that new exact commit.

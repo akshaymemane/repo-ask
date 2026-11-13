@@ -136,6 +136,16 @@ class GitHubService:
             db.execute('UPDATE repository_installations SET permissions=? WHERE installation_id=?', (encoded(value['permissions']), installation_id))
             db.execute("UPDATE github_connections SET status='connected',last_error_code=NULL,updated_at=? WHERE id=?", (self.clock(), connection['id']))
             self._access_states(db)
+            # A verified callback supersedes every in-flight metadata snapshot. Fence
+            # runs by durable identity/state, even if both observations share a clock tick.
+            active_runs = db.execute("SELECT job_id FROM discovery_runs WHERE connection_id=? AND state IN ('queued','running','waiting')", (connection['id'],)).fetchall()
+            if active_runs:
+                db.execute("UPDATE discovery_runs SET state='cancelled',updated_at=? WHERE connection_id=? AND state IN ('queued','running','waiting')", (self.clock(), connection['id']))
+                for active in active_runs:
+                    db.execute("UPDATE jobs SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE state END,cancel_requested=1,updated_at=? WHERE id=? AND state IN ('queued','leased')", (self.clock(), active['job_id']))
+                # Replacement and cancellation commit with the verified grants. A crash
+                # cannot leave only an obsolete continuation or lose the requested refresh.
+                self._create_refresh(db, connection['id'])
         self._notify(before)
         return self._public_connection(self._one('github_connections', connection['id']))
 
@@ -156,11 +166,14 @@ class GitHubService:
                     db.execute("UPDATE discovery_runs SET state='failed',error_code='worker_interrupted',updated_at=? WHERE id=?", (self.clock(), existing['id']))
                 else:
                     return self._run_result(existing)
-            run_id, generation, now = new_id('ghr'), new_id('gen'), self.clock()
-            job = self.jobs.enqueue_in_transaction(db, 'github.refresh', {'run_id': run_id}, idempotency_key='github.refresh:' + run_id)
-            db.execute('INSERT INTO discovery_runs(id,connection_id,generation,state,job_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
-                       (run_id, connection_id, generation, 'queued', job.id, now, now))
-            return self._run_result(db.execute('SELECT * FROM discovery_runs WHERE id=?', (run_id,)).fetchone())
+            return self._create_refresh(db, connection_id)
+
+    def _create_refresh(self, db, connection_id):
+        run_id, generation, now = new_id('ghr'), new_id('gen'), self.clock()
+        job = self.jobs.enqueue_in_transaction(db, 'github.refresh', {'run_id': run_id}, idempotency_key='github.refresh:' + run_id)
+        db.execute('INSERT INTO discovery_runs(id,connection_id,generation,state,job_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
+                   (run_id, connection_id, generation, 'queued', job.id, now, now))
+        return self._run_result(db.execute('SELECT * FROM discovery_runs WHERE id=?', (run_id,)).fetchone())
 
     def schedule_due(self):
         now = self.clock()
@@ -201,9 +214,11 @@ class GitHubService:
     def _access_states(self, db):
         db.execute("UPDATE repositories SET access_state=CASE WHEN EXISTS(SELECT 1 FROM repository_installations ri JOIN github_installations i ON i.id=ri.installation_id JOIN github_connections c ON c.id=i.connection_id WHERE ri.repository_id=repositories.id AND i.status='active' AND c.status='connected') THEN 'accessible' ELSE 'inaccessible' END")
 
-    def _invalidate_installation(self, connection_id, installation_id, status):
+    def _invalidate_installation(self, connection_id, installation_id, status, *, run_id=None):
         before = self._eligible_map()
         with self.store.transaction() as db:
+            if run_id is not None and not self._live(db, run_id, installation_id):
+                raise _RefreshCancelled()
             owned = db.execute('SELECT 1 FROM github_installations WHERE id=? AND connection_id=?', (installation_id, connection_id)).fetchone()
             if owned:
                 db.execute('UPDATE github_installations SET status=? WHERE id=?', (status, installation_id))
@@ -293,7 +308,14 @@ class GitHubService:
                     db.execute('UPDATE github_installations SET owner=?,permissions=? WHERE id=?', (metadata['account']['login'], encoded(metadata['permissions']), iid))
                     db.execute('UPDATE repository_installations SET permissions=? WHERE installation_id=?', (encoded(metadata['permissions']), iid))
                 self._notify(before)
-                token = self.client.mint_token(self._app_token(connection), iid, permissions={'contents': 'read'})['token']
+                try:
+                    token = self.client.mint_token(self._app_token(connection), iid, permissions={'contents': 'read'})['token']
+                except GitHubError as exc:
+                    if exc.code != 'not_found':
+                        raise
+                    self._invalidate_installation(connection['id'], iid, 'revoked', run_id=run_id)
+                    completed.append(iid)
+                    continue
                 page = checkpoint.get('page', 1) if checkpoint.get('installation_id') == iid else 1
                 while True:
                     if context is not None and context.cancel_requested:

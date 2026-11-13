@@ -1,10 +1,14 @@
-# M1-GITHUB status
+# M1-GITHUB status — R1 fixes ready for re-review
 
-Ready for independent review. Implementation and32 owning tests complete within assigned scope.
-Final focused run:32 passed. Full regression rerun:77 tests,72 passed; five existing HTTP tests
-error on sandbox-denied loopback socket bind (Errno1), no assertion failures. See handoff.md.
+Both major findings in review-r1.md are corrected against submitted commit
+64231ae16456fbd2c05aba26821ec27bf59c76fd. Verified callbacks atomically replace active
+refresh generations; discovery token404 revokes only the affected installation/grants.
 
-Base/HEAD before local commit attempt:cb2dcad262050eed989cb64df05511db08974780.
-No App credentials configured, no live GitHub checks/mutations, no token imports, no background
-processes, no package installation or subagents. Local staging denied creating parent Git worktree index.lock (Operation not permitted). No commit created; source preserved untracked with source-manifest.json hashes.
-Coordinator schedules independent quality/security review; this slice is not approved/integrated.
+Final focused suite:36 passed. Full suite:81 run,76 passed; five existing HTTP tests
+error on sandbox-denied loopback bind (Errno1), no assertion failures. Changed Python
+files pass Python3.10 syntax parsing and git diff --check. See handoff.md R1 section.
+
+Source is preserved in this assigned worktree; source-manifest-r1.json records final hashes.
+Local staging denied creating parent worktree index.lock (Operation not permitted); no R1 commit. Coordinator must commit the preserved delta before exact-commit re-review. No App credentials,
+account calls, live GitHub checks, installs, subagents, pushes or background processes.
+Coordinator must obtain exact-commit re-review and rerun sandbox-blocked HTTP tests.

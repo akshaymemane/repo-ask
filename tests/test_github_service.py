@@ -433,3 +433,120 @@ class GitHubTests(unittest.TestCase):
         self.error('not_found', self.service.mint_installation_token, 'gh:1')
         self.error('repository_unavailable', self.service.require_access, 'gh:1')
         self.assertFalse(self.service.is_eligible('gh:1'))
+
+    def _review_r1_callback_during_discovery(self, phase):
+        self.refresh()
+        self.service.update_selection('gh:1', index_enabled=True, implementation_enabled=True)
+        self.service.require_access('gh:1', 'contents_write')
+        state = self.state()
+        fixed_now = self.now
+        original = self.remote
+        triggered = False
+        downgraded = False
+        self.remote.repos['11'][0] = repo(1, 'late-page')
+
+        def race(request):
+            nonlocal triggered, downgraded
+            response = original(request)
+            metadata_request = request.path == '/app/installations/11'
+            if metadata_request and downgraded:
+                response.json['permissions'] = {'contents': 'read', 'metadata': 'read'}
+            at_boundary = metadata_request if phase == 'metadata' else request.path.startswith('/installation/repositories?')
+            if at_boundary and not triggered:
+                triggered = downgraded = True
+                # Reentrant verified callback, while the older response is still in flight.
+                # The clock deliberately never advances: timestamp-only fences must fail.
+                self.service.finish_connect(state, '11')
+            return response
+
+        self.service.client.transport = race
+        old_run = self.refresh()
+        self.assertTrue(triggered)
+        self.assertEqual(self.now, fixed_now)
+        self.error('capability_missing', self.service.require_access, 'gh:1', 'contents_write')
+        self.assertEqual(json.loads(self.service._one('github_installations', '11')['permissions'])['contents'], 'read')
+        self.assertEqual(old_run['state'], 'cancelled')
+        self.assertEqual(self.service.get_repository('gh:1')['name'], 'repo1')
+        with self.platform.store.read() as db:
+            grant = db.execute("SELECT permissions FROM repository_installations WHERE repository_id='gh:1' AND installation_id='11'").fetchone()
+            active = db.execute("SELECT * FROM discovery_runs WHERE state IN ('queued','running','waiting')").fetchall()
+        self.assertEqual(json.loads(grant[0])['contents'], 'read')
+        self.assertEqual(len(active), 1)
+        self.assertNotEqual(active[0]['id'], old_run['id'])
+        self.assertTrue(self.worker.run_once())
+        self.assertEqual(self.service._one('discovery_runs', active[0]['id'])['state'], 'completed')
+        self.error('capability_missing', self.service.require_access, 'gh:1', 'contents_write')
+        self.assertEqual(self.service.get_repository('gh:1')['name'], 'late-page')
+
+    def test_review_r1_same_millisecond_callback_fences_repository_page(self):
+        self._review_r1_callback_during_discovery('page')
+
+    def test_review_r1_same_millisecond_callback_fences_installation_metadata(self):
+        self._review_r1_callback_during_discovery('metadata')
+
+    def test_review_r1_discovery_token_404_revokes_only_affected_installation(self):
+        self.remote.repos['22'] = [repo(1)]
+        self.attach('22')
+        self.refresh()
+        self.assertTrue(self.service.is_eligible('gh:2'))
+        changes = []
+        self.service.register_eligibility_listener(lambda *args: changes.append(args))
+        original = self.remote
+        validated = False
+
+        def revoked_token(request):
+            nonlocal validated
+            if request.path == '/app/installations/11/access_tokens':
+                self.assertTrue(validated, 'Reproduction requires successful installation validation first')
+                return Response(404, {}, {'message': 'SECRET_ERROR'})
+            response = original(request)
+            if request.path == '/app/installations/11':
+                self.assertEqual(response.status, 200)
+                validated = True
+            return response
+
+        self.service.client.transport = revoked_token
+        result = self.refresh()
+        self.assertTrue(validated)
+        self.assertFalse(self.service.is_eligible('gh:2'))
+        self.error('repository_unavailable', self.service.require_access, 'gh:2')
+        self.assertEqual(self.service.get_repository('gh:2')['access_state'], 'inaccessible')
+        self.assertEqual(self.service._one('github_installations', '11')['status'], 'revoked')
+        self.assertIn(('gh:2', False), changes)
+        self.assertNotIn(('gh:1', False), changes)
+        self.assertTrue(self.service.is_eligible('gh:1'))
+        self.assertEqual(self.service.require_access('gh:1')['installation_id'], '22')
+        self.assertEqual(self.service._one('github_installations', '22')['status'], 'active')
+        self.assertEqual(result['state'], 'completed')
+        with self.platform.store.read() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM repository_installations WHERE installation_id='11'").fetchone()[0], 0)
+
+    def test_review_r1_callback_replaces_waiting_continuation_durably(self):
+        self.refresh()
+        self.remote.failure = (2, Response(429, {'Retry-After': '120'}, {}))
+        old_run = self.refresh()
+        stale_job = self.platform.jobs.get(old_run['job_id'])
+        self.assertEqual(old_run['state'], 'waiting')
+        original = self.remote
+
+        def read_only(request):
+            response = original(request)
+            if request.path == '/app/installations/11':
+                response.json['permissions'] = {'contents': 'read', 'metadata': 'read'}
+            return response
+
+        self.service.client.transport = read_only
+        self.attach('11')
+        self.assertEqual(self.platform.jobs.get(stale_job.id).state, 'cancelled')
+        self.assertEqual(self.service._one('discovery_runs', old_run['id'])['state'], 'cancelled')
+        self.assertEqual(self.service.run_refresh(stale_job, None), {'state': 'cancelled'})
+        with self.platform.store.read() as db:
+            replacements = db.execute("SELECT * FROM discovery_runs WHERE state='queued'").fetchall()
+        self.assertEqual(len(replacements), 1)
+        replacement = dict(replacements[0])
+        self.assertNotEqual(replacement['generation'], old_run['generation'])
+        self.assertEqual(json.loads(replacement['checkpoint']), {})
+        self.remote.failure = None
+        self.assertTrue(self.worker.run_once())
+        self.assertEqual(self.service._one('discovery_runs', replacement['id'])['state'], 'completed')
+        self.assertEqual(self.service.require_access('gh:1')['permissions']['contents'], 'read')
