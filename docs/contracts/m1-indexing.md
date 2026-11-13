@@ -112,3 +112,21 @@ identity persistence; repository-scoped purge including vectors after restart; l
 exact-identifier/paraphrase retrieval evaluation compared to lexical baseline.
 Use injected transports and real local SQLite/vector operations. Run full regressions.
 No real account credentials, downloads, package changes or remote mutation in worker.
+
+## HTTP extension (coordinator adapter)
+
+`GET /api/context/repositories?limit=50&cursor=opaque&query=...` returns
+{items:[RepositoryState],next_cursor}; includes explicit CLI local/demo sources and
+GitHub metadata, never private paths. `GET /api/repositories/{id}/context` returns
+state. `POST /api/repositories/{id}/index` accepts optionalrevision,priority,
+embedding_version_id,limits and returns202 publicrun; omittedembeddingusesassignedrole.
+`GET /api/index-jobs/{id}`, `POST /api/index-jobs/{id}/pause|resume|retry` with{}body.
+`POST /api/search` takes query,repository_ids and optionalsnapshot_ids,limit,
+context_token_budget,semantic. `GET /api/context/source` takes repository_id,
+snapshot_id,path,start_line,end_line and optionalcontext_lines (integerqueryvalues).
+`PATCH /api/repositories/{id}/context` takes index_enabled and optionalexclusions for
+local/demo; GitHub selection remains through existingPATCHrepository. No HTTP localpath
+registration. GitHub per-repository exclusion UI will require an additive service
+setter before exposing that control. Disabled/purged states remain visible in catalog;
+retrieval still checks eligibility. UI should poll only visible active runs, preserve
+focus, show real partial/degraded coverage, and use source-backedready fields.

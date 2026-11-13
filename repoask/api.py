@@ -59,8 +59,12 @@ def error_status(code):
 
 
 class FeatureAPI:
-    def __init__(self, platform, github, providers):
+    def __init__(self, platform, github, providers, *, indexing=None):
         self.platform, self.github, self.providers = platform, github, providers
+        self.context = None
+        if indexing is not None:
+            from .context_api import ContextAPI
+            self.context = ContextAPI(platform, indexing)
 
     def _active_version(self, profile_id):
         for profile in self.providers.list_profiles():
@@ -72,6 +76,10 @@ class FeatureAPI:
         body = {} if body is None else body
         if method != 'GET' and raw_query:
             raise ValueError('Mutation query parameters are not supported.')
+        if self.context is not None:
+            response = self.context.dispatch(method, path, raw_query, body)
+            if response is not None:
+                return response
         if path == '/api/github/callback' and method == 'GET':
             q = query_fields(raw_query, {'state', 'installation_id', 'setup_action'})
             try:
