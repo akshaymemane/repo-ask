@@ -1,5 +1,17 @@
 # Builder handoff — M1-PROVIDERS
 
+## R1 revision — current review handoff
+
+- Review input: review-r1.md, changes requested against 20a9c2902fc7db87669efae4bebee4c8f20841ae. Earlier evidence below is retained as historical takeover evidence.
+- Both major findings addressed in repoask/providers/service.py and tests/test_providers_service.py; shared platform/schema/migrations and other components untouched.
+- Coordinator explicitly authorized a narrowly scoped secret_refs.revoked_at UPDATE. Rotation marks only the replaced reference belonging to this profile, and deletion marks only this profile's references, inside the same Store.transaction as the profile changes. Failed transaction rolls back both changes. Post-commit SecretService.revoke attempts vault cleanup; cleanup failure may leave a vault value, but the persisted tombstone blocks resolution and old-version inference, including after reopening storage. No claim of guaranteed physical vault erasure.
+- A global synthetic-check stop now invalidates earlier current-run successes as well as previous verification. The returned per-capability results, persisted verified_capabilities and role readiness all report the invalidation.
+- Four new regressions: rotation with injected pre-mark StorageBusy from revoke (including old-version embed and restart); deletion with the same failure plus unaffected other-profile credential; rotation rollback preserving old reference/active version; previous successful verification followed by successful chat then embedding 401.
+- Actual validation: python3 -m unittest discover -s tests -p 'test_providers_*.py' — 24 passed, exit 0 (includes all ten fixtures). python3 -m unittest discover -s tests — 69 run, 64 passed, five existing test_http_foundation socket-bind errors, exit 1: PermissionError [Errno 1] Operation not permitted. Same five named cases listed below. No assertion failures.
+- python3 -m compileall -q repoask/providers tests/test_providers_service.py and git diff --check — exit 0.
+- No subagents, installs, live provider/account calls, source transmission, pushes or background processes. Independent exact-commit re-review and coordinator socket-enabled regression rerun remain required. This is author evidence, not approval.
+- Revision commit: none; scoped git add exited128 because the sandbox denied shared Git worktree index.lock creation. No bypass attempted. Coordinator must commit before re-review; tracked revision patch: /private/tmp/m1-providers-r1.patch.
+
 ## Identity
 
 - Author: Claude partial implementation (session cac5ebc2-b1ea-4ccb-b6ae-cb3da0fe4446), then Codex takeover (task owner session 01a1d5c9-e390-74d3-9164-e641623c0216). Claude exited on session quota; Codex preserved and inspected its files, completed fixes and authored the behavior tests. No subagents used.

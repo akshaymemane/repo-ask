@@ -189,6 +189,16 @@ class ProviderService:
             raise PersistenceRequired('Unable to store the provider credential securely.')
         return ref.id
 
+    @staticmethod
+    def _mark_owned_refs_revoked(conn, profile_id, now, *, ref_id=None):
+        # Coordinator-authorized metadata update: revoke only references owned by
+        # this profile, in the same transaction as rotation/deletion. Vault cleanup
+        # after commit is best effort; failure cannot restore credential usability.
+        conn.execute(
+            'UPDATE secret_refs SET revoked_at=? WHERE revoked_at IS NULL '
+            'AND id IN (SELECT secret_ref FROM provider_profile_versions WHERE profile_id=?) '
+            'AND (? IS NULL OR id=?)', (now, profile_id, ref_id, ref_id))
+
     def _revoke_quietly(self, ref_id):
         try:
             self.secrets.revoke(ref_id)
@@ -278,6 +288,8 @@ class ProviderService:
                     ref = new_ref if new_ref is not None else current['secret_ref']
                     if new_ref is not None:
                         old_ref = current['secret_ref']
+                        if old_ref is not None:
+                            self._mark_owned_refs_revoked(conn, profile_id, now, ref_id=old_ref)
                     conn.execute('INSERT INTO provider_profile_versions VALUES (?,?,?,?,?,?,?,?,?)',
                                  (active_version_id, profile_id, number, merged['adapter'], merged['endpoint'],
                                   merged['model'], ref, canonical_json(merged['config']), now))
@@ -312,7 +324,7 @@ class ProviderService:
             refs = [r[0] for r in conn.execute(
                 'SELECT DISTINCT secret_ref FROM provider_profile_versions WHERE profile_id=? AND secret_ref IS NOT NULL',
                 (profile_id,))]
-            result = self._profile_public(conn, self._profile_row(conn, profile_id))
+            self._mark_owned_refs_revoked(conn, profile_id, now)
         for ref_id in refs:
             self._revoke_quietly(ref_id)
         with self.store.read() as conn:
@@ -683,6 +695,13 @@ class ProviderService:
                     stop_code = error.code
             else:
                 results[capability] = {'status': 'verified', 'error_code': None}
+        if stop_code or secret_failed:
+            # A global failure invalidates the entire check, including successes
+            # earlier in this run, as well as verification from previous runs.
+            for capability, result in results.items():
+                if result['status'] == 'verified':
+                    results[capability] = {'status': 'failed',
+                                           'error_code': stop_code or secret_failed}
         verified_now = {c for c, r in results.items() if r['status'] == 'verified'}
         failed_now = {c for c, r in results.items() if r['status'] != 'verified'}
         if stop_code or secret_failed:

@@ -20,3 +20,18 @@
   No bypass attempted; no submitted commit exists. Coordinator must stage/commit
   these preserved files from an authorized environment before exact-commit review.
   Review patch snapshot: /private/tmp/m1-providers.patch (generated after handoff).
+
+- R1 revision of 20a9c29: both major review findings addressed. Coordinator-authorized
+  metadata tombstones commit atomically with rotation/deletion, limited to this
+  profile's owned refs; best-effort vault cleanup follows commit. Global test stop
+  clears both earlier current-run successes and previous verification.
+- Four new regressions pass: injected revoke StorageBusy on rotation/deletion,
+  old-version embed/restart blocking, other-profile isolation, atomic rollback,
+  and successful chat followed by embedding401 clearing role readiness.
+- Revised focused result: 24 passed. Full result: 69 run, 64 passed, five existing
+  HTTP socket-bind PermissionError errors. Compileall and diff whitespace pass.
+  No live calls or background processes. Re-review required; no self-approval.
+- R1 commit attempt blocked: git add of the four revised assigned files exited128
+  because shared Git worktree index.lock creation is not permitted by the sandbox.
+  No bypass attempted; no revision commit created. Tracked revision patch available
+  at /private/tmp/m1-providers-r1.patch; coordinator must commit before re-review.

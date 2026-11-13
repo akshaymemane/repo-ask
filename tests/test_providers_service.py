@@ -137,6 +137,86 @@ class ProviderTests(unittest.TestCase):
             dump = '\n'.join(conn.iterdump())
         self.assertNotIn('synthetic-old', dump)
         self.assertNotIn('synthetic-new', dump)
+    def test_rotation_revokes_durably_when_cleanup_is_busy(self):
+        from repoask.platform.errors import StorageBusy, SecretRevoked
+        p = self.service.create_profile(self.spec(), secret_value='synthetic-old')
+        other = self.service.create_profile(self.spec(name='other'), secret_value='synthetic-other')
+        with self.store.read() as conn:
+            old_ref = conn.execute('SELECT secret_ref FROM provider_profile_versions WHERE id=?',
+                                   (p['active_version_id'],)).fetchone()[0]
+        with patch.object(self.secrets, 'revoke', side_effect=StorageBusy('busy')):
+            rotated = self.service.update_profile(p['id'], {}, secret_value='synthetic-new')
+        self.assertIn(old_ref, self.vault.values)  # cleanup failed, policy still durable
+        with self.assertRaises(SecretRevoked):
+            self.secrets.resolve(old_ref)
+        before = len(self.transport.requests)
+        self.code('credential_unavailable', lambda: self.service.embed(p['active_version_id'], ['synthetic']))
+        self.assertEqual(before, len(self.transport.requests))
+        self.assertFalse(self.service.get_version(p['active_version_id'])['credential_configured'])
+        self.assertTrue(self.service.get_version(other['active_version_id'])['credential_configured'])
+        self.transport.queue = [response({'embeddings': [[1, 2]]})]
+        self.service.embed(rotated['active_version_id'], ['synthetic'])
+        self.assertEqual('Bearer synthetic-new', self.transport.requests[-1].headers['Authorization'])
+        # A new service after reopening storage must enforce the tombstone too.
+        self.store.close()
+        self.store = Store.open(self.directory.name)
+        self.service = ProviderService(self.store, SecretService(self.store, self.vault), transport=self.transport)
+        self.code('credential_unavailable', lambda: self.service.embed(p['active_version_id'], ['synthetic']))
+
+    def test_delete_revokes_owned_refs_even_when_cleanup_is_busy(self):
+        from repoask.platform.errors import StorageBusy, SecretRevoked
+        p = self.service.create_profile(self.spec(), secret_value='synthetic-old')
+        carried = self.service.update_profile(p['id'], {'model': 'carried'})
+        other = self.service.create_profile(self.spec(name='other'), secret_value='synthetic-other')
+        self.service.assign_role('ask', p['id'])
+        with self.store.read() as conn:
+            owned = [r[0] for r in conn.execute(
+                'SELECT DISTINCT secret_ref FROM provider_profile_versions WHERE profile_id=?', (p['id'],))]
+        with patch.object(self.secrets, 'revoke', side_effect=StorageBusy('busy')):
+            deleted = self.service.delete_profile(p['id'])
+        self.assertFalse(deleted['version']['credential_configured'])
+        self.assertEqual('unassigned', self.service.roles()['ask']['status'])
+        for ref in owned:
+            self.assertIn(ref, self.vault.values)
+            with self.assertRaises(SecretRevoked):
+                self.secrets.resolve(ref)
+        for version in (p['active_version_id'], carried['active_version_id']):
+            self.code('profile_deleted', lambda: self.service.embed(version, ['synthetic']))
+        self.assertEqual([], self.transport.requests)
+        self.assertTrue(self.service.get_version(other['active_version_id'])['credential_configured'])
+
+    def test_rotation_rollback_preserves_old_credential_and_active_version(self):
+        p = self.service.create_profile(self.spec(), secret_value='synthetic-old')
+        other = self.profile(name='occupied')
+        self.code('profile_name_conflict', lambda: self.service.update_profile(
+            p['id'], {'name': other['name']}, secret_value='synthetic-new'))
+        self.assertTrue(self.service.get_version(p['active_version_id'])['credential_configured'])
+        self.assertEqual(1, len(self.vault.values))
+        self.transport.queue = [response({'embeddings': [[1, 2]]})]
+        self.service.embed(p['active_version_id'], ['synthetic'])
+        self.assertEqual('Bearer synthetic-old', self.transport.requests[-1].headers['Authorization'])
+        self.assertEqual(p['active_version_id'], next(
+            profile for profile in self.service.list_profiles() if profile['id'] == p['id'])['active_version_id'])
+
+    def test_later_auth_failure_clears_current_and_previous_verification(self):
+        p = self.assign()
+        version = p['active_version_id']
+        self.transport.queue = [response({'message': {'content': 'ok'}}),
+                                response({'embeddings': [[1, 2]]}),
+                                response({'message': {'content': '{"ok":true}'}})]
+        self.assertEqual('passed', self.service.test_profile(version)['status'])
+        self.assertEqual('ready', self.service.roles()['ask']['status'])
+        self.transport.queue = [response({'message': {'content': 'ok'}}), response({}, 401)]
+        checked = self.service.test_profile(version, capabilities=['chat', 'embeddings'])
+        self.assertEqual([], self.transport.queue)
+        self.assertEqual('failed', checked['status'])
+        self.assertEqual([], checked['verified_capabilities'])
+        self.assertEqual('provider_auth', checked['error_code'])
+        self.assertEqual('failed', checked['capabilities']['chat']['status'])
+        self.assertEqual('provider_auth', checked['capabilities']['embeddings']['error_code'])
+        self.assertEqual('failed', self.service.roles()['ask']['status'])
+        self.assertEqual([], self.service.get_version(version)['check']['verified_capabilities'])
+
     def test_local_only_and_source_policy(self):
         p = self.profile(endpoint='https://example.invalid')
         self.code('destination_not_allowed', lambda: self.service.assign_role('ask', p['id']))
