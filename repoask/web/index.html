@@ -4,24 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Repo Ask</title>
+  <title>OpenDevin</title>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
   <header class="topbar">
     <button class="icon-button history-toggle" id="history-toggle" type="button" aria-label="Conversations" aria-controls="sidebar" aria-expanded="false">☰</button>
-    <div class="brand"><span class="brand-mark" aria-hidden="true">›_</span><span>Repo Ask</span></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">›_</span><span>OpenDevin</span></div>
+    <nav class="primary-nav" aria-label="Workspace">
+      <ul>
+        <li><a href="#/ask" data-route="ask" aria-current="page">Ask</a></li>
+        <li><a href="#/repositories" data-route="repositories">Repositories</a></li>
+        <li><a href="#/settings" data-route="settings">Settings</a></li>
+      </ul>
+    </nav>
     <div class="top-actions">
+      <span class="workspace-mode" id="workspace-mode"><span class="workspace-mode-icon" aria-hidden="true">◇</span><strong id="workspace-mode-label">Loading workspace…</strong><span class="workspace-mode-detail" id="workspace-mode-detail"></span></span>
       <span class="mode" id="mode" title="Connect local Ollama to generate answers"><span class="status-dot"></span><span id="mode-label">Connecting</span></span>
-      <button class="button scope-button" type="button" id="show-repos" disabled>
+      <button class="button scope-button" type="button" id="show-repos" title="Choose repositories for this conversation" disabled>
         <span class="folder-icon" aria-hidden="true"></span>
         <span id="scope-label">Repositories</span>
       </button>
     </div>
   </header>
+  <p class="sr-only" id="app-status" role="status" aria-live="polite"></p>
 
-  <div class="workspace">
+  <div class="workspace view" id="view-ask" data-view="ask">
     <aside class="sidebar" id="sidebar">
       <button class="button new-chat" type="button" id="new-chat" disabled><span aria-hidden="true">+</span> New conversation</button>
       <nav aria-label="Conversations">
@@ -33,10 +42,11 @@
     </aside>
 
     <main class="conversation" aria-label="Repository question and answer">
+      <h1 class="sr-only view-title" id="ask-title" tabindex="-1">Ask</h1>
       <div class="thread" id="thread" aria-busy="true">
         <div class="intro" id="intro">
           <div class="intro-icon" aria-hidden="true">›_</div>
-          <h1>Ask your codebase</h1>
+          <h2 class="intro-title">Ask your codebase</h2>
           <p id="intro-text">Loading repositories…</p>
           <div class="examples" id="examples" hidden>
             <button class="example" type="button" data-question="Trace checkout from the storefront through the orders API, database, and confirmation email.">
@@ -71,6 +81,31 @@
       <div class="source-panel" id="source-panel" hidden aria-live="polite"></div>
     </aside>
   </div>
+
+  <main class="page view" id="view-repositories" data-view="repositories" aria-labelledby="repositories-title" hidden>
+    <div class="page-inner">
+      <header class="page-header">
+        <div>
+          <h1 class="view-title" id="repositories-title" tabindex="-1">Repositories</h1>
+          <p class="page-lede">Read-only list of the repositories indexed when OpenDevin started. Choose which ones a question uses from Ask.</p>
+        </div>
+      </header>
+      <div id="repositories-content"><p class="page-status">Loading repositories…</p></div>
+    </div>
+  </main>
+
+  <main class="page view" id="view-settings" data-view="settings" aria-labelledby="settings-title" hidden>
+    <div class="page-inner">
+      <header class="page-header">
+        <div>
+          <h1 class="view-title" id="settings-title" tabindex="-1">Settings</h1>
+          <p class="page-lede">Read-only status of this workspace. Nothing on this page can be changed in this version.</p>
+        </div>
+        <button class="button" type="button" id="refresh-status">Refresh status</button>
+      </header>
+      <div id="settings-content"><p class="page-status">Loading status…</p></div>
+    </div>
+  </main>
 
   <dialog id="repo-dialog" aria-labelledby="repo-dialog-title">
     <form id="repo-form">

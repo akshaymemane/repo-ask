@@ -20,6 +20,12 @@ const state = {
   picker: new Set(),
   sourceRequest: null,
   sourceTrigger: null,
+  reposLoaded: false,
+  reposError: null,
+  route: "ask",
+  // Workspace and health come from /api/workspace and /api/health. Each is
+  // {kind: "loading" | "ok" | "legacy" | "error", data?, message?}.
+  status: { workspace: { kind: "loading" }, health: { kind: "loading" }, loading: false, sequence: 0 },
 };
 
 async function api(path, options) {
@@ -358,16 +364,465 @@ async function showSource(citation, trigger) {
 
 byId("close-source").addEventListener("click", () => closeSource(true));
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !dialog.open) {
+  if (event.key === "Escape" && !dialog.open && state.route === "ask") {
     if (!byId("source-panel").hidden) closeSource(true);
     else toggleHistory(false);
   }
 });
 
+// ---------------------------------------------------------------------------
+// Navigation (hash routes, contract opendevin.m0/1 §7)
+
+const ROUTES = {
+  ask: { view: "view-ask", title: "ask-title", label: "Ask" },
+  repositories: { view: "view-repositories", title: "repositories-title", label: "Repositories" },
+  settings: { view: "view-settings", title: "settings-title", label: "Settings" },
+};
+
+function announce(text) {
+  const region = byId("app-status");
+  region.textContent = "";
+  // Clearing first makes repeated messages announce again.
+  setTimeout(() => { region.textContent = text; }, 50);
+}
+
+function routeFromHash() {
+  const hash = location.hash;
+  if (hash === "" || hash === "#" || hash === "#/") return "ask";
+  const match = /^#\/([a-z]+)$/.exec(hash);
+  return match && Object.hasOwn(ROUTES, match[1]) ? match[1] : null;
+}
+
+function showRoute(moveFocus) {
+  let route = routeFromHash();
+  if (route === null) {
+    route = "ask";
+    history.replaceState(null, "", "#/ask");
+    announce("That page is not available in this version. Showing Ask.");
+  }
+  const previous = state.route;
+  state.route = route;
+  for (const [id, info] of Object.entries(ROUTES)) byId(info.view).hidden = id !== route;
+  for (const link of document.querySelectorAll(".primary-nav a")) {
+    if (link.dataset.route === route) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  // Ask-only controls act on the current conversation.
+  const onAsk = route === "ask";
+  byId("show-repos").hidden = !onAsk;
+  byId("history-toggle").hidden = !onAsk;
+  if (!onAsk) {
+    toggleHistory(false);
+    if (dialog.open) dialog.close();
+  }
+  document.title = `${ROUTES[route].label} · OpenDevin`;
+  if (route === "repositories") renderRepositories();
+  if (route === "settings") {
+    renderSettings();
+    if (moveFocus && previous !== "settings") refreshStatus();
+  }
+  if (moveFocus) byId(ROUTES[route].title).focus();
+}
+
+window.addEventListener("hashchange", () => showRoute(true));
+
+// ---------------------------------------------------------------------------
+// Workspace status (/api/workspace, /api/health)
+
+async function fetchStatus(path, contractPrefix) {
+  let response;
+  try {
+    response = await fetch(path, { headers: { Accept: "application/json" } });
+  } catch {
+    return { kind: "error", message: "Could not reach the OpenDevin server. Check that it is still running." };
+  }
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  // Builds without the M0 routes answer with the legacy 404 body, which has no `code`.
+  if (response.status === 404 && isObject && typeof body.error === "string" && !("code" in body)) {
+    return { kind: "legacy" };
+  }
+  if (!response.ok || !isObject) {
+    const detail = isObject && typeof body.error === "string" ? body.error : `The server returned HTTP ${response.status}.`;
+    return { kind: "error", message: detail };
+  }
+  if (typeof body.contract !== "string" || !body.contract.startsWith(contractPrefix)) {
+    return { kind: "error", message: "The server reported status in a format this page does not support." };
+  }
+  return { kind: "ok", data: body };
+}
+
+async function refreshStatus(userRequested = false) {
+  const sequence = ++state.status.sequence;
+  state.status.loading = true;
+  renderRefreshButton();
+  const [workspace, health] = await Promise.all([
+    fetchStatus("/api/workspace", "opendevin.workspace/m0."),
+    fetchStatus("/api/health", "opendevin.health/m0."),
+  ]);
+  if (sequence !== state.status.sequence) return;
+  Object.assign(state.status, { workspace, health, loading: false });
+  renderRefreshButton();
+  applyNavigation();
+  renderWorkspaceMode();
+  if (state.route === "settings") renderSettings();
+  if (state.route === "repositories") renderRepositories();
+  if (userRequested) {
+    const failed = workspace.kind === "error" || health.kind === "error";
+    announce(failed ? "Could not load all workspace status." : "Status updated.");
+  }
+}
+
+function renderRefreshButton() {
+  const button = byId("refresh-status");
+  button.textContent = state.status.loading ? "Checking…" : "Refresh status";
+  button.setAttribute("aria-disabled", String(state.status.loading));
+}
+
+byId("refresh-status").addEventListener("click", () => {
+  if (!state.status.loading) refreshStatus(true);
+});
+
+function applyNavigation() {
+  const { workspace } = state.status;
+  if (workspace.kind !== "ok" || !Array.isArray(workspace.data.navigation)) return;
+  const ids = workspace.data.navigation.map((entry) => entry && entry.id);
+  for (const link of document.querySelectorAll(".primary-nav a")) {
+    // Ask always stays reachable; other areas follow the server's list.
+    link.parentNode.hidden = link.dataset.route !== "ask" && !ids.includes(link.dataset.route);
+  }
+}
+
+function workspaceMode() {
+  const { workspace } = state.status;
+  if (workspace.kind === "ok") return workspace.data.mode;
+  if (state.reposLoaded) return state.repos.every((repo) => repo.demo) ? "demo" : "local";
+  return null;
+}
+
+function renderWorkspaceMode() {
+  const mode = workspaceMode();
+  let label = "Loading workspace…";
+  let detail = "";
+  if (mode === "demo") [label, detail] = ["Sample workspace", "bundled example repositories"];
+  else if (mode === "local") [label, detail] = ["Local workspace", "local Git checkouts"];
+  else if (mode !== null) label = "Workspace mode unknown";
+  else if (state.reposError) label = "Workspace unavailable";
+  byId("workspace-mode-label").textContent = label;
+  byId("workspace-mode-detail").textContent = detail ? ` — ${detail}` : "";
+  byId("workspace-mode").dataset.mode = mode === "demo" || mode === "local" ? mode : "unknown";
+}
+
+// Status vocabulary. Every state has text and an icon so color is never the
+// only signal. Values outside a field's known set render as neutral Unknown.
+const STATUS_LABELS = {
+  ok: ["good", "✓", "OK"],
+  available: ["good", "✓", "Available"],
+  configured: ["good", "✓", "Configured"],
+  not_configured: ["attention", "○", "Not configured"],
+  not_available: ["neutral", "—", "Not available in this version"],
+  unavailable: ["attention", "⊘", "Unavailable"],
+  disabled: ["neutral", "○", "Disabled"],
+  degraded: ["warning", "!", "Degraded"],
+};
+const UNKNOWN_STATUS = ["neutral", "?", "Unknown"];
+
+function statusOf(value, allowed) {
+  return allowed.includes(value) && Object.hasOwn(STATUS_LABELS, value) ? STATUS_LABELS[value] : UNKNOWN_STATUS;
+}
+
+function chip([tone, icon, text]) {
+  const element = node("span", undefined, `chip chip-${tone}`);
+  const glyph = node("span", icon, "chip-icon");
+  glyph.setAttribute("aria-hidden", "true");
+  element.append(glyph, node("span", text));
+  return element;
+}
+
+function field(object, ...path) {
+  let value = object;
+  for (const key of path) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = value[key];
+  }
+  return value;
+}
+
+function count(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function plural(n, word, many = `${word}s`) {
+  return `${n} ${n === 1 ? word : many}`;
+}
+
+function card(title, status, ...lines) {
+  const section = node("section", undefined, "status-card");
+  const header = node("div", undefined, "status-card-header");
+  header.append(node("h2", title), chip(status));
+  section.append(header);
+  for (const line of lines) if (line) section.append(typeof line === "string" ? node("p", line) : line);
+  return section;
+}
+
+// Paragraph with inline `code` spans, e.g. command-line flags.
+function hint(text, className = "next-action") {
+  const paragraph = node("p", undefined, className);
+  addInlineCode(paragraph, text);
+  return paragraph;
+}
+
+function errorBlock(message, next) {
+  // Not a live region: refreshes announce through the single polite #app-status.
+  const block = node("div", undefined, "status-error");
+  block.append(node("p", message, "error"));
+  if (next) block.append(hint(next));
+  return block;
+}
+
+function formatTime(value) {
+  const date = typeof value === "string" ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "an unknown time";
+}
+
+function workspaceCard(data) {
+  const mode = data.mode;
+  const modeStatus = mode === "demo" ? ["neutral", "◇", "Sample workspace"]
+    : mode === "local" ? ["neutral", "◇", "Local workspace"] : UNKNOWN_STATUS;
+  const source = field(data, "catalog", "source");
+  const sourceText = source === "demo_fixtures" ? "Bundled example repositories. No GitHub or private repositories are indexed."
+    : source === "local_checkouts" ? "Local Git checkouts, indexed from their committed HEAD when OpenDevin started."
+    : "Repository source unknown.";
+  const total = count(field(data, "catalog", "repository_count"));
+  const limited = count(field(data, "catalog", "limited_count"));
+  const totals = total === null ? "Repository count unknown." : `${plural(total, "repository", "repositories")} indexed.`;
+  const limits = limited === null ? null
+    : limited ? `${plural(limited, "repository", "repositories")} hit the index limit; some files were not indexed.`
+    : "No repository hit the index limit.";
+  return card("Workspace", modeStatus, sourceText, totals, limits);
+}
+
+function modelCard(data, health) {
+  const answer = field(data, "providers", "answer") || {};
+  const status = statusOf(answer.status, ["configured", "not_configured"]);
+  if (answer.status === "not_configured") {
+    return card("Answer model", status,
+      "Search only: answers show matching source excerpts without generated text.",
+      hint("To generate answers, restart OpenDevin with `--model NAME` to use a local Ollama model."));
+  }
+  if (answer.status !== "configured") return card("Answer model", status, "Model status unknown.");
+  const adapter = answer.adapter === "ollama" ? "Ollama" : "Unknown adapter";
+  const model = typeof answer.model === "string" ? answer.model : "unknown model";
+  const destination = answer.destination === "loopback"
+    ? "Destination: loopback — prompts go to Ollama on this computer."
+    : "Destination unknown.";
+  const probed = field(health, "components", "model", "probed") === false
+    ? "Not checked yet: OpenDevin does not contact the model until you ask a question." : null;
+  return card("Answer model", status, `${adapter} model ${model}.`, destination, probed);
+}
+
+function notAvailableCard(title, value) {
+  const status = statusOf(field(value, "status"), ["not_available"]);
+  const reason = typeof field(value, "reason") === "string" ? value.reason : null;
+  return card(title, status, reason ? hint(reason, "") : "Status unknown.");
+}
+
+function storageCard(data, health) {
+  const storage = field(data, "storage") || {};
+  const status = statusOf(storage.status, ["ok", "disabled"]);
+  if (storage.status === "disabled") return card("Storage", status, "Storage is disabled in this build. Nothing is saved.");
+  if (storage.status !== "ok") return card("Storage", status, "Storage status unknown.");
+  const schema = count(storage.schema_version);
+  const expected = count(field(health, "components", "storage", "expected_schema_version"));
+  const size = count(field(health, "components", "storage", "size_bytes"));
+  const schemaText = schema === null ? "Schema version unknown." : `Schema ${schema}.`;
+  const mismatch = schema !== null && expected !== null && schema !== expected
+    ? node("p", `! Schema ${schema} does not match the expected schema ${expected}.`, "warning-text") : null;
+  if (storage.persistent === true) {
+    const sizeText = size === null ? null : `Database size ${(size / 1024).toFixed(1)} KiB.`;
+    return card("Storage", status, `Persistent local database. ${schemaText}`, mismatch, sizeText);
+  }
+  if (storage.persistent === false) {
+    return card("Storage", status, "Not persistent: kept in memory and discarded when OpenDevin stops.", mismatch);
+  }
+  return card("Storage", status, "Persistence unknown.", mismatch);
+}
+
+function secretsCard(data) {
+  const secrets = field(data, "secrets") || {};
+  const value = secrets.available === true ? "available" : secrets.available === false ? "unavailable" : null;
+  const status = statusOf(value, ["available", "unavailable"]);
+  const reason = typeof secrets.reason === "string" ? secrets.reason : null;
+  if (value === "unavailable") {
+    return card("Credentials", status, reason || "Credential setup is disabled.",
+      "This is a setup state, not a fault. Nothing in this version needs a stored credential.");
+  }
+  if (value === "available") return card("Credentials", status, "A secure credential store is available.");
+  return card("Credentials", status, "Credential store status unknown.");
+}
+
+function healthCard(data) {
+  const status = statusOf(data.status, ["ok", "degraded"]);
+  const jobs = field(data, "components", "jobs") || {};
+  const lines = [`Checked ${formatTime(data.checked_at)}.`];
+  const list = node("dl", undefined, "health-list");
+  const row = (name, value, allowed, text) => {
+    const term = node("dt", name);
+    const description = node("dd");
+    description.append(chip(statusOf(value, allowed)));
+    if (text) description.append(node("span", text, "health-detail"));
+    list.append(term, description);
+  };
+  const indexCount = count(field(data, "components", "index", "repository_count"));
+  row("Index", field(data, "components", "index", "status"), ["ok"],
+    indexCount === null ? "" : `${plural(indexCount, "repository", "repositories")}, rebuilt at startup`);
+  row("Storage", field(data, "components", "storage", "status"), ["ok", "disabled"], "");
+  row("Background jobs", jobs.status, ["ok", "degraded", "disabled"], "");
+  row("Credentials", field(data, "components", "secrets", "status"), ["available", "unavailable"], "");
+  row("Answer model", field(data, "components", "model", "status"), ["configured", "not_configured"], "");
+  lines.push(list);
+
+  if (jobs.status === "disabled") {
+    lines.push("Background jobs are disabled in this build.");
+  } else if (jobs.counts && typeof jobs.counts === "object") {
+    const names = [["queued", "Queued"], ["leased", "Leased"], ["succeeded", "Succeeded"], ["failed", "Failed"],
+      ["cancelled", "Cancelled"], ["needs_reconciliation", "Needs reconciliation"]];
+    lines.push(`Jobs: ${names.map(([key, label]) => `${label} ${count(jobs.counts[key]) ?? "unknown"}`).join(" · ")}.`);
+  }
+  const reconcile = count(field(jobs, "counts", "needs_reconciliation"));
+  if (reconcile) {
+    lines.push(node("p", `! ${plural(reconcile, "job needs", "jobs need")} reconciliation: the outcome is unknown, so ${reconcile === 1 ? "it is" : "they are"} not retried automatically.`, "warning-text"));
+  }
+  const expired = count(jobs.expired_leases);
+  if (expired) lines.push(node("p", `! ${plural(expired, "expired lease")}.`, "warning-text"));
+  if (reconcile || expired) lines.push("Tools to resolve jobs are not available in this version.");
+  if (jobs.workers_running === 0 && jobs.status !== "disabled") lines.push("No background worker runs in this version.");
+
+  const failures = Array.isArray(data.recent_failures) ? data.recent_failures : [];
+  if (failures.length) {
+    const failureList = node("ul", undefined, "failure-list");
+    for (const failure of failures.slice(0, 5)) {
+      const kind = typeof failure?.kind === "string" ? failure.kind : "unknown kind";
+      const code = typeof failure?.code === "string" ? failure.code : "unknown";
+      failureList.append(node("li", `${kind} failed (${code}) at ${formatTime(failure?.at)}`));
+    }
+    const heading = node("h3", "Recent job failures");
+    lines.push(heading, failureList);
+  }
+  return card("Health", status, ...lines);
+}
+
+function renderSettings() {
+  const root = byId("settings-content");
+  const { workspace, health } = state.status;
+  const parts = [];
+  if (workspace.kind === "loading") {
+    root.replaceChildren(node("p", "Loading status…", "page-status"));
+    return;
+  }
+  if (workspace.kind === "legacy") {
+    parts.push(node("p", "Status unavailable in this build.", "page-status"));
+    parts.push(node("p", "Ask and Repositories still work.", "page-note"));
+  } else if (workspace.kind === "error") {
+    parts.push(errorBlock(`Could not load workspace status. ${workspace.message}`, "Choose Refresh status to try again."));
+  } else {
+    const data = workspace.data;
+    const healthData = health.kind === "ok" ? health.data : null;
+    const grid = node("div", undefined, "status-grid");
+    grid.append(
+      workspaceCard(data),
+      modelCard(data, healthData),
+      notAvailableCard("Provider profiles", field(data, "providers", "profiles")),
+      notAvailableCard("GitHub", field(data, "catalog", "github")),
+      notAvailableCard("Implementation sessions", field(data, "execution")),
+      storageCard(data, healthData),
+      secretsCard(data),
+    );
+    parts.push(grid);
+  }
+  if (health.kind === "ok") parts.push(healthCard(health.data));
+  else if (health.kind === "error") {
+    parts.push(errorBlock(`Could not load health status. ${health.message}`, "Choose Refresh status to try again."));
+  } else if (health.kind === "legacy" && workspace.kind !== "legacy") {
+    parts.push(node("p", "Health status unavailable in this build.", "page-status"));
+  }
+  root.replaceChildren(...parts);
+}
+
+function renderRepositories() {
+  const root = byId("repositories-content");
+  if (state.reposError) {
+    root.replaceChildren(errorBlock(`Could not load repositories. ${state.reposError}`, "Reload the page to try again."));
+    return;
+  }
+  if (!state.reposLoaded) {
+    root.replaceChildren(node("p", "Loading repositories…", "page-status"));
+    return;
+  }
+  if (!state.repos.length) {
+    root.replaceChildren(node("p", "No repositories are indexed.", "page-status"));
+    return;
+  }
+  const parts = [];
+  const { workspace } = state.status;
+  const source = workspace.kind === "ok" ? field(workspace.data, "catalog", "source")
+    : state.repos.every((repo) => repo.demo) ? "demo_fixtures" : "local_checkouts";
+  parts.push(node("p", source === "demo_fixtures" ? "Bundled example repositories for the sample workspace."
+    : source === "local_checkouts" ? "Local Git checkouts, indexed from their committed HEAD when OpenDevin started."
+    : "Repository source unknown.", "page-note"));
+  const github = workspace.kind === "ok" ? field(workspace.data, "catalog", "github") : null;
+  if (github) {
+    const line = node("p", undefined, "page-note");
+    line.append(chip(statusOf(github.status, ["not_available"])), document.createTextNode(` GitHub: ${typeof github.reason === "string" ? github.reason : "status unknown."}`));
+    parts.push(line);
+  }
+
+  const table = node("table", undefined, "repo-table");
+  table.append(node("caption", `${plural(state.repos.length, "indexed repository", "indexed repositories")}`, "sr-only"));
+  const head = node("thead");
+  const headRow = node("tr");
+  for (const label of ["Repository", "Revision", "Files", "Index"]) {
+    const cell = node("th", label);
+    cell.setAttribute("scope", "col");
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = node("tbody");
+  for (const repo of state.repos) {
+    const row = node("tr");
+    const name = node("th", repo.name);
+    name.setAttribute("scope", "row");
+    const revision = node("td");
+    const revisionText = node(repo.demo ? "span" : "code", repo.demo ? "Sample" : String(repo.revision).slice(0, 7));
+    revisionText.title = repo.demo ? "Bundled sample revision" : String(repo.revision);
+    revision.append(revisionText);
+    const files = node("td", String(repo.files));
+    const index = node("td");
+    index.append(repo.limited
+      ? chip(["attention", "!", "Index limit reached: some files were not indexed"])
+      : chip(["good", "✓", "Indexed"]));
+    index.title = `Indexed ${formatTime(repo.indexed_at)}`;
+    row.append(name, revision, files, index);
+    body.append(row);
+  }
+  table.append(head, body);
+  parts.push(table);
+  root.replaceChildren(...parts);
+}
+
+showRoute(false);
+refreshStatus();
+
 try {
   const settings = await api("/api/repos");
   state.repos = settings.repos;
   state.model = settings.model;
+  state.reposLoaded = true;
   const demo = state.repos.every((repo) => repo.demo);
   state.current = newConversation(state.repos.map(({ name }) => name));
   byId("mode-label").textContent = state.model ? "Ollama" : "Search only";
@@ -381,8 +836,11 @@ try {
   renderThread();
   syncControls();
 } catch (error) {
+  state.reposError = error.message;
   thread.setAttribute("aria-busy", "false");
   byId("mode-label").textContent = "Unavailable";
   byId("intro-text").textContent = error.message;
   byId("composer-status").textContent = "Could not load repositories";
 }
+renderWorkspaceMode();
+if (state.route === "repositories") renderRepositories();
