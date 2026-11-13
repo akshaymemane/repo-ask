@@ -4,7 +4,7 @@
 
 - Author/harness and session ID: Claude (Claude Code, architect delegate); task card owner_session `6cf6a390-9b08-4792-aa22-fcda0f9faa11`
 - Persona, branch and worktree: architect · `task/contract-01` · `/Users/apple/workspace/vibe-coding/opendevin-contract-01`
-- Base SHA and submitted commit SHA(s): base `37e635abd527c53b7bdd77648e6c87ae17a3c970`; submitted = the single local commit that adds this file (SHA reported to coordinator in the session result; `git log -1 task/contract-01`)
+- Base SHA and submitted commit SHA(s): base `37e635abd527c53b7bdd77648e6c87ae17a3c970`; initial `91a80b6fdfa92aeccc6890a09e6eba459c83cdfe`; review-fix commit = its child on `task/contract-01` (SHA reported in session result; `git log -1 task/contract-01`)
 - Task card and requirement IDs: `docs/agents/runs/CONTRACT-01/task.json`; OP-01, OP-02, OP-04, OP-09, UX-02, UX-08, UX-10 (F12, F07 summary, F11)
 - Status: review
 
@@ -29,11 +29,18 @@ Key choices to review (details in ADR):
 
 Routes the coordinator wires in M0-INTEGRATE (`repoask/__main__.py`): `GET /api/workspace`, `GET /api/health` (two `elif` branches calling platform builders), `--data-dir PATH`, `Platform.open` at startup (fail closed on error), `close()` on shutdown. No POST/state-changing routes, no `/api/jobs`, no worker thread.
 
+### Review findings resolved (Codex independent review of 91a80b6)
+
+1. §2 Python baseline restored to ≥3.10 (matches repo README); implementations limited to 3.10-compatible APIs. No baseline bump.
+2. §4 `Worker.run_once`: unexpected exception in an `effect='external'` job → `mark_unknown_outcome(code="internal")` (never `failed`, never retried). `RetryableError` documented as handler evidence that no external effect occurred; `PermanentError` as known definitive failure; otherwise `UnknownOutcomeError`. `resolve_reconciliation(outcome="requeue")` rejects with `InvalidTransition` when `attempts>=max_attempts`. Transition table and §8 focused check 7a updated.
+
+No other interfaces or fixtures changed.
+
 ## Verification evidence
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
-| Baseline unchanged | `python3 -m unittest discover -s tests` (before and after edits) | exit 0, `Ran 4 tests ... OK` both times |
+| Baseline unchanged | `python3 -m unittest discover -s tests` (before and after edits; rerun after review fixes) | exit 0, `Ran 4 tests ... OK` each time |
 | Fixtures parse | `python3 -m json.tool docs/contracts/m0-fixtures.json` and task.json | exit 0 (`JSON_OK`) |
 | Fixture/interface consistency; legacy shapes preserved | `python3 -I docs/agents/runs/CONTRACT-01/check_fixtures.py` | exit 0: `OK: 3 workspace, 4 health, 3 error fixtures consistent`; legacy repos keys/values and ask search response compared against live `CodeIndex`/`respond()` output |
 | OP-01/02/04/09, UX-02/08/10 | Document review only | Specified, not runtime-proven; platform/experience builders' focused checks (README §8) provide behavior evidence |

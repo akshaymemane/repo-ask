@@ -63,7 +63,9 @@ reserved for routes added after M0.
 
 ## 2. Platform Python interface
 
-Package `repoask/platform/` (M0-PLATFORM exclusive). Standard library only. Python ≥3.11.
+Package `repoask/platform/` (M0-PLATFORM exclusive). Standard library only. Python ≥3.10, matching the
+existing README baseline (no version bump); implementations use only Python 3.10-compatible
+language features and standard-library APIs.
 All public functions are synchronous and thread-safe through `Store`'s lock.
 
 ```python
@@ -318,7 +320,8 @@ Expiry alone does not invalidate a token; only reconciliation (which clears it) 
 | `leased` | `reconcile_expired` | expired, safe, `attempts<max_attempts` | `queued` | clear lease; `run_after=now`; `last_error_code='lease_expired'` |
 | `leased` | `reconcile_expired` | expired, safe, attempts exhausted | `failed` | clear lease; `last_error_code='lease_expired'`; `finished_at` |
 | `needs_reconciliation` | `resolve_reconciliation` | `succeeded` / `failed` | that state | `finished_at` |
-| `needs_reconciliation` | `resolve_reconciliation` | `requeue` | `queued` | `run_after=now`; attempts not reset |
+| `needs_reconciliation` | `resolve_reconciliation` | `requeue` and `attempts<max_attempts` | `queued` | `run_after=now`; attempts not reset |
+| `needs_reconciliation` | `resolve_reconciliation` | `requeue` and `attempts>=max_attempts` | unchanged | `InvalidTransition`; resolve as `succeeded`/`failed` instead |
 
 "Clear lease" = `lease_owner=lease_token=lease_expires_at=NULL`. `claim()` runs
 `reconcile_expired()` inside the same transaction before selecting. Restart does **not**
@@ -329,9 +332,21 @@ Only the owning feature service (with external-state evidence) may call
 
 Error codes written to `last_error_code`: `transient`, `rate_limited`, `timeout`, `auth`,
 `invalid_input`, `unsupported`, `unknown_outcome`, `lease_expired`, `internal`.
-`Worker.run_once` maps `RetryableError→fail(retryable=True)`, `PermanentError→fail(retryable=False)`,
-`UnknownOutcomeError→mark_unknown_outcome`, any other exception → `fail(code="internal", retryable=False)`
-with message = exception class name only (no `str(exc)`, which may contain content).
+`Worker.run_once` maps handler outcomes:
+
+| Handler raises | `effect='safe'` | `effect='external'` |
+| --- | --- | --- |
+| `RetryableError` | `fail(retryable=True)` | `fail(retryable=True)` |
+| `PermanentError` | `fail(retryable=False)` | `fail(retryable=False)` |
+| `UnknownOutcomeError` | `mark_unknown_outcome` | `mark_unknown_outcome` |
+| any other exception | `fail(code="internal", retryable=False)` | `mark_unknown_outcome(code="internal")` |
+
+Message = exception class name only (no `str(exc)`, which may contain content).
+`RetryableError` asserts the handler has evidence that no external effect occurred, so a retry
+is safe; `PermanentError` asserts the handler knows the outcome is a definitive failure. A handler
+that cannot prove either must raise `UnknownOutcomeError`. An unknown mutation outcome is never
+recorded as definitively `failed` and never retried automatically; it waits in
+`needs_reconciliation` for `resolve_reconciliation`.
 
 ---
 
@@ -491,6 +506,9 @@ Focused checks (behavior, not implementation mirroring):
    external job expiry → `needs_reconciliation` and **not** claimable.
 6. Stale lease token after reconciliation → `LeaseLost` on complete/heartbeat, no state change.
 7. Cancel queued/leased/terminal/needs_reconciliation per table; backoff values.
+7a. `Worker.run_once`: unexpected exception in an `external` job → `needs_reconciliation`
+    (`last_error_code='internal'`), not `failed`, not claimable; in a `safe` job → `failed`.
+    `resolve_reconciliation(outcome="requeue")` with `attempts>=max_attempts` → `InvalidTransition`, row unchanged.
 8. Secrets: unavailable backend → `create` raises with zero rows; with test double: put-failure rollback,
    revoke blocks resolve, missing value → `SecretMissing`; secret string absent from DB file bytes and reprs.
 9. `build_workspace_summary`/`build_health` output equals fixtures' key sets for demo/no-platform and persistent cases.
