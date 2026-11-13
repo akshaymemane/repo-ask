@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated": "2026-11-13",
-  "phase": "M0_builders_preparing",
+  "updated": "2026-11-13T15:30:30.669479+00:00",
+  "phase": "M0_parallel_builders_running",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
@@ -57,7 +57,7 @@
       "id": "M0-PLATFORM",
       "milestone": "M0",
       "title": "Persistent storage, migrations and durable job skeleton",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F12"
       ],
@@ -74,24 +74,24 @@
         "Transactional migration and restart behavior verified",
         "Secret abstraction has no plaintext fallback"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
+      "owner_session": "01a1d587-b726-7fe1-9774-338d0628928b",
+      "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
+      "branch": "task/m0-platform",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-platform",
       "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "handoff": "docs/agents/runs/M0-PLATFORM/handoff.md",
+      "heartbeat_at": "2026-11-13T15:30:02.833669+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
       "completion_depends_on": []
     },
     {
       "id": "M0-EXPERIENCE",
       "milestone": "M0",
       "title": "Workspace navigation skeleton against accepted fixtures",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F11"
       ],
@@ -108,17 +108,17 @@
         "Existing demo remains usable",
         "Navigation and empty/setup states work with keyboard"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
+      "owner_session": "82ea8cad-ecaa-40a4-8e7d-342e90429085",
+      "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
+      "branch": "task/m0-experience",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-experience",
       "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "handoff": "docs/agents/runs/M0-EXPERIENCE/handoff.md",
+      "heartbeat_at": "2026-11-13T15:30:03.001527+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
       "completion_depends_on": []
     },
     {

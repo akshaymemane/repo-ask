@@ -1,0 +1,71 @@
+{
+  "id": "M0-EXPERIENCE",
+  "title": "M0 experience foundation slice",
+  "state": "running",
+  "feature_ids": [
+    "F11"
+  ],
+  "requirement_ids": [
+    "UX-02",
+    "UX-03",
+    "UX-07",
+    "UX-08",
+    "UX-10"
+  ],
+  "persona": "experience",
+  "harness": "claude",
+  "owner_session": "82ea8cad-ecaa-40a4-8e7d-342e90429085",
+  "depends_on": [
+    "CONTRACT-01"
+  ],
+  "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
+  "branch": "task/m0-experience",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-experience",
+  "write_scope": [
+    "repoask/web/",
+    "tests/ui/",
+    "docs/agents/runs/M0-EXPERIENCE/"
+  ],
+  "read_inputs": [
+    "AGENTS.md",
+    "docs/agents/WORKFLOW.md",
+    "docs/contracts/README.md",
+    "docs/contracts/m0-fixtures.json",
+    "docs/architecture/0001-m0-foundation.md",
+    "docs/features/11-workspace-experience.md"
+  ],
+  "contract_versions": {
+    "M0": "opendevin.m0/1"
+  },
+  "acceptance": [
+    "Implement navigation Ask/Repositories/Settings using accepted hash routes, summary and health contracts",
+    "Preserve existing Ask examples, selected repositories, answers/citations/source inspector and model/search behavior",
+    "Persistent honest demo/local workspace indicators; no fake GitHub/profile/session actions or invented runtime state",
+    "Legacy404 fallback works before route wiring; failed network/health cannot be shown as success",
+    "Keyboard links, focus, labels, contrast and non-color states; unknown values render neutral",
+    "No new dependencies; validate JS syntax, baseline Python tests, and record honest interactive evidence or not-run limitations; local commit only assigned paths"
+  ],
+  "checks": [
+    "python3 -m unittest discover -s tests",
+    "python3 -I docs/agents/runs/CONTRACT-01/check_fixtures.py",
+    "node --check repoask/web/app.js",
+    "Keyboard/UI checks where tooling available; report not-run checks"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "codex",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/M0-EXPERIENCE/handoff.md",
+  "status_artifact": "docs/agents/runs/M0-EXPERIENCE/status.md",
+  "heartbeat_at": "2026-11-13T15:30:03.001527+00:00",
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
+  "completion_depends_on": [],
+  "review_packet": null
+}

@@ -1,0 +1,69 @@
+{
+  "id": "M0-PLATFORM",
+  "title": "M0 platform foundation slice",
+  "state": "running",
+  "feature_ids": [
+    "F12"
+  ],
+  "requirement_ids": [
+    "OP-01",
+    "OP-02",
+    "OP-04",
+    "OP-09"
+  ],
+  "persona": "platform",
+  "harness": "codex",
+  "owner_session": "codex-cli:M0-PLATFORM",
+  "depends_on": [
+    "CONTRACT-01"
+  ],
+  "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
+  "branch": "task/m0-platform",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-platform",
+  "write_scope": [
+    "repoask/platform/",
+    "tests/test_platform_*.py",
+    "docs/agents/runs/M0-PLATFORM/"
+  ],
+  "read_inputs": [
+    "AGENTS.md",
+    "docs/agents/WORKFLOW.md",
+    "docs/contracts/README.md",
+    "docs/contracts/m0-fixtures.json",
+    "docs/architecture/0001-m0-foundation.md",
+    "docs/features/12-platform-operations.md"
+  ],
+  "contract_versions": {
+    "M0": "opendevin.m0/1"
+  },
+  "acceptance": [
+    "Implement accepted Python3.10-compatible platform interface with no dependencies, network or entrypoint edits",
+    "Durable file DB migration/reopen/checksum/rollback/backup behavior; in-memory default remains explicit",
+    "Job idempotency, priority, token fencing, lease recovery, cancellation, retries and unknown external outcomes tested",
+    "Secret-service unavailable runtime backend fails closed; test-only memory backend; no plaintext runtime backend",
+    "Workspace/health builders match accepted fixture structure and truthfully report no active workers",
+    "Run meaningful focused tests and full existing regression suite, provide handoff; local commit only assigned paths when permitted"
+  ],
+  "checks": [
+    "python3 -m unittest discover -s tests",
+    "python3 -I docs/agents/runs/CONTRACT-01/check_fixtures.py",
+    "Focused python unittest discover pattern test_platform_*.py"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "claude",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/M0-PLATFORM/handoff.md",
+  "status_artifact": "docs/agents/runs/M0-PLATFORM/status.md",
+  "heartbeat_at": "2026-11-13T15:30:02.833669+00:00",
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Implement assigned scope, validate behavior and return exact-commit handoff; no further tasks",
+  "completion_depends_on": [],
+  "review_packet": null
+}
