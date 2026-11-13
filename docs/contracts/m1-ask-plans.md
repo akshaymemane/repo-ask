@@ -18,11 +18,11 @@ Export three services from repoask.ask:
 - `PlanService(store,index,providers,*,execution_preflight=None,clock=now_ms)`.
   `create(conversation_id,content,source='manual',profile_version_id=None,generation=None)`,
   `save_version(plan_id,content,parent_version_id,source='manual',profile_version_id=None,generation=None)`,
-  `get(plan_id,version_id=None)`, `list_plans(conversation_id=None,limit=50)`,
+  `get(plan_id,version_id=None)`, `list_plans(conversation_id=None,limit=50,cursor=None)`,
   `export(plan_id,version_id=None)`, `delete(plan_id)`.
   External callers cannot declare source=model/profileversion; coordinator HTTP omits them.
 - `ConversationService(store,jobs,index,providers,routing,plans,*,clock=now_ms)`.
-  `create(title='',repository_ids=())`, `list_conversations(limit=50)`, `get(id)`,
+  `create(title='',repository_ids=())`, `list_conversations(limit=50,cursor=None)`, `get(id)`,
   `update_scope(id,repository_ids,expected_revision)`,
   `send(id,content,client_request_id,intent='answer')`, `get_run(id)`,
   `cancel(run_id)`, `retry(run_id)`, `delete(id)`, `export(id)`,
@@ -33,6 +33,12 @@ Export three services from repoask.ask:
   original user message and replaces continuation job; no duplicate user or plan version.
   Model generation takes place only in durable `ask.answer` handler, never HTTP thread.
   Plans generated through send(intent=plan) create a plan version only after validation.
+
+Collection methods return {items,next_cursor}, stable(created_at,id) ordering and
+opaque validated cursors; limit1..100. HTTP GET lists accept limit,cursor and optional
+conversation_id forplans. Never silently truncate a saved conversation message history;
+get(conversation) may return a boundedrecent window with explicitpagination metadata
+and an additive list_messages method for earlierhistory.
 
 ## Routing output and evaluation
 
