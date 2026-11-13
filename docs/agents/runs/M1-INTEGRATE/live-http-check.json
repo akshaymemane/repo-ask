@@ -1,0 +1,40 @@
+{
+  "/api/workspace": {
+    "status": 200
+  },
+  "/api/health": {
+    "status": 200,
+    "workers_running": 1
+  },
+  "/api/github/connections": {
+    "status": 200
+  },
+  "/api/repositories": {
+    "status": 200
+  },
+  "/api/provider-profiles": {
+    "status": 200
+  },
+  "/api/settings/model-roles": {
+    "status": 200
+  },
+  "QA chat": {
+    "profile_id": "prof_7d98b9eb98b7c2c654c5f976",
+    "check_status": "passed",
+    "capabilities": [
+      "chat",
+      "structured_output"
+    ],
+    "ask": "ready",
+    "planning": "ready",
+    "summary": "ready"
+  },
+  "QA embeddings": {
+    "profile_id": "prof_79f68090ed25f8fa0b7de453",
+    "check_status": "passed",
+    "capabilities": [
+      "embeddings"
+    ],
+    "embedding": "ready"
+  }
+}

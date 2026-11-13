@@ -20,6 +20,8 @@ MIGRATIONS += (Migration(2, "github_catalog", GITHUB_SQL), Migration(3, "provide
 from .index_schema import INDEX_SQL, INDEX_NAMESPACE_V5_SQL
 MIGRATIONS += (Migration(4, "repository_context", INDEX_SQL),
                Migration(5, "versioned_embedding_namespaces", INDEX_NAMESPACE_V5_SQL))
+from .ask_schema import ASK_SQL
+MIGRATIONS += (Migration(6, "conversations_and_plans", ASK_SQL),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 
