@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opendevin-local"
+version = "0.1.0"
+description = "Self-hosted repository-aware planning and implementation workspace"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+credentials = ["keyring>=25.6,<26"]
+github = ["cryptography>=46,<51"]
+vectors = ["sqlite-vec>=0.1.9,<0.2"]
+full = ["keyring>=25.6,<26", "cryptography>=46,<51", "sqlite-vec>=0.1.9,<0.2"]
+
+[project.scripts]
+opendevin = "repoask.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["repoask*"]
+
+[tool.setuptools.package-data]
+repoask = ["web/*", "examples/**/*"]
