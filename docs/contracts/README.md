@@ -1,6 +1,6 @@
 # OpenDevin M0 contract packet — `opendevin.m0/1`
 
-Status: Proposed by CONTRACT-01 (architect) — authoritative only after coordinator acceptance.
+Status: Accepted by coordinator after independent Codex review of Claude commit `26c4e969975f4e74ae11b294de2735a486df6040`. See [review](../agents/runs/CONTRACT-01/review-r2.md).
 Date: 2026-11-13 | Base: `37e635abd527c53b7bdd77648e6c87ae17a3c970`
 Decisions: [ADR 0001](../architecture/0001-m0-foundation.md) | Fixtures: [`m0-fixtures.json`](m0-fixtures.json)
 Requirements: OP-01, OP-02, OP-04, OP-09 (F12); UX-02, UX-08, UX-10 (F11); F07 summary only.

@@ -6,7 +6,7 @@ Select a set of Git repositories, ask an engineering question, and open the cite
 
 The planned OpenDevin product is described in the [Master PRD](Master%20PRD.md), with [12 detailed feature specifications](docs/features). These documents describe future capabilities; the application below remains the current read-only prototype.
 
-The [Codex + Claude development workflow](docs/agents/README.md) defines agent personas, task ownership, worktree isolation, review gates and the tmux runbook. Product implementation has not started.
+The [Codex + Claude development workflow](docs/agents/README.md) defines agent personas, task ownership, worktree isolation, review gates and the tmux runbook. Development has started; the [task board](docs/agents/board.json) tracks the current wave.
 
 ## Run the sample
 

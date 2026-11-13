@@ -1,13 +1,13 @@
 {
   "version": 1,
   "updated": "2026-11-13",
-  "phase": "implementation_started_contract_gate",
+  "phase": "M0_builders_preparing",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
   "baseline_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
   "baseline_note": "Planning and workflow files are included in the authorized baseline commit. Resolve and record the exact baseline_sha at implementation launch; do not infer it from a later mutable HEAD.",
-  "contract_status": "not_started",
+  "contract_status": "opendevin.m0/1 accepted after revision 2",
   "state_vocabulary": [
     "backlog",
     "ready",
@@ -23,7 +23,7 @@
       "id": "CONTRACT-01",
       "milestone": "M0",
       "title": "Minimal storage/API/provider and UI fixture contracts",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F12",
         "F07",
@@ -44,13 +44,13 @@
       "base_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
       "branch": "task/contract-01",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-contract-01",
-      "reviewer_session": null,
+      "reviewer_session": "Codex coordinator / independent contract review",
       "handoff": "docs/agents/runs/CONTRACT-01/handoff.md",
       "heartbeat_at": "2026-11-13T15:18:18.171377+00:00",
-      "submitted_sha": null,
-      "integration_sha": null,
+      "submitted_sha": "26c4e969975f4e74ae11b294de2735a486df6040",
+      "integration_sha": "0e66556",
       "blocker": null,
-      "next_action": "Architect writes packet; coordinator reviews for both platform producer and UI consumer before acceptance",
+      "next_action": "Accepted; platform and experience builders may start",
       "completion_depends_on": []
     },
     {

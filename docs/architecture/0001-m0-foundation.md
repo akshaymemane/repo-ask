@@ -1,6 +1,6 @@
 # ADR 0001 — M0 foundation: storage, jobs, secrets, workspace summary
 
-Status: Proposed (CONTRACT-01) — coordinator accepts | Date: 2026-11-13
+Status: Accepted (CONTRACT-01), see coordinator review-r2 | Date: 2026-11-13
 Contract: [docs/contracts/README.md](../contracts/README.md) `opendevin.m0/1`
 Requirements: OP-01, OP-02, OP-04, OP-09, UX-02, UX-08, UX-10
 
