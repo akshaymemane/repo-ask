@@ -1,0 +1,51 @@
+{
+  "id": "TASK-ID",
+  "title": "One reviewable behavior slice",
+  "state": "backlog",
+  "feature_ids": [
+    "F12"
+  ],
+  "requirement_ids": [
+    "OP-01"
+  ],
+  "persona": "platform",
+  "harness": "codex",
+  "owner_session": null,
+  "depends_on": [],
+  "base_sha": null,
+  "branch": null,
+  "worktree": null,
+  "write_scope": [
+    "explicit/new/module.py",
+    "tests/explicit_test.py"
+  ],
+  "read_inputs": [
+    "Master PRD.md",
+    "docs/features/12-platform-operations.md",
+    "accepted contract path"
+  ],
+  "contract_versions": {},
+  "acceptance": [
+    "Concrete observable behavior and failure scenario"
+  ],
+  "checks": [
+    "Exact focused command chosen for the slice"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "claude",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/TASK-ID/handoff.md",
+  "status_artifact": "docs/agents/runs/TASK-ID/status.md",
+  "heartbeat_at": null,
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Shape card and fill missing assignment fields before ready",
+  "completion_depends_on": [],
+  "review_packet": null
+}

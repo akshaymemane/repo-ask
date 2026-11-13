@@ -1,0 +1,905 @@
+{
+  "version": 1,
+  "updated": "2026-11-13",
+  "phase": "workflow_setup_only",
+  "coordinator": "Codex (current session)",
+  "max_active_agents": 4,
+  "max_active_builders": 2,
+  "baseline_sha": null,
+  "baseline_note": "Planning and workflow files are included in the authorized baseline commit. Resolve and record the exact baseline_sha at implementation launch; do not infer it from a later mutable HEAD.",
+  "contract_status": "not_started",
+  "state_vocabulary": [
+    "backlog",
+    "ready",
+    "running",
+    "review",
+    "blocked",
+    "integrated",
+    "archived"
+  ],
+  "note": "Work packages are sequencing defaults, not runnable task assignments. Proposed module paths require architecture acceptance. No implementation sessions launched.",
+  "work_packages": [
+    {
+      "id": "CONTRACT-01",
+      "milestone": "M0",
+      "title": "Minimal storage/API/provider and UI fixture contracts",
+      "state": "backlog",
+      "feature_ids": [
+        "F12",
+        "F07",
+        "F11"
+      ],
+      "planned_persona": "architect",
+      "planned_harness": "claude",
+      "depends_on": [],
+      "proposed_write_scope": [
+        "docs/contracts/",
+        "docs/architecture/"
+      ],
+      "acceptance_outline": [
+        "Producer and consumer examples accepted by coordinator",
+        "Job/secret/error contracts and migration ownership explicit"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M0-PLATFORM",
+      "milestone": "M0",
+      "title": "Persistent storage, migrations and durable job skeleton",
+      "state": "backlog",
+      "feature_ids": [
+        "F12"
+      ],
+      "planned_persona": "platform",
+      "planned_harness": "codex",
+      "depends_on": [
+        "CONTRACT-01"
+      ],
+      "proposed_write_scope": [
+        "repoask/platform/",
+        "tests/test_platform_*.py"
+      ],
+      "acceptance_outline": [
+        "Transactional migration and restart behavior verified",
+        "Secret abstraction has no plaintext fallback"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M0-EXPERIENCE",
+      "milestone": "M0",
+      "title": "Workspace navigation skeleton against accepted fixtures",
+      "state": "backlog",
+      "feature_ids": [
+        "F11"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "CONTRACT-01"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "Existing demo remains usable",
+        "Navigation and empty/setup states work with keyboard"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M0-INTEGRATE",
+      "milestone": "M0",
+      "title": "Wire foundation without breaking local demo",
+      "state": "backlog",
+      "feature_ids": [
+        "F12",
+        "F11"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M0-PLATFORM",
+        "M0-EXPERIENCE"
+      ],
+      "proposed_write_scope": [
+        "repoask/__main__.py",
+        "tests/test_repoask.py"
+      ],
+      "acceptance_outline": [
+        "Combined foundation smoke check passes",
+        "Existing regression suite passes"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-GITHUB",
+      "milestone": "M1",
+      "title": "GitHub App connection and paginated catalog",
+      "state": "backlog",
+      "feature_ids": [
+        "F01"
+      ],
+      "planned_persona": "platform",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M0-INTEGRATE"
+      ],
+      "proposed_write_scope": [
+        "repoask/github/",
+        "tests/test_github_*.py"
+      ],
+      "acceptance_outline": [
+        "250-repository pagination and incomplete refresh verified",
+        "Revocation removes retrieval/execution eligibility"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-PROVIDERS",
+      "milestone": "M1",
+      "title": "Provider roles, connection tests and local-only policy",
+      "state": "backlog",
+      "feature_ids": [
+        "F07"
+      ],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M0-INTEGRATE"
+      ],
+      "proposed_write_scope": [
+        "repoask/providers/",
+        "tests/test_providers_*.py"
+      ],
+      "acceptance_outline": [
+        "Ollama and compatible endpoint contract validated",
+        "Local-only policy and capability errors verified"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-INDEX",
+      "milestone": "M1",
+      "title": "Persistent snapshots and hybrid retrieval",
+      "state": "backlog",
+      "feature_ids": [
+        "F02"
+      ],
+      "planned_persona": "retrieval",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M1-GITHUB",
+        "M1-PROVIDERS"
+      ],
+      "proposed_write_scope": [
+        "repoask/retrieval/",
+        "tests/test_retrieval_*.py",
+        "tests/fixtures/retrieval/"
+      ],
+      "acceptance_outline": [
+        "Restart/deletion/citation provenance verified",
+        "Embedding replacement and lexical fallback evaluated"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-CATALOG-UI",
+      "milestone": "M1",
+      "title": "Repository, indexing and provider configuration screens",
+      "state": "backlog",
+      "feature_ids": [
+        "F11",
+        "F01",
+        "F02",
+        "F07"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M1-GITHUB",
+        "M1-PROVIDERS"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "Truthful partial/failure/reconnect states",
+        "Real catalog/provider integration verified before acceptance"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": [
+        "M1-INDEX"
+      ]
+    },
+    {
+      "id": "M1-ROUTING",
+      "milestone": "M1",
+      "title": "Explainable repository routing and evaluation",
+      "state": "backlog",
+      "feature_ids": [
+        "F03"
+      ],
+      "planned_persona": "retrieval",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M1-INDEX"
+      ],
+      "proposed_write_scope": [
+        "repoask/routing/",
+        "tests/test_routing_*.py",
+        "tests/fixtures/routing/"
+      ],
+      "acceptance_outline": [
+        "Labeled top-three routing target measured",
+        "Ambiguous/absent tasks never silently select write scope"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-PLANS",
+      "milestone": "M1",
+      "title": "Durable Ask conversations and versioned plans",
+      "state": "backlog",
+      "feature_ids": [
+        "F04"
+      ],
+      "planned_persona": "platform",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M1-ROUTING"
+      ],
+      "proposed_write_scope": [
+        "repoask/planning/",
+        "tests/test_planning_*.py"
+      ],
+      "acceptance_outline": [
+        "Plan schema/readiness/version/freshness checks verified",
+        "Export and saved history preserve exact citations"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-ASK-UI",
+      "milestone": "M1",
+      "title": "Ask conversation and plan editor",
+      "state": "backlog",
+      "feature_ids": [
+        "F04",
+        "F11"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M1-ROUTING",
+        "M1-CATALOG-UI"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "Source pane and plan editing work against accepted contract",
+        "Real saved plan service integrated before review"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": [
+        "M1-PLANS"
+      ]
+    },
+    {
+      "id": "M2-RUNNER-SPIKE",
+      "milestone": "M2",
+      "title": "Container/event/state ownership proof",
+      "state": "backlog",
+      "feature_ids": [
+        "F05",
+        "F12"
+      ],
+      "planned_persona": "runtime",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M1-INTEGRATE"
+      ],
+      "proposed_write_scope": [
+        "docs/architecture/runner/",
+        "spikes/runner/"
+      ],
+      "acceptance_outline": [
+        "Isolation/cancellation/recovery assumptions demonstrated",
+        "Runner contract accepted before service implementation"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M2-ADAPTER-SPIKE",
+      "milestone": "M2",
+      "title": "Select first headless coding agent through lifecycle proof",
+      "state": "backlog",
+      "feature_ids": [
+        "F07"
+      ],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M1-INTEGRATE"
+      ],
+      "proposed_write_scope": [
+        "docs/architecture/adapters/",
+        "spikes/adapters/"
+      ],
+      "acceptance_outline": [
+        "Actual adapter startup/output/cancel/auth evidence",
+        "Licensing and unsupported resume behavior documented"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M2-SESSIONS",
+      "milestone": "M2",
+      "title": "Session orchestration, runner and replayable events",
+      "state": "backlog",
+      "feature_ids": [
+        "F05",
+        "F12"
+      ],
+      "planned_persona": "runtime",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M2-RUNNER-SPIKE",
+        "M2-ADAPTER-SPIKE"
+      ],
+      "proposed_write_scope": [
+        "repoask/sessions/",
+        "tests/test_sessions_*.py"
+      ],
+      "acceptance_outline": [
+        "Pinned plan, resource limits and stop/recovery verified",
+        "No duplicate runner on restart"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M2-SESSION-UI",
+      "milestone": "M2",
+      "title": "Session activity, diff, validation and follow-up interface",
+      "state": "backlog",
+      "feature_ids": [
+        "F05",
+        "F11",
+        "F06"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M2-RUNNER-SPIKE",
+        "M2-ADAPTER-SPIKE",
+        "M1-ASK-UI"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "Replay/refresh/stop/check outcomes distinguishable",
+        "Real session service connected before review",
+        "PR preview/publication action and failure status use real F06 service"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": [
+        "M2-SESSIONS",
+        "M2-PRS"
+      ]
+    },
+    {
+      "id": "M2-PRS",
+      "milestone": "M2",
+      "title": "Draft publication and uncertain-outcome reconciliation",
+      "state": "backlog",
+      "feature_ids": [
+        "F06"
+      ],
+      "planned_persona": "runtime",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M2-SESSIONS",
+        "M1-GITHUB"
+      ],
+      "proposed_write_scope": [
+        "repoask/publication/",
+        "tests/test_publication_*.py"
+      ],
+      "acceptance_outline": [
+        "Publication intent and required checks enforced",
+        "Lost response/retry yields one PR"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M2-PILOT",
+      "milestone": "M2",
+      "title": "Independent prompt-to-PR milestone acceptance",
+      "state": "backlog",
+      "feature_ids": [
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F11",
+        "F12"
+      ],
+      "planned_persona": "quality-reviewer",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M2-INTEGRATE"
+      ],
+      "proposed_write_scope": [
+        "docs/agents/runs/M2-PILOT/"
+      ],
+      "acceptance_outline": [
+        "Representative task evidence covers real end-to-end behavior",
+        "Security reviewer closes or records release blockers"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M3-SKILLS",
+      "milestone": "M3",
+      "title": "User skills, versions, assignments and context preview",
+      "state": "backlog",
+      "feature_ids": [
+        "F08"
+      ],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M2-PILOT"
+      ],
+      "proposed_write_scope": [
+        "repoask/customization/skills/",
+        "tests/test_skills_*.py"
+      ],
+      "acceptance_outline": [
+        "Version binding and safe imports verified",
+        "Skill cannot expand grants/publication intent"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M3-MEMORY",
+      "milestone": "M3",
+      "title": "Scoped memory, proposals, provenance and purge",
+      "state": "backlog",
+      "feature_ids": [
+        "F10"
+      ],
+      "planned_persona": "retrieval",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M2-PILOT"
+      ],
+      "proposed_write_scope": [
+        "repoask/customization/memory/",
+        "tests/test_memory_*.py"
+      ],
+      "acceptance_outline": [
+        "Proposal-only default and scoped retrieval",
+        "Deletion/revocation reaches vectors and context copies"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M3-PLUGINS",
+      "milestone": "M3",
+      "title": "Approved plugin/MCP tools and capability enforcement",
+      "state": "backlog",
+      "feature_ids": [
+        "F09"
+      ],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M3-SKILLS"
+      ],
+      "proposed_write_scope": [
+        "repoask/customization/plugins/",
+        "tests/test_plugins_*.py"
+      ],
+      "acceptance_outline": [
+        "Ask cannot dispatch mutation tools",
+        "Unknown external outcome is not blindly retried"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M3-CUSTOMIZATION-UI",
+      "milestone": "M3",
+      "title": "Skills, plugins and memory management experience",
+      "state": "backlog",
+      "feature_ids": [
+        "F08",
+        "F09",
+        "F10",
+        "F11"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M3-SKILLS",
+        "M3-MEMORY",
+        "M3-PLUGINS"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "CRUD/version/grant/provenance and deletion flows verified",
+        "Real services replace fixtures"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "completion_depends_on": []
+    },
+    {
+      "id": "M1-INTEGRATE",
+      "milestone": "M1",
+      "title": "Wire catalog, providers, retrieval and Ask into application",
+      "state": "backlog",
+      "feature_ids": [
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F07",
+        "F11",
+        "F12"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M1-PLANS",
+        "M1-ASK-UI",
+        "M1-CATALOG-UI"
+      ],
+      "completion_depends_on": [],
+      "proposed_write_scope": [
+        "repoask/__main__.py",
+        "repoask/index.py",
+        "repoask/answer.py",
+        "tests/test_repoask.py",
+        "tests/test_connected_ask.py"
+      ],
+      "acceptance_outline": [
+        "Real catalog/provider/index/plan path replaces UI fixtures",
+        "Cited saved plan and existing demo pass combined checks",
+        "M1 master PRD exit gate evidence recorded"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Shape integration task after dependency handoffs; independent review still required"
+    },
+    {
+      "id": "M2-INTEGRATE",
+      "milestone": "M2",
+      "title": "Wire session runner, activity and PR actions into application",
+      "state": "backlog",
+      "feature_ids": [
+        "F05",
+        "F06",
+        "F07",
+        "F11",
+        "F12"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M2-SESSIONS",
+        "M2-SESSION-UI",
+        "M2-PRS"
+      ],
+      "completion_depends_on": [],
+      "proposed_write_scope": [
+        "repoask/__main__.py",
+        "tests/test_repoask.py",
+        "tests/test_session_flow.py"
+      ],
+      "acceptance_outline": [
+        "Plan launch reaches real session and draft PR UI/service path",
+        "Replay/cancel/publication failures checked with integrated components"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Shape integration task after dependency handoffs; independent review still required"
+    },
+    {
+      "id": "M3-INTEGRATE",
+      "milestone": "M3",
+      "title": "Wire customization services into context assembly and UI",
+      "state": "backlog",
+      "feature_ids": [
+        "F08",
+        "F09",
+        "F10",
+        "F11",
+        "F12"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M3-SKILLS",
+        "M3-MEMORY",
+        "M3-PLUGINS",
+        "M3-CUSTOMIZATION-UI"
+      ],
+      "completion_depends_on": [],
+      "proposed_write_scope": [
+        "repoask/__main__.py",
+        "tests/test_customization_flow.py",
+        "docs/agents/runs/M3-INTEGRATE/"
+      ],
+      "acceptance_outline": [
+        "Real plan/session context binds versions and scopes",
+        "Cross-store deletion and plugin permission boundaries verified",
+        "Independent quality/security review before M3 completion"
+      ],
+      "owner_session": null,
+      "base_sha": null,
+      "branch": null,
+      "worktree": null,
+      "reviewer_session": null,
+      "handoff": null,
+      "heartbeat_at": null,
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Shape integration task after dependency handoffs; independent review still required"
+    }
+  ],
+  "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
+  "launch_gate": "User authorized committing setup only. Wait for an explicit start instruction before launching implementation agents or workers."
+}

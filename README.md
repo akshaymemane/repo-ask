@@ -2,6 +2,12 @@
 
 Select a set of Git repositories, ask an engineering question, and open the cited source lines beside the result. Repo Ask is a small, read-only, local prototype for understanding a feature that spans repositories.
 
+## Product planning
+
+The planned OpenDevin product is described in the [Master PRD](Master%20PRD.md), with [12 detailed feature specifications](docs/features). These documents describe future capabilities; the application below remains the current read-only prototype.
+
+The [Codex + Claude development workflow](docs/agents/README.md) defines agent personas, task ownership, worktree isolation, review gates and the tmux runbook. Product implementation has not started.
+
 ## Run the sample
 
 Use Python 3.10 or later with SQLite FTS5. Git is required when adding your own checkouts.
