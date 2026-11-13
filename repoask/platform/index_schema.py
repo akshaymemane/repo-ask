@@ -56,3 +56,18 @@ INDEX_SQL = (
     "CREATE INDEX snapshots_repository ON repository_snapshots(repository_id,created_at)",
     "CREATE INDEX index_run_state ON index_runs(state,updated_at)",
 )
+
+# Migration4 remains immutable; migration5 corrects namespace version identity.
+INDEX_NAMESPACE_V5_SQL = (
+    'PRAGMA defer_foreign_keys=ON',
+    'CREATE TEMP TABLE migration5_namespace_backup AS SELECT * FROM embedding_namespaces',
+    'DROP TABLE embedding_namespaces',
+    """CREATE TABLE embedding_namespaces (
+      id TEXT PRIMARY KEY, provider_namespace_key TEXT NOT NULL,
+      profile_version_id TEXT NOT NULL REFERENCES provider_profile_versions(id),
+      dimensions INTEGER NOT NULL CHECK(dimensions>0), normalization TEXT NOT NULL,
+      chunker_version TEXT NOT NULL, created_at INTEGER NOT NULL,
+      UNIQUE(provider_namespace_key,profile_version_id,dimensions,normalization,chunker_version))""",
+    'INSERT INTO embedding_namespaces SELECT * FROM migration5_namespace_backup',
+    'DROP TABLE migration5_namespace_backup',
+)
