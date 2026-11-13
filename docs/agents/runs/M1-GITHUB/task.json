@@ -1,0 +1,75 @@
+{
+  "id": "M1-GITHUB",
+  "title": "M1 GitHub connection and repository catalog",
+  "state": "review",
+  "feature_ids": [
+    "F01"
+  ],
+  "requirement_ids": [
+    "GH-01",
+    "GH-03",
+    "GH-05",
+    "GH-07",
+    "GH-08",
+    "GH-09",
+    "GH-10"
+  ],
+  "persona": "platform",
+  "harness": "codex",
+  "owner_session": "01a1d5c0-a956-77a0-882f-6acf69420e60",
+  "depends_on": [
+    "M0-INTEGRATE"
+  ],
+  "base_sha": "cb2dcad262050eed989cb64df05511db08974780",
+  "branch": "task/m1-github",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-github",
+  "write_scope": [
+    "repoask/github/",
+    "tests/test_github_*.py",
+    "tests/fixtures/github/",
+    "docs/agents/runs/M1-GITHUB/"
+  ],
+  "read_inputs": [
+    "AGENTS.md",
+    "docs/contracts/m1-services.md",
+    "repoask/platform/service_schema.py",
+    "docs/features/01-github-connection.md"
+  ],
+  "contract_versions": {
+    "M1": "opendevin.m1/1"
+  },
+  "acceptance": [
+    "Implement all owned service interface behavior in accepted M1 packet and its coordinator decision/return-shape sections",
+    "Use exact schemas and atomic enqueue_in_transaction; no migrations/entrypoint/other-module edits",
+    "Meaningful error/recovery/privacy tests and full regression suite; no implicit credentials or unsupported live-integration claims",
+    "Durable handoff with actual checks, limitations and locally committed diff where permitted"
+  ],
+  "checks": [
+    "python3 -m unittest discover -s tests",
+    "Focused owning-package unit tests; optional real local synthetic checks only"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "claude",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/M1-GITHUB/handoff.md",
+  "status_artifact": "docs/agents/runs/M1-GITHUB/status.md",
+  "heartbeat_at": null,
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": {
+    "owner": "coordinator",
+    "reason": "Sandbox denies parent Git worktree index.lock; staging exited128. Source complete and preserved untracked. Five existing HTTP tests require loopback-bind permission elsewhere.",
+    "next_action": "Capture/commit manifest-bound source in a permitted coordinator context, obtain independent review, rerun full suite and supported-venv checks."
+  },
+  "next_action": "Independent quality/security review of scoped source; coordinator reruns sandbox-blocked HTTP and supported-venv checks before integration.",
+  "completion_depends_on": [
+    "M1-SERVICE-FOUNDATION"
+  ],
+  "review_packet": null,
+  "resume_authorization": "User reports usage limits reset and explicitly requested continuation."
+}
