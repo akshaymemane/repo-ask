@@ -580,3 +580,18 @@ dialog::backdrop { background: #070810be; }
   .example { min-height: 56px; }
   .composer { margin-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
+
+/* Connected catalog/settings remain native, keyboard-operable forms. */
+.connected-panel { margin-block: 2rem; border-top: 1px solid var(--border, #d2d5db); padding-top: 1.5rem; overflow-wrap: anywhere; }
+.connected-panel h2 { font-size: 1.25rem; margin-bottom: 1rem; }
+.connected-panel h3 { font-size: 1rem; }
+.connected-panel p { line-height: 1.6; margin-block: .7rem; }
+.setting-box { border: 1px solid var(--border, #d2d5db); border-radius: 8px; padding: 1rem; margin-block: 1rem; }
+.settings-form { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin-block: 1rem; }
+.settings-form h3, .settings-form p { flex-basis: 100%; }
+.setting-field { display: flex; flex-direction: column; gap: .35rem; flex: 1 1 240px; font-size: .85rem; min-width: 0; }
+.setting-field input, .setting-field select, .setting-field textarea { width: 100%; min-height: 2.6rem; padding: .55rem; border: 1px solid #848994; border-radius: 5px; background: var(--surface, white); color: inherit; font: inherit; }
+.setting-field input[type=checkbox] { width: 1.2rem; min-height: 1.2rem; align-self: start; }
+.connected-panel .button { margin: .2rem; white-space: normal; }
+.connected-panel :focus-visible { outline: 3px solid #4c70e8; outline-offset: 3px; }
+@media (max-width: 600px) { .setting-field { flex-basis: 100%; } .setting-box { padding: .75rem; } }
