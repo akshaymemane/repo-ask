@@ -1,6 +1,6 @@
 # M1 service contracts — opendevin.m1/1
 
-Status: Coordinator revision after Claude advisory; authoritative SQL and acceptance commit precede dispatch. Builds on accepted M0.
+Status: Accepted interface packet after Claude advisory and coordinator dispositions. Exact schema source is commit0bdeb33; additive foundation quality review gates integration, while builders may work against these frozen interfaces. Builds on accepted M0.
 Scope: GitHub/catalog and model providers; source indexing/planning follow in separate slices.
 Python >=3.10. Existing legacy HTTP contracts remain valid. M0 migration 1 is immutable.
 

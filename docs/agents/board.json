@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "updated": "2026-11-13T15:53:10.074243+00:00",
-  "phase": "M0_parallel_builders_running",
+  "updated": "2026-11-13T16:32:14.667407+00:00",
+  "phase": "M1_parallel_services",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
   "baseline_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
   "baseline_note": "Planning and workflow files are included in the authorized baseline commit. Resolve and record the exact baseline_sha at implementation launch; do not infer it from a later mutable HEAD.",
-  "contract_status": "opendevin.m0/1 accepted after revision 2",
+  "contract_status": "M0 approved/integrated; M1 interface packet accepted and exact schemas committed",
   "state_vocabulary": [
     "backlog",
     "ready",
@@ -57,7 +57,7 @@
       "id": "M0-PLATFORM",
       "milestone": "M0",
       "title": "Persistent storage, migrations and durable job skeleton",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": [
         "F12"
       ],
@@ -80,18 +80,18 @@
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-platform",
       "reviewer_session": "6b330910-5691-45e3-97e9-a50ef5746200",
       "handoff": "docs/agents/runs/M0-PLATFORM/handoff.md",
-      "heartbeat_at": "2026-11-13T15:53:10.074243+00:00",
+      "heartbeat_at": "2026-11-13T15:54:07.121176+00:00",
       "submitted_sha": "ff0cdb90ec6aad4ab173b09e769df94b885dec87",
-      "integration_sha": null,
+      "integration_sha": "5552cad84f48f1d009393bb17276d467470355f8",
       "blocker": null,
-      "next_action": "Exact revision approved by Claude; coordinator integrating reviewed commits and tracking minor followups.",
+      "next_action": "Reviewed platform integrated; M0 route wiring waits for UI approval. Nonblocking reviewer notes retained in review-r2.",
       "completion_depends_on": []
     },
     {
       "id": "M0-EXPERIENCE",
       "milestone": "M0",
       "title": "Workspace navigation skeleton against accepted fixtures",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F11"
       ],
@@ -112,20 +112,20 @@
       "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
       "branch": "task/m0-experience",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-experience",
-      "reviewer_session": "Codex CLI independent review",
+      "reviewer_session": "Codex CLI review + Codex coordinator revision/browser review",
       "handoff": "docs/agents/runs/M0-EXPERIENCE/handoff.md",
-      "heartbeat_at": "2026-11-13T15:50:22.220433+00:00",
-      "submitted_sha": "f1fc0b4a954c0012f527970415b2a15dd650927e",
-      "integration_sha": null,
+      "heartbeat_at": "2026-11-13T15:58:10.515426+00:00",
+      "submitted_sha": "c5010fa005088a72ed2b9af0a2af83eb6a39b54e",
+      "integration_sha": "e4ff292017be36702b32d1856a9b343a0f612ecc",
       "blocker": null,
-      "next_action": "Claude author fixing Codex review: visible keyboard focus when returning to Ask; real browser QA follows.",
+      "next_action": "Reviewed UI integrated; coordinator wiring real platform summary/health.",
       "completion_depends_on": []
     },
     {
       "id": "M0-INTEGRATE",
       "milestone": "M0",
       "title": "Wire foundation without breaking local demo",
-      "state": "backlog",
+      "state": "integrated",
       "feature_ids": [
         "F12",
         "F11"
@@ -144,17 +144,17 @@
         "Combined foundation smoke check passes",
         "Existing regression suite passes"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
+      "owner_session": "Codex coordinator",
+      "base_sha": "e4ff292017be36702b32d1856a9b343a0f612ecc",
+      "branch": "work/opendevin-integration",
+      "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+      "reviewer_session": "8f59922f-93b8-4ac1-88e0-e6d20fc229eb",
       "handoff": null,
-      "heartbeat_at": null,
-      "submitted_sha": null,
-      "integration_sha": null,
+      "heartbeat_at": "2026-11-13T16:32:14.633390+00:00",
+      "submitted_sha": "068690404527f56b83b4f715b1dec483070e2122",
+      "integration_sha": "068690404527f56b83b4f715b1dec483070e2122",
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "M0 exit gate passed: independent approval, clean archive42Python+15Node, real CLI/Chrome persistence health evidence.",
       "completion_depends_on": []
     },
     {
@@ -189,7 +189,9 @@
       "integration_sha": null,
       "blocker": null,
       "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "completion_depends_on": [
+        "M1-SERVICE-FOUNDATION"
+      ]
     },
     {
       "id": "M1-PROVIDERS",
@@ -223,7 +225,9 @@
       "integration_sha": null,
       "blocker": null,
       "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "completion_depends_on": [
+        "M1-SERVICE-FOUNDATION"
+      ]
     },
     {
       "id": "M1-INDEX",
@@ -898,6 +902,65 @@
       "integration_sha": null,
       "blocker": null,
       "next_action": "Shape integration task after dependency handoffs; independent review still required"
+    },
+    {
+      "id": "M1-SECURE-STORE",
+      "milestone": "M1",
+      "title": "Declared product extras and explicit OS credential vault",
+      "state": "integrated",
+      "feature_ids": [
+        "F12",
+        "F07",
+        "F01"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M0-PLATFORM"
+      ],
+      "completion_depends_on": [],
+      "proposed_write_scope": [
+        "pyproject.toml",
+        "repoask/platform/keyring_backend.py",
+        "tests/test_keyring_backend.py"
+      ],
+      "owner_session": "Codex coordinator",
+      "branch": "work/opendevin-integration",
+      "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+      "submitted_sha": "6a671f89e33d",
+      "next_action": "Reviewed bootstrap; actual macOS keyring backend available without registry discovery. No credentials saved.",
+      "integration_sha": "6a671f89e33db291719b71f10c16f473b16d75b6",
+      "heartbeat_at": "2026-11-13T16:32:14.667407+00:00"
+    },
+    {
+      "id": "M1-SERVICE-FOUNDATION",
+      "milestone": "M1",
+      "title": "Allocate exact GitHub/provider schemas and atomic job composition",
+      "state": "running",
+      "feature_ids": [
+        "F12",
+        "F07",
+        "F01"
+      ],
+      "planned_persona": "coordinator",
+      "planned_harness": "codex",
+      "depends_on": [
+        "M0-PLATFORM"
+      ],
+      "completion_depends_on": [],
+      "proposed_write_scope": [
+        "repoask/platform/migrations.py",
+        "repoask/platform/service_schema.py",
+        "repoask/platform/jobs.py",
+        "tests/test_service_foundation.py",
+        "tests/test_platform_foundation.py",
+        "tests/test_platform_review.py"
+      ],
+      "owner_session": "Codex coordinator",
+      "branch": "work/opendevin-integration",
+      "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+      "submitted_sha": null,
+      "next_action": "Independent review and meaningful boundary tests before dependent service dispatch."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
