@@ -1,0 +1,79 @@
+{
+  "id": "M1-PROVIDERS",
+  "title": "M1 provider profiles and inference adapters",
+  "state": "running",
+  "feature_ids": [
+    "F07"
+  ],
+  "requirement_ids": [
+    "AI-01",
+    "AI-02",
+    "AI-03",
+    "AI-06",
+    "AI-08",
+    "AI-09",
+    "AI-12"
+  ],
+  "persona": "integration",
+  "harness": "codex",
+  "owner_session": "01a1d5c9-e390-74d3-9164-e641623c0216",
+  "depends_on": [
+    "M0-INTEGRATE"
+  ],
+  "base_sha": "cb2dcad262050eed989cb64df05511db08974780",
+  "branch": "task/m1-providers",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-providers",
+  "write_scope": [
+    "repoask/providers/",
+    "tests/test_providers_*.py",
+    "tests/fixtures/providers/",
+    "docs/agents/runs/M1-PROVIDERS/"
+  ],
+  "read_inputs": [
+    "AGENTS.md",
+    "docs/contracts/m1-services.md",
+    "repoask/platform/service_schema.py",
+    "docs/features/07-providers-and-agents.md"
+  ],
+  "contract_versions": {
+    "M1": "opendevin.m1/1"
+  },
+  "acceptance": [
+    "Implement all owned service interface behavior in accepted M1 packet and its coordinator decision/return-shape sections",
+    "Use exact schemas and atomic enqueue_in_transaction; no migrations/entrypoint/other-module edits",
+    "Meaningful error/recovery/privacy tests and full regression suite; no implicit credentials or unsupported live-integration claims",
+    "Durable handoff with actual checks, limitations and locally committed diff where permitted"
+  ],
+  "checks": [
+    "python3 -m unittest discover -s tests",
+    "Focused owning-package unit tests; optional real local synthetic checks only"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "codex",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/M1-PROVIDERS/handoff.md",
+  "status_artifact": "docs/agents/runs/M1-PROVIDERS/status.md",
+  "heartbeat_at": null,
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Resume Codex takeover after reset; Claude retry stillquota-limited.",
+  "completion_depends_on": [
+    "M1-SERVICE-FOUNDATION"
+  ],
+  "review_packet": null,
+  "previous_attempts": [
+    {
+      "harness": "claude",
+      "session": "cac5ebc2-b1ea-4ccb-b6ae-cb3da0fe4446",
+      "exit_code": 1,
+      "reason": "session quota; partial service files preserved"
+    }
+  ],
+  "resume_authorization": "User reports usage limits reset and explicitly requested continuation."
+}
