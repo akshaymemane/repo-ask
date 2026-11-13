@@ -125,15 +125,16 @@ class ReviewStorageTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory)
             self.simultaneous_open(path)
-            extra = migrations.Migration(2, 'review_upgrade', ('CREATE TABLE review_upgrade (id INTEGER)',))
-            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (extra,)), patch.object(migrations, 'LATEST_VERSION', 2):
+            next_version = migrations.LATEST_VERSION + 1
+            extra = migrations.Migration(next_version, 'review_upgrade', ('CREATE TABLE review_upgrade (id INTEGER)',))
+            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (extra,)), patch.object(migrations, 'LATEST_VERSION', next_version):
                 with patch.object(migrations, 'private_backup', wraps=storage_files.private_backup) as snapshots:
                     self.simultaneous_open(path)
                     self.assertEqual(1, snapshots.call_count)
-            backup = path / 'backups/opendevin.pre-v2.sqlite3'
+            backup = path / f'backups/opendevin.pre-v{next_version}.sqlite3'
             conn = sqlite3.connect(backup)
             try:
-                self.assertEqual(1, conn.execute('PRAGMA user_version').fetchone()[0])
+                self.assertEqual(migrations.LATEST_VERSION, conn.execute('PRAGMA user_version').fetchone()[0])
                 self.assertEqual('ok', conn.execute('PRAGMA integrity_check').fetchone()[0])
             finally:
                 conn.close()

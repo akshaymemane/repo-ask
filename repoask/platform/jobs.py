@@ -93,6 +93,15 @@ class JobQueue:
             return job_from(self._row(conn, job_id))
 
     def enqueue(self, kind, payload, *, effect='safe', priority=0, max_attempts=3, idempotency_key=None, run_after=None):
+        with self.store.transaction() as conn:
+            return self.enqueue_in_transaction(conn, kind, payload, effect=effect, priority=priority,
+                                               max_attempts=max_attempts, idempotency_key=idempotency_key,
+                                               run_after=run_after)
+
+    def enqueue_in_transaction(self, conn, kind, payload, *, effect='safe', priority=0, max_attempts=3, idempotency_key=None, run_after=None):
+        """Caller owns Store.transaction; run records and jobs commit or roll back together."""
+        if conn is not self.store.conn or not conn.in_transaction:
+            raise ValueError('An owned active transaction is required.')
         if not isinstance(kind, str) or not re.fullmatch(r'[a-z][a-z0-9_.]{1,63}', kind):
             raise ValueError('Invalid job kind.')
         if effect not in ('safe', 'external') or type(priority) is not int or type(max_attempts) is not int or not 1 <= max_attempts <= 10:
@@ -102,17 +111,16 @@ class JobQueue:
         if run_after is not None and type(run_after) is not int:
             raise ValueError('Invalid schedule.')
         payload = json_object(payload)
-        with self.store.transaction() as conn:
-            if idempotency_key is not None:
-                existing = conn.execute('SELECT * FROM jobs WHERE idempotency_key=?', (idempotency_key,)).fetchone()
-                if existing:
-                    if (existing['kind'], existing['payload'], existing['effect']) != (kind, payload, effect):
-                        raise IdempotencyConflict('Idempotency key has another request.')
-                    return job_from(existing)
-            now, job_id = self.clock(), new_id('job')
-            conn.execute('INSERT INTO jobs (id,kind,state,effect,priority,payload,idempotency_key,max_attempts,run_after,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                         (job_id, kind, 'queued', effect, priority, payload, idempotency_key, max_attempts, now if run_after is None else run_after, now, now))
-            return job_from(self._row(conn, job_id))
+        if idempotency_key is not None:
+            existing = conn.execute('SELECT * FROM jobs WHERE idempotency_key=?', (idempotency_key,)).fetchone()
+            if existing:
+                if (existing['kind'], existing['payload'], existing['effect']) != (kind, payload, effect):
+                    raise IdempotencyConflict('Idempotency key has another request.')
+                return job_from(existing)
+        now, job_id = self.clock(), new_id('job')
+        conn.execute('INSERT INTO jobs (id,kind,state,effect,priority,payload,idempotency_key,max_attempts,run_after,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                     (job_id, kind, 'queued', effect, priority, payload, idempotency_key, max_attempts, now if run_after is None else run_after, now, now))
+        return job_from(self._row(conn, job_id))
 
     def _update(self, conn, job_id, **values):
         values['updated_at'] = self.clock()

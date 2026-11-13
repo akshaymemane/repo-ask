@@ -204,7 +204,7 @@ class StorageTests(unittest.TestCase):
             platform = Platform.open(path, clock=clock)
             other = Platform.open(path, clock=clock)
             try:
-                self.assertEqual(1, platform.store.schema_version())
+                self.assertEqual(migrations.LATEST_VERSION, platform.store.schema_version())
                 self.assertEqual('leased', platform.jobs.get(job.id).state)
                 self.assertIsNone(other.jobs.claim('new'))
                 clock.advance(1001)
@@ -227,16 +227,17 @@ class StorageTests(unittest.TestCase):
             with store.transaction() as conn:
                 conn.execute("INSERT INTO secret_refs VALUES ('sec_test','test','github_token','label',1,NULL)")
             store.close()
-            bad = migrations.Migration(2, 'test_failure', ('CREATE TABLE temporary_test (id INTEGER)', 'INVALID SQL'))
-            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (bad,)), patch.object(migrations, 'LATEST_VERSION', 2):
+            next_version = migrations.LATEST_VERSION + 1
+            bad = migrations.Migration(next_version, 'test_failure', ('CREATE TABLE temporary_test (id INTEGER)', 'INVALID SQL'))
+            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (bad,)), patch.object(migrations, 'LATEST_VERSION', next_version):
                 with self.assertRaises(MigrationFailed):
                     Store.open(path)
-            self.assertTrue((path / 'backups/opendevin.pre-v2.sqlite3').is_file())
+            self.assertTrue((path / f'backups/opendevin.pre-v{next_version}.sqlite3').is_file())
             store = Store.open(path)
             with store.read() as conn:
                 self.assertEqual(1, conn.execute('SELECT count(*) FROM secret_refs').fetchone()[0])
                 self.assertIsNone(conn.execute("SELECT name FROM sqlite_master WHERE name='temporary_test'").fetchone())
-                self.assertEqual(1, conn.execute('PRAGMA user_version').fetchone()[0])
+                self.assertEqual(migrations.LATEST_VERSION, conn.execute('PRAGMA user_version').fetchone()[0])
             with store.transaction() as conn:
                 conn.execute("UPDATE schema_migrations SET checksum='wrong'")
             store.close()
@@ -272,10 +273,11 @@ class StorageTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory)
             Store.open(path).close()
-            extra = migrations.Migration(2, 'test_upgrade', ('CREATE TABLE upgrade_test (id INTEGER)',))
-            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (extra,)), patch.object(migrations, 'LATEST_VERSION', 2):
+            next_version = migrations.LATEST_VERSION + 1
+            extra = migrations.Migration(next_version, 'test_upgrade', ('CREATE TABLE upgrade_test (id INTEGER)',))
+            with patch.object(migrations, 'MIGRATIONS', migrations.MIGRATIONS + (extra,)), patch.object(migrations, 'LATEST_VERSION', next_version):
                 store = Store.open(path)
-                self.assertEqual(2, store.schema_version())
+                self.assertEqual(next_version, store.schema_version())
                 store.close()
             with self.assertRaises(PlatformError):
                 Store.open(path / DB_FILENAME)
@@ -327,6 +329,14 @@ class SecretTests(unittest.TestCase):
 class BuilderTests(unittest.TestCase):
     def setUp(self):
         self.fixtures = json.loads(Path('docs/contracts/m0-fixtures.json').read_text())
+        # Schema numbers reflect the current registry; archived M0 shape remains fixed.
+        for fixture in self.fixtures['workspace'].values():
+            if fixture['storage']['schema_version'] is not None:
+                fixture['storage']['schema_version'] = migrations.LATEST_VERSION
+        for fixture in self.fixtures['health'].values():
+            for key in ('schema_version', 'expected_schema_version'):
+                if fixture['components']['storage'][key] is not None:
+                    fixture['components']['storage'][key] = migrations.LATEST_VERSION
         self.now = 1794583800000
         self.index = SimpleNamespace(snapshots={str(i): SimpleNamespace(demo=True, limited=False) for i in range(4)})
 
