@@ -13,3 +13,12 @@ Real Chrome verified the independently reviewed UI against a legacy server; inte
 health/settings Chrome check follows this wiring. No GitHub/provider/execution claim yet.
 
 No external writes or background production handlers introduced. Independent review required.
+
+## Revision after independent review
+
+Added actual CLI subprocess checks: real module startup in an empty temporary directory,
+HTTPhealth, SIGTERM exit0/no traceback/no demo files; invalid regular-file/unknown-user data
+paths exitnonzero with sanitized fixed error and no fallback. Second shutdown signals are
+ignored while request handlers drain. Status failures503 are now documented in the contract.
+Exact root submission/packet IDs are recorded in board.json after commits; task.json is the
+original assignment snapshot. Secure-vault bootstrap has its own M1-SECURE-STORE handoff.

@@ -189,7 +189,7 @@ def main():
     model = Ollama(args.model, args.ollama_port) if args.model else None
     try:
         platform = Platform.open(args.data_dir.expanduser() if args.data_dir else None)
-    except PlatformError:
+    except (PlatformError, RuntimeError, ValueError, OSError):
         index.db.close()
         parser.exit(1, "Could not open workspace storage. Check the directory and database compatibility.\n")
     try:
@@ -205,8 +205,11 @@ def main():
             server.model = model
             print(f"Indexed {len(snapshots)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
             def stop_server(_signum, _frame):
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
                 raise KeyboardInterrupt
             signal.signal(signal.SIGTERM, stop_server)
+            signal.signal(signal.SIGINT, stop_server)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

@@ -459,7 +459,7 @@ Wiring is two `elif` branches calling `build_workspace_summary(...)`/`build_heal
 | `secrets` | `{backend:str, available:bool, reason:str\|null}` | `SecretService.status()`; `backend:"unavailable"` when no platform |
 | `navigation` | array of `{id, label, href, status:"available"\|"read_only"}` | Only `ask`, `repositories`, `settings`; unavailable areas are **omitted**, not disabled |
 
-**`GET /api/health`** → `opendevin.health/m0.1` (fixtures `health.*`), always HTTP 200:
+**`GET /api/health`** → `opendevin.health/m0.1` (fixtures `health.*`), HTTP200 for healthy/degraded diagnostics; temporary status/storage failure is503 with a sanitized code, and unexpected failure is500 internal:
 
 | Field | Rule |
 | --- | --- |

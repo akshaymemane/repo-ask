@@ -6,6 +6,12 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from http.server import ThreadingHTTPServer
 import unittest
+import os
+import select
+import signal
+import socket
+import subprocess
+import sys
 
 from repoask.__main__ import RequestHandler, ROOT
 from repoask.index import CodeIndex, load_demos
@@ -95,6 +101,56 @@ class FoundationHTTPTests(unittest.TestCase):
         self.assertTrue(health['components']['storage']['persistent'])
         self.assertNotIn(self.directory.name, json.dumps(health))
         self.assertNotIn('cursor', json.dumps(health))
+
+
+class ApplicationLifecycleTests(unittest.TestCase):
+    def start_process(self, directory, *args):
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        process = subprocess.Popen([sys.executable, '-m', 'repoask', '--port', str(port), *args],
+                                   cwd=directory, env={**os.environ, 'PYTHONPATH': str(ROOT.parent),
+                                                       'PYTHONDONTWRITEBYTECODE': '1'},
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        def cleanup():
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+        self.addCleanup(cleanup)
+        return process, port
+
+    def test_actual_cli_serves_then_sigterm_exits_cleanly_without_demo_files(self):
+        with TemporaryDirectory() as directory:
+            process, port = self.start_process(directory)
+            readable, _, _ = select.select([process.stdout], [], [], 10)
+            self.assertTrue(readable, 'CLI did not report readiness')
+            self.assertIn('Open http://', process.stdout.readline())
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+            try:
+                conn.request('GET', '/api/health')
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read())['status'], 'ok')
+            finally:
+                conn.close()
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertNotIn('Traceback', stderr)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_actual_cli_storage_failure_has_no_traceback_path_or_fallback(self):
+        with TemporaryDirectory() as directory:
+            invalid = Path(directory) / 'private-path.sqlite'
+            invalid.write_text('not a directory')
+            for value in [str(invalid), '~opendevin_nonexistent_account_38192/data']:
+                process, _ = self.start_process(directory, '--data-dir', value)
+                stdout, stderr = process.communicate(timeout=10)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertIn('Could not open workspace storage.', stderr)
+                self.assertNotIn('Traceback', stderr)
+                self.assertNotIn(value, stderr)
+                self.assertNotIn('Indexed', stdout)
 
 
 if __name__ == '__main__':
