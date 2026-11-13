@@ -203,8 +203,8 @@ test("workspace.demo_memory + health.demo_memory render truthful demo status wit
   for (const forbidden of [/GitHub connected/i, /private repositories indexed/i, /session running/i, /Connect GitHub/i, /Start session/i]) {
     assert.doesNotMatch(settings, forbidden);
   }
-  assert.deepEqual(app.byId("view-settings").querySelectorAll("button").map((b) => b.id), ["refresh-status"],
-    "Settings offers no controls for features that do not exist");
+  assert.deepEqual(app.byId("view-settings").querySelectorAll("button").map((b) => b.textContent), ["Refresh status", "Reload GitHub status", "Reload provider settings"],
+    "Unavailable endpoints offer explicit read-only reload controls");
 });
 
 test("workspace.local_with_model_persistent shows local mode, loopback model, schema and index limit", async () => {
@@ -298,7 +298,8 @@ test("Repositories view lists real /api/repos data read-only", async () => {
     "notifications-worker Sample 1 ✓Indexed".replace(/ /g, ""),
   ]);
   assert.match(demo.text("repositories-content"), /Bundled example repositories/);
-  assert.equal(demo.byId("view-repositories").querySelectorAll("button").length, 0);
+  assert.match(demo.text("repositories-content"), /Catalog unavailable/);
+  assert.equal(demo.byId("view-repositories").querySelectorAll("button").some(b => b.textContent === "Save repository selection"), false);
 
   const local = await boot({
     hash: "#/repositories",

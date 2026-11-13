@@ -389,7 +389,7 @@ function announce(text) {
 function routeFromHash() {
   const hash = location.hash;
   if (hash === "" || hash === "#" || hash === "#/") return "ask";
-  const match = /^#\/([a-z]+)$/.exec(hash);
+  const match = /^#\/([a-z]+)(?:\?github=[a-z_]{1,64})?$/.exec(hash);
   return match && Object.hasOwn(ROUTES, match[1]) ? match[1] : null;
 }
 
@@ -451,7 +451,7 @@ async function fetchStatus(path, contractPrefix) {
     const detail = isObject && typeof body.error === "string" ? body.error : `The server returned HTTP ${response.status}.`;
     return { kind: "error", message: detail };
   }
-  if (typeof body.contract !== "string" || !body.contract.startsWith(contractPrefix)) {
+  if (typeof body.contract !== "string" || !(body.contract.startsWith(contractPrefix) || body.contract.startsWith(contractPrefix.replace("/m0.", "/m1.")))) {
     return { kind: "error", message: "The server reported status in a format this page does not support." };
   }
   return { kind: "ok", data: body };
@@ -660,7 +660,7 @@ function secretsCard(data) {
   const reason = typeof secrets.reason === "string" ? secrets.reason : null;
   if (value === "unavailable") {
     return card("Credentials", status, reason || "Credential setup is disabled.",
-      "This is a setup state, not a fault. Nothing in this version needs a stored credential.");
+      "Unlock or configure the secure credential store before saving App keys or provider credentials.");
   }
   if (value === "available") return card("Credentials", status, "A secure credential store is available.");
   return card("Credentials", status, "Credential store status unknown.");
@@ -717,7 +717,7 @@ function healthCard(data) {
   return card("Health", status, ...lines);
 }
 
-function renderSettings() {
+function renderLegacySettings() {
   const root = byId("settings-content");
   const { workspace, health } = state.status;
   const parts = [];
@@ -737,8 +737,8 @@ function renderSettings() {
     grid.append(
       workspaceCard(data),
       modelCard(data, healthData),
-      notAvailableCard("Provider profiles", field(data, "providers", "profiles")),
-      notAvailableCard("GitHub", field(data, "catalog", "github")),
+      ...(connectedUI.providersReady ? [] : [notAvailableCard("Provider profiles", field(data, "providers", "profiles"))]),
+      ...(connectedUI.githubReady ? [] : [notAvailableCard("GitHub", field(data, "catalog", "github"))]),
       notAvailableCard("Implementation sessions", field(data, "execution")),
       storageCard(data, healthData),
       secretsCard(data),
@@ -754,7 +754,7 @@ function renderSettings() {
   root.replaceChildren(...parts);
 }
 
-function renderRepositories() {
+function renderLegacyRepositories() {
   const root = byId("repositories-content");
   if (state.reposError) {
     root.replaceChildren(errorBlock(`Could not load repositories. ${state.reposError}`, "Reload the page to try again."));
@@ -815,6 +815,19 @@ function renderRepositories() {
   root.replaceChildren(...parts);
 }
 
+const connectedUI = { githubReady: false, providersReady: false };
+const githubPanel = node("section", undefined, "connected-panel");
+const providerPanel = node("section", undefined, "connected-panel");
+const catalogPanel = node("section", undefined, "connected-panel");
+function renderSettings() {
+  renderLegacySettings();
+  byId("settings-content").append(githubPanel, providerPanel);
+}
+function renderRepositories() {
+  renderLegacyRepositories();
+  byId("repositories-content").append(catalogPanel);
+}
+
 showRoute(false);
 refreshStatus();
 
@@ -843,4 +856,259 @@ try {
   byId("composer-status").textContent = "Could not load repositories";
 }
 renderWorkspaceMode();
+if (state.route === "repositories") renderRepositories();
+
+// Connected settings use only the committed M1 HTTP boundary. Mutations are
+// never retried automatically, including when the network outcome is unknown.
+async function featureRequest(path, method = "GET", payload) {
+  let response;
+  try {
+    response = await fetch(path, { method, cache: "no-store", headers: { "Content-Type": "application/json" },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
+  } catch {
+    throw new Error(method === "GET" ? "Server unreachable. Refresh to try again."
+      : "Connection lost; the outcome is unknown. Refresh and inspect saved state before submitting again.");
+  }
+  let result;
+  try { result = await response.json(); } catch { throw new Error("Unsupported server response. Refresh and inspect saved state."); }
+  if (!response.ok) {
+    // Never render arbitrary upstream messages or reflected secret material.
+    const code = /^[a-z_]{1,64}$/.test(result?.code) ? result.code : `http_${response.status}`;
+    throw new Error(`${code}. ${response.status === 404 ? "Endpoint unavailable in this build." : "Check configuration and refresh saved state before retrying."}`);
+  }
+  return result;
+}
+function action(text, handler) {
+  const button = node("button", text, "button"); button.type = "button";
+  button.addEventListener("click", handler); return button;
+}
+function control(parent, label, value = "", type = "text") {
+  const wrap = node("label", label, "setting-field");
+  const input = node(type === "pem" ? "textarea" : "input"); input.type = type; input.value = String(value);
+  if (type === "password" || type === "pem") { input.autocomplete = "new-password"; input.setAttribute("autocomplete", "new-password"); }
+  wrap.append(input); parent.append(wrap); return input;
+}
+function toggle(parent, label, checked) {
+  const input = control(parent, label, "", "checkbox"); input.checked = Boolean(checked); return input;
+}
+function choose(parent, label, entries, selected) {
+  const wrap = node("label", label, "setting-field"); const select = node("select");
+  for (const [value, text] of entries) { const option = node("option", text); option.value = value; select.append(option); }
+  select.value = selected; wrap.append(select); parent.append(wrap); return select;
+}
+function submitButton(form, label) { const button = node("button", label, "button"); button.type = "submit"; form.append(button); return button; }
+function notice(parent) { const out = node("p", "", "page-status"); out.setAttribute("role", "status"); parent.append(out); return out; }
+async function perform(button, output, operation) {
+  if (button.disabled) return;
+  button.disabled = true; output.textContent = "Working…";
+  try { await operation(); } catch (error) { output.textContent = error.message; }
+  finally { button.disabled = false; }
+}
+function timeLabel(value) { return value ? new Date(value).toLocaleString() : "Never"; }
+
+async function loadGitHub() {
+  githubPanel.replaceChildren(node("h2", "GitHub connection"));
+  const output = notice(githubPanel); output.textContent = "Loading connections…";
+  const retry = action("Reload GitHub status", loadGitHub); githubPanel.append(retry);
+  try {
+    const data = await featureRequest("/api/github/connections");
+    if (!Array.isArray(data.connections) || !data.summary) throw new Error("Unsupported GitHub response.");
+    connectedUI.githubReady = true;
+    output.textContent = `${data.summary.status} · ${data.summary.installations} active installations · ${data.summary.repository_count} accessible repositories`;
+    githubPanel.append(node("p", "Create a GitHub App in GitHub Developer settings. Use this server’s /api/github/callback as its setup URL; keep this server on loopback. Grant metadata/read contents for discovery and indexing; write contents/pull requests are separate optional permissions. Install only on repositories you intend to share. CLI login does not configure this App. Secure persistent storage must be available."));
+    githubPanel.append(node("p", "Disconnect removes access, but does not delete retained data. New repository indexing and implementation access are independent; implementation is always explicit. No runtime or PR publication is provided by these settings."));
+    for (const connection of data.connections) {
+      const box = node("section", undefined, "setting-box");
+      box.append(node("h3", `${connection.slug} · ${connection.status}`), node("p", `App ${connection.app_id} · Last refresh ${timeLabel(connection.last_refresh_at)} · Next retry ${timeLabel(connection.next_retry_at)}${connection.last_error_code ? ` · ${connection.last_error_code}` : ""}`));
+      const status = notice(box);
+      for (const [label, endpoint] of [["Create connect link", "connect"], ["Refresh catalog", "refresh"], ["Disconnect", "disconnect"]]) {
+        const button = action(label, () => perform(button, status, async () => {
+          const result = await featureRequest(`/api/github/${endpoint}`, "POST", { connection_id: connection.id });
+          if (endpoint === "connect") {
+            const url = new URL(result.install_url);
+            if (url.origin !== "https://github.com" || !url.pathname.startsWith("/apps/")) throw new Error("Invalid installation destination.");
+            const link = node("a", "Continue installation on GitHub"); link.href = url.href; link.rel = "noreferrer";
+            status.replaceChildren(link, node("span", ` · Expires ${timeLabel(result.expires_at)}`));
+          } else {
+            status.textContent = endpoint === "refresh" ? `Discovery ${result.state}. Reload status to check progress.` : "Disconnected. Reload status to inspect access.";
+            await loadCatalog(true);
+          }
+        })); box.append(button);
+      }
+      githubPanel.append(box);
+    }
+    const form = node("form", undefined, "settings-form"); form.autocomplete = "off";
+    form.append(node("h3", "Configure or rotate GitHub App credentials"));
+    const appID = control(form, "App ID", "", "number"); appID.required = true; appID.min = "1";
+    const slug = control(form, "App slug"); slug.required = true;
+    const key = control(form, "RSA private key PEM (never redisplayed)", "", "pem"); key.required = true;
+    const indexNew = toggle(form, "Index newly discovered repositories", false);
+    const save = submitButton(form, "Save App configuration"); const status = notice(form);
+    form.addEventListener("submit", event => {
+      event.preventDefault(); if (save.disabled) return;
+      const payload = { app_id: appID.value.trim(), slug: slug.value.trim(), private_key: key.value, index_new: indexNew.checked };
+      key.value = "";
+      perform(save, status, async () => { try { await featureRequest("/api/github/configure", "POST", payload); } finally { payload.private_key = ""; } await loadGitHub(); });
+    });
+    githubPanel.append(form);
+  } catch (error) { output.textContent = `GitHub unavailable: ${error.message}`; }
+}
+
+const catalog = { cursor: null, previous: [], next: null, sequence: 0 };
+const catalogForm = node("form", undefined, "settings-form catalog-filters");
+catalogPanel.append(node("h2", "GitHub repository catalog"), node("p", "Catalog metadata is available before source indexing. Indexing selection does not grant implementation permission. Ask below still uses its explicit local/demo snapshots."));
+const searchCatalog = control(catalogForm, "Search name or description", "", "search"); searchCatalog.maxLength = 200;
+const ownerCatalog = control(catalogForm, "Exact owner");
+const indexCatalog = choose(catalogForm, "Indexing selection", [["", "All"], ["true", "Enabled"], ["false", "Disabled"]], "");
+const languageCatalog = control(catalogForm, "Language on this page");
+const archivedCatalog = choose(catalogForm, "Archive state on this page", [["", "All"], ["true", "Archived"], ["false", "Active"]], "");
+const forkCatalog = choose(catalogForm, "Fork state on this page", [["", "All"], ["true", "Forks"], ["false", "Originals"]], "");
+submitButton(catalogForm, "Apply catalog filters"); catalogPanel.append(catalogForm);
+const catalogStatus = notice(catalogPanel); const catalogRows = node("div"); catalogPanel.append(catalogRows);
+const catalogPrevious = action("Previous page", () => { catalog.cursor = catalog.previous.pop() ?? null; loadCatalog(); });
+const catalogNext = action("Next page", () => { catalog.previous.push(catalog.cursor); catalog.cursor = catalog.next; loadCatalog(); });
+const catalogReload = action("Reload catalog", () => loadCatalog(true));
+catalogPanel.append(catalogPrevious, catalogNext, catalogReload);
+catalogForm.addEventListener("submit", event => { event.preventDefault(); loadCatalog(true); });
+async function loadCatalog(reset = false) {
+  if (reset) { catalog.cursor = null; catalog.previous = []; }
+  const sequence = ++catalog.sequence;
+  catalogPrevious.disabled = true; catalogNext.disabled = true; catalogStatus.textContent = "Loading catalog…";
+  catalogRows.replaceChildren();
+  const params = new URLSearchParams({ limit: "25" });
+  if (searchCatalog.value.trim()) params.set("query", searchCatalog.value.trim());
+  if (ownerCatalog.value.trim()) params.set("owner", ownerCatalog.value.trim());
+  if (indexCatalog.value) params.set("index_enabled", indexCatalog.value);
+  if (catalog.cursor) params.set("cursor", catalog.cursor);
+  try {
+    const result = await featureRequest(`/api/repositories?${params}`);
+    if (sequence !== catalog.sequence) return;
+    if (!Array.isArray(result.items)) throw new Error("Unsupported catalog response.");
+    catalog.next = result.next_cursor;
+    catalogStatus.textContent = `${result.total} matching repositories · ${result.items.length} on this page. ${result.items.length ? "" : "Connect GitHub or change filters to find repositories."}`;
+    const visible = result.items.filter(repo =>
+      (!languageCatalog.value.trim() || (repo.language || "").toLowerCase() === languageCatalog.value.trim().toLowerCase()) &&
+      (!archivedCatalog.value || String(repo.archived) === archivedCatalog.value) &&
+      (!forkCatalog.value || String(repo.fork) === forkCatalog.value));
+    catalogStatus.textContent += ` ${visible.length} visible after page filters. Language/archive/fork filters apply only to this page; use Next page to continue.`;
+    for (const repo of visible) {
+      const box = node("section", undefined, "setting-box");
+      box.append(node("h3", repo.full_name), node("p", repo.description || "No description"),
+        node("p", `${repo.language || "Language unknown"} · ${repo.visibility || "Visibility unknown"} · ${repo.archived ? "Archived" : "Active"} · ${repo.fork ? "Fork" : "Original"} · ${repo.access_state}`),
+        node("p", `Branch ${repo.default_branch || "unknown"} · Last push ${timeLabel(repo.pushed_at)} · Topics: ${(repo.topics || []).join(", ") || "none"}`),
+        node("p", "Source index status unknown: deep indexing HTTP integration pending. Selection saves eligibility only; it does not confirm an indexed snapshot."));
+      const form = node("form", undefined, "settings-form");
+      const indexing = toggle(form, `Index ${repo.full_name}`, repo.index_enabled);
+      const implementation = toggle(form, `Allow implementation in ${repo.full_name}`, repo.implementation_enabled);
+      const save = submitButton(form, "Save repository selection"); const status = notice(form);
+      if (repo.access_state !== "accessible") { indexing.disabled = true; implementation.disabled = true; save.disabled = true; status.textContent = "Access unavailable. Reconnect or refresh GitHub; saved choices do not grant access."; }
+      form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
+        await featureRequest(`/api/repositories/${encodeURIComponent(repo.id)}`, "PATCH", { index_enabled: indexing.checked, implementation_enabled: implementation.checked });
+        status.textContent = "Selection saved. GitHub capabilities will be checked again before execution.";
+      }); }); box.append(form); catalogRows.append(box);
+    }
+    catalogPrevious.disabled = !catalog.previous.length; catalogNext.disabled = !catalog.next;
+  } catch (error) { if (sequence === catalog.sequence) catalogStatus.textContent = `Catalog unavailable: ${error.message}`; }
+}
+
+let providerProfiles = [];
+let providerSettings;
+let providerEditor;
+async function loadProviders() {
+  providerPanel.replaceChildren(node("h2", "Model providers and roles"));
+  const output = notice(providerPanel); output.textContent = "Loading provider settings…";
+  providerPanel.append(action("Reload provider settings", loadProviders));
+  try {
+    const [profiles, settings] = await Promise.all([featureRequest("/api/provider-profiles"), featureRequest("/api/settings/model-roles")]);
+    if (!Array.isArray(profiles.profiles) || typeof settings.settings?.local_only !== "boolean" || !settings.roles) throw new Error("Unsupported provider response.");
+    providerProfiles = profiles.profiles; providerSettings = settings;
+    connectedUI.providersReady = true;
+    output.textContent = "Profiles configure inference, not an implementation runner. Legacy Ask continues using its startup model. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only.";
+    const policy = node("form", undefined, "settings-form");
+    const local = toggle(policy, "Local-only inference and embeddings (blocks remote destinations)", settings.settings.local_only);
+    const savePolicy = submitButton(policy, "Save destination policy"); const policyStatus = notice(policy);
+    policy.addEventListener("submit", event => { event.preventDefault(); perform(savePolicy, policyStatus, async () => {
+      await featureRequest("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders();
+    }); });
+    providerPanel.append(policy, node("p", "External source sharing requires a separate profile opt-in. Disabling local-only does not authorize source sharing. Model profiles cannot execute repository tools or publish PRs."));
+    for (const profile of providerProfiles) {
+      const box = node("section", undefined, "setting-box"); const version = profile.version;
+      box.append(node("h3", profile.name), node("p", `${version.adapter} · ${version.model} · Version ${version.version}`),
+        node("p", `Destination: ${version.endpoint} · Capabilities: ${version.config.capabilities.join(", ")} · Credential ${version.credential_configured ? "configured" : "not configured"}`),
+        node("p", `External source sharing ${version.config.allow_external_source ? "allowed by profile (workspace policy still applies)" : "disabled"}`));
+      const status = notice(box);
+      box.append(action(`Edit ${profile.name} / rotate credential`, () => { renderProviderEditor(profile); providerEditor.querySelector("input")?.focus(); }));
+      const test = action(`Test ${profile.name}`, () => perform(test, status, async () => {
+        const result = await featureRequest(`/api/provider-profiles/${encodeURIComponent(profile.id)}/test`, "POST", { capabilities: version.config.capabilities });
+        status.textContent = `Test ${result.status}: ${Object.entries(result.capabilities || {}).map(([cap, value]) => `${cap}: ${value.status}${value.error_code ? ` (${value.error_code})` : ""}`).join(" · ")}. Destination ${result.destination?.kind || "unknown"}: ${result.destination?.host || "unknown"}. Synthetic content only; cost unknown.`;
+      })); box.append(test);
+      const remove = action(`Delete ${profile.name}`, () => {
+        const confirm = action(`Confirm delete ${profile.name}`, () => perform(confirm, status, async () => {
+          await featureRequest(`/api/provider-profiles/${encodeURIComponent(profile.id)}`, "DELETE", {}); await loadProviders();
+        }));
+        status.replaceChildren(node("span", "Deletion revokes credentials and removes active roles; historical metadata remains. "), confirm, action("Cancel deletion", () => { status.textContent = "Deletion cancelled."; }));
+      }); box.append(remove); providerPanel.append(box);
+    }
+    const roles = node("section", undefined, "setting-box"); roles.append(node("h3", "Default model roles"));
+    for (const role of ["ask", "planning", "summary", "embedding"]) {
+      const value = settings.roles[role] || {}; const form = node("form", undefined, "settings-form");
+      const select = choose(form, `${role} profile`, [["", "Unassigned"], ...providerProfiles.map(p => [p.id, p.name])], value.profile_id || "");
+      form.append(node("p", `${value.status || "unknown"} · Destination: ${value.destination ? `${value.destination.kind}: ${value.destination.host}` : "none"} · Version ${value.version_id || "none"}`));
+      const save = submitButton(form, `Save ${role} role`); const status = notice(form);
+      form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
+        await featureRequest("/api/settings/model-roles", "PATCH", { assignments: { [role]: select.value || null } }); await loadProviders();
+      }); }); roles.append(form);
+    }
+    providerPanel.append(roles);
+    providerEditor = node("section", undefined, "setting-box"); providerPanel.append(providerEditor); renderProviderEditor();
+  } catch (error) { output.textContent = `Provider settings unavailable: ${error.message}`; }
+}
+function renderProviderEditor(profile = null) {
+  const version = profile?.version; const config = version?.config || {};
+  providerEditor.replaceChildren(node("h3", profile ? `Edit ${profile.name}` : "Create provider profile"));
+  const form = node("form", undefined, "settings-form"); form.setAttribute("autocomplete", "off");
+  const name = control(form, "Profile name", profile?.name || ""); name.required = true; name.maxLength = 100;
+  const adapter = choose(form, "Adapter", [["ollama", "Ollama"], ["openai_compatible", "OpenAI compatible"]], version?.adapter || "ollama");
+  const endpoint = control(form, "Base URL / destination", version?.endpoint || "http://127.0.0.1:11434", "url"); endpoint.required = true;
+  form.append(node("p", "Use the /v1 base for OpenAI compatible APIs. Only loopback HTTP or HTTPS is supported. Requests go to this destination; redirects are rejected."));
+  const model = control(form, "Model identifier", version?.model || ""); model.required = true;
+  const secret = control(form, profile ? "New credential (leave blank to retain current credential)" : "Credential (optional for local Ollama)", "", "password");
+  const caps = {};
+  for (const cap of ["chat", "structured_output", "embeddings"]) caps[cap] = toggle(form, cap, config.capabilities ? config.capabilities.includes(cap) : cap === "chat");
+  const dimensions = control(form, "Embedding dimensions (required for embeddings)", config.embedding_dimensions || "", "number"); dimensions.min = "1"; dimensions.max = "16384";
+  const timeout = control(form, "Timeout seconds", config.timeout_seconds ?? 60, "number"); timeout.min = "1"; timeout.max = "600"; timeout.required = true;
+  const context = control(form, "Context token limit", config.context_limit ?? 8192, "number"); context.min = "256"; context.max = "2000000"; context.required = true;
+  const output = control(form, "Maximum output tokens", config.max_output_tokens ?? 1024, "number"); output.min = "1"; output.max = "131072"; output.required = true;
+  const external = toggle(form, "Allow sending repository source to this external destination", config.allow_external_source);
+  const inputPrice = control(form, "Input price USD per million tokens (blank = unknown)", config.input_price_per_million ?? "", "number");
+  const outputPrice = control(form, "Output price USD per million tokens (blank = unknown)", config.output_price_per_million ?? "", "number");
+  for (const price of [inputPrice, outputPrice]) { price.min = "0"; price.max = "1000000"; price.step = "any"; }
+  const save = submitButton(form, profile ? "Save new profile version" : "Create profile");
+  if (profile) form.append(action("Cancel edit / new profile", () => renderProviderEditor()));
+  const status = notice(form);
+  form.addEventListener("submit", event => {
+    event.preventDefault(); if (save.disabled) return;
+    const capabilities = Object.keys(caps).filter(cap => caps[cap].checked);
+    const secretValue = secret.value; secret.value = "";
+    if (!capabilities.length || (caps.structured_output.checked && !caps.chat.checked)) { status.textContent = "Choose at least one capability. structured_output requires chat. Credential cleared; re-enter it when ready."; return; }
+    const config = { capabilities, timeout_seconds: Number(timeout.value), context_limit: Number(context.value), max_output_tokens: Number(output.value), allow_external_source: external.checked };
+    if (caps.embeddings.checked) config.embedding_dimensions = Number(dimensions.value);
+    if (inputPrice.value !== "") config.input_price_per_million = Number(inputPrice.value);
+    if (outputPrice.value !== "") config.output_price_per_million = Number(outputPrice.value);
+    const payload = { name: name.value.trim(), adapter: adapter.value, endpoint: endpoint.value.trim(), model: model.value.trim(), config };
+    if (secretValue) payload.secret_value = secretValue;
+    perform(save, status, async () => {
+      try { await featureRequest(profile ? `/api/provider-profiles/${encodeURIComponent(profile.id)}` : "/api/provider-profiles", profile ? "PATCH" : "POST", payload); }
+      finally { delete payload.secret_value; }
+      await loadProviders();
+    });
+  }); providerEditor.append(form);
+}
+
+// Callback contains a bounded status code only; never display callback query data.
+if (/^#\/settings\?github=[a-z_]{1,64}$/.test(location.hash)) {
+  const callbackNotice = node("p", "GitHub setup returned. Reload connection status to confirm installation or pending approval."); githubPanel.append(callbackNotice);
+}
+await Promise.all([loadGitHub(), loadProviders(), loadCatalog()]);
+if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();

@@ -1,0 +1,125 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createBrowser, install, settle, visibleText } from './dom.mjs';
+const html = readFileSync(new URL('../../repoask/web/index.html', import.meta.url), 'utf8');
+let sequence = 0;
+const repo = {id:'gh:1',full_name:'team/widget',description:'Widget source',topics:['widget'],language:'Python',visibility:'private',access_state:'accessible',index_enabled:false,implementation_enabled:false,default_branch:'main'};
+const version = {id:'v1',version:1,adapter:'ollama',endpoint:'http://127.0.0.1:11434',model:'test-model',credential_configured:true,config:{capabilities:['chat','structured_output'],timeout_seconds:60,context_limit:8192,max_output_tokens:1024,allow_external_source:false}};
+const profile = {id:'p1',name:'Local test',active_version_id:'v1',version};
+async function boot(custom = () => undefined, hash = '#/settings') {
+ const browser = createBrowser(html, {hash, respond(method,url,options) {
+  const override = custom(method,url,options); if (override !== undefined) return override;
+  if (url === '/api/repos') return {repos:[],model:null};
+  if (url === '/api/github/connections') return {connections:[{id:'c1',slug:'test-app',app_id:'1',status:'configured'}],summary:{status:'configured',installations:0,repository_count:1}};
+  if (url === '/api/provider-profiles') return {profiles:[profile]};
+  if (url === '/api/settings/model-roles') return {settings:{local_only:true},roles:{}};
+  if (url.startsWith('/api/repositories?')) return {items:[repo],total:1,next_cursor:null};
+  return {status:404,body:{code:'not_found'}};
+ }});
+ install(browser); await import(new URL(`../../repoask/web/app.js?catalog=${++sequence}`,import.meta.url)); await settle();
+ return {...browser, text:()=>visibleText(browser.document.body)};
+}
+const button = (root,text) => root.querySelectorAll('button').find(x=>x.textContent===text);
+// The stand-in selector intentionally has no comma selector support.
+function input(root,label) { const wrap=root.querySelectorAll('label').find(x=>x.textContent.startsWith(label)); return wrap?.querySelector('input') || wrap?.querySelector('select') || wrap?.querySelector('textarea'); }
+function formFor(root,text) { return button(root,text).closest('form'); }
+
+test('catalog pagination, server filters and independent selection use exact HTTP contracts',async()=>{
+ const app=await boot((method,url)=>{
+  if (method==='PATCH') return {...repo,index_enabled:true};
+  if(url.startsWith('/api/repositories?')) {
+   const q=new URL(url,'http://local').searchParams;
+   return {items:[{...repo,full_name:q.get('cursor')?'team/second':'team/widget'}],total:26,next_cursor:q.get('cursor')?null:'page-two'};
+  }
+ },'#/repositories');
+ const root=app.document.getElementById('repositories-content');
+ assert.match(visibleText(root),/deep indexing HTTP integration pending/);
+ const selection=formFor(root,'Save repository selection'); input(selection,'Index team/widget').checked=true;
+ selection.requestSubmit(); await settle();
+ const patch=app.requests.find(x=>x.method==='PATCH');
+ assert.equal(patch.url,'/api/repositories/gh%3A1'); assert.deepEqual(JSON.parse(patch.body),{index_enabled:true,implementation_enabled:false});
+ button(root,'Next page').click(); await settle(); assert.match(visibleText(root),/team\/second/);
+ assert.ok(app.requests.some(x=>x.url.includes('cursor=page-two')));
+ button(root,'Previous page').click(); await settle(); assert.match(visibleText(root),/team\/widget/);
+ input(root,'Exact owner').value='team'; input(root,'Search name or description').value='widget'; input(root,'Indexing selection').value='true';
+ formFor(root,'Apply catalog filters').requestSubmit();await settle();
+ const last=app.requests.filter(x=>x.url.startsWith('/api/repositories?')).at(-1).url;
+ assert.match(last,/query=widget/);assert.match(last,/owner=team/);assert.match(last,/index_enabled=true/);assert.doesNotMatch(last,/cursor/);
+});
+
+test('App setup clears multiline PEM immediately, creates safe connect link and exposes refresh/disconnect',async()=>{
+ const app=await boot((method,url)=>{
+  if(method==='POST'&&url==='/api/github/configure') return {id:'c1'};
+  if(url==='/api/github/connect')return {install_url:'https://github.com/apps/test-app/installations/new?state=bounded',expires_at:1900000000000};
+  if(url==='/api/github/refresh')return {state:'queued'};
+  if(url==='/api/github/disconnect')return {status:'disconnected'};
+ });
+ const root=app.document.getElementById('settings-content');
+ const form=formFor(root,'Save App configuration');input(form,'App ID').value='123';input(form,'App slug').value='test-app';
+ const key=input(form,'RSA private key PEM (never redisplayed)');key.value='PRIVATE\nKEY';form.requestSubmit();assert.equal(key.value,'');await settle();
+ const call=app.requests.find(x=>x.url==='/api/github/configure');assert.deepEqual(JSON.parse(call.body),{app_id:'123',slug:'test-app',private_key:'PRIVATE\nKEY',index_new:false});
+ assert.doesNotMatch(visibleText(root),/PRIVATE\nKEY/);
+ button(root,'Create connect link').click();await settle();assert.match(visibleText(root),/Continue installation on GitHub/);
+ button(root,'Refresh catalog').click();await settle();assert.match(visibleText(root),/Discovery queued/);
+ button(root,'Disconnect').click();await settle();assert.match(visibleText(root),/Disconnected/);
+});
+
+test('profile creation and credential rotation clear secrets; exact capabilities, policy and role payloads',async()=>{
+ const app=await boot((method,url)=>method==='POST'||method==='PATCH'?{}:undefined);
+ const root=app.document.getElementById('settings-content');
+ const form=formFor(root,'Create profile');input(form,'Profile name').value='Created';input(form,'Model identifier').value='model';
+ const secret=input(form,'Credential (optional for local Ollama)');secret.value='never-render-this';input(form,'structured_output').checked=true;
+ form.requestSubmit();assert.equal(secret.value,'');await settle();
+ const created=app.requests.find(x=>x.method==='POST'&&x.url==='/api/provider-profiles');const body=JSON.parse(created.body);
+ assert.deepEqual(body.config.capabilities,['chat','structured_output']);assert.equal(body.secret_value,'never-render-this');assert.doesNotMatch(visibleText(root),/never-render-this/);
+ button(root,'Edit Local test / rotate credential').click();
+ const edit=formFor(root,'Save new profile version');const rotate=input(edit,'New credential (leave blank to retain current credential)');rotate.value='replacement';edit.requestSubmit();assert.equal(rotate.value,'');await settle();
+ assert.equal(JSON.parse(app.requests.find(x=>x.method==='PATCH'&&x.url==='/api/provider-profiles/p1').body).secret_value,'replacement');
+ const policy=formFor(root,'Save destination policy');input(policy,'Local-only inference and embeddings (blocks remote destinations)').checked=false;policy.requestSubmit();await settle();
+ assert.ok(app.requests.some(x=>x.body==='{"local_only":false}'));
+ const role=formFor(root,'Save embedding role');input(role,'embedding profile').value='p1';role.requestSubmit();await settle();
+ assert.ok(app.requests.some(x=>x.body==='{"assignments":{"embedding":"p1"}}'));
+});
+
+test('failed secret submission is sanitized, cleared and never automatically retried',async()=>{
+ const app=await boot((method,url)=> method==='POST'&&url==='/api/provider-profiles'?{status:503,body:{code:'secret_store_unavailable',error:'reflected-api-key'}}:undefined);
+ const root=app.document.getElementById('settings-content');const form=formFor(root,'Create profile');
+ input(form,'Profile name').value='Test';input(form,'Model identifier').value='model';const secret=input(form,'Credential (optional for local Ollama)');secret.value='reflected-api-key';form.requestSubmit();await settle();
+ assert.equal(secret.value,'');assert.match(visibleText(root),/secret_store_unavailable/);assert.doesNotMatch(visibleText(root),/reflected-api-key/);
+ assert.equal(app.requests.filter(x=>x.method==='POST').length,1);
+});
+
+test('provider test renders capability failures and delete requires explicit confirmation',async()=>{
+ const app=await boot((method,url)=>{
+  if(url.endsWith('/test'))return {status:'partial',capabilities:{chat:{status:'verified'},structured_output:{status:'failed',error_code:'invalid_output'}},destination:{kind:'local',host:'127.0.0.1:11434'}};
+  if(method==='DELETE')return {deleted:true};
+ });
+ const root=app.document.getElementById('settings-content');button(root,'Test Local test').click();await settle();
+ assert.match(visibleText(root),/chat: verified/);assert.match(visibleText(root),/structured_output: failed \(invalid_output\)/);
+ button(root,'Delete Local test').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
+ button(root,'Cancel deletion').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
+ button(root,'Delete Local test').click();button(root,'Confirm delete Local test').click();await settle();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,1);
+});
+
+test('callback keeps Settings route; unavailable APIs do not expose mutation forms',async()=>{
+ const app=await boot((_method,url)=>url.startsWith('/api/')&&url!=='/api/repos'?{status:404,body:{code:'not_found'}}:undefined,'#/settings?github=pending_approval');
+ assert.equal(app.document.getElementById('view-settings').hidden,false);
+ const root=app.document.getElementById('settings-content');assert.match(visibleText(root),/Endpoint unavailable/);assert.equal(root.querySelectorAll('form').length,0);
+});
+
+test('embeddings preserve exact dimensions and secret-free saves omit credential rotation',async()=>{
+ const app=await boot((method)=>method==='POST'?{}:undefined);
+ const root=app.document.getElementById('settings-content');const form=formFor(root,'Create profile');
+ input(form,'Profile name').value='Embeddings';input(form,'Model identifier').value='embedding-model';
+ input(form,'chat').checked=false;input(form,'embeddings').checked=true;input(form,'Embedding dimensions (required for embeddings)').value='768';
+ form.requestSubmit();await settle();const saved=JSON.parse(app.requests.find(x=>x.method==='POST').body);
+ assert.deepEqual(saved.config.capabilities,['embeddings']);assert.equal(saved.config.embedding_dimensions,768);assert.equal('secret_value' in saved,false);
+});
+
+test('lost mutation response is explicit and never blindly retried',async()=>{
+ const app=await boot((method)=>{if(method==='PATCH')throw new Error('network failure');},'#/repositories');
+ const root=app.document.getElementById('repositories-content');formFor(root,'Save repository selection').requestSubmit();await settle();
+ assert.match(visibleText(root),/outcome is unknown/);assert.match(visibleText(root),/Refresh and inspect saved state/);
+ assert.equal(app.requests.filter(x=>x.method==='PATCH').length,1);
+});
