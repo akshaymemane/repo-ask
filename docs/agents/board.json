@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-13T17:36:06.826479+00:00",
+  "updated": "2026-11-13T17:40:35.339820+00:00",
   "phase": "M1_services_resumed",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -239,7 +239,7 @@
       "id": "M1-INDEX",
       "milestone": "M1",
       "title": "Persistent snapshots and hybrid retrieval",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F02"
       ],
@@ -259,23 +259,31 @@
         "Embedding replacement and lexical fallback evaluated"
       ],
       "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
+      "base_sha": "db85564688f25ab7345cdcd689fe18fd160c6d7a",
+      "branch": "task/m1-index",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-index",
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": null,
+      "heartbeat_at": "2026-11-13T17:36:30.606306+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Build persistent context per frozen migration4 contract; independent review on completion.",
+      "completion_depends_on": [],
+      "actual_harness": "Codex CLI",
+      "attempt": "m1-index",
+      "write_scope": [
+        "repoask/indexing/**",
+        "tests/test_indexing_*.py",
+        "tests/fixtures/indexing/**",
+        "docs/agents/runs/M1-INDEX/**"
+      ]
     },
     {
       "id": "M1-CATALOG-UI",
       "milestone": "M1",
       "title": "Repository, indexing and provider configuration screens",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F11",
         "F01",
@@ -297,18 +305,25 @@
         "Real catalog/provider integration verified before acceptance"
       ],
       "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
+      "base_sha": "b82d81151d937093cc36e9c0e2dcdc98730f55af",
+      "branch": "task/m1-catalog-ui",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-catalog-ui",
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": null,
+      "heartbeat_at": "2026-11-13T17:40:35.339820+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "Implement real catalog and provider/GitHub settings UI; indexing HTTP extension coordinator-owned.",
       "completion_depends_on": [
         "M1-INDEX"
+      ],
+      "actual_harness": "Codex CLI",
+      "attempt": "m1-catalog-ui",
+      "write_scope": [
+        "repoask/web/**",
+        "tests/ui/**",
+        "docs/agents/runs/M1-CATALOG-UI/**"
       ]
     },
     {

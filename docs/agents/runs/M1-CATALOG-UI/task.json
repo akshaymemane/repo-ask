@@ -1,0 +1,31 @@
+{
+  "id": "M1-CATALOG-UI",
+  "base_sha": "b82d81151d937093cc36e9c0e2dcdc98730f55af",
+  "persona": "experience",
+  "requirements": [
+    "F11 UX-01,02,04,08,09,10",
+    "F01 connection/selection catalog UI",
+    "F07 profile config/test/roles UI",
+    "F02 index progress controls once service integrated"
+  ],
+  "write_scope": [
+    "repoask/web/**",
+    "tests/ui/**",
+    "docs/agents/runs/M1-CATALOG-UI/**"
+  ],
+  "inputs": [
+    "docs/contracts/m1-services.md",
+    "docs/contracts/m1-indexing.md",
+    "repoask/api.py",
+    "repoask/github/service.py",
+    "repoask/providers/service.py"
+  ],
+  "acceptance": [
+    "Real GitHub connection and catalog selection/pagination",
+    "Real provider CRUD/test/roles/local-only; safe secret handling",
+    "Preserve legacy demo Ask citations",
+    "Keyboard/narrow layout and meaningful UI behavior checks"
+  ],
+  "reviewer": "Independent reviewer; Claude when available otherwise fresh Codex",
+  "handoff": "docs/agents/runs/M1-CATALOG-UI/handoff.md"
+}

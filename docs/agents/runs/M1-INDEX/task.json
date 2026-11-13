@@ -1,0 +1,30 @@
+{
+  "id": "M1-INDEX",
+  "base_sha": "db85564688f25ab7345cdcd689fe18fd160c6d7a",
+  "persona": "retrieval-engineer",
+  "requirements": [
+    "F02 IX-01 through IX-11"
+  ],
+  "write_scope": [
+    "repoask/indexing/**",
+    "tests/test_indexing_*.py",
+    "tests/fixtures/indexing/**",
+    "docs/agents/runs/M1-INDEX/**"
+  ],
+  "read_inputs": [
+    "AGENTS.md",
+    "Master PRD.md",
+    "docs/features/02-repository-indexing.md",
+    "docs/contracts/m1-services.md",
+    "docs/contracts/m1-indexing.md",
+    "docs/architecture/0002-vector-store.md"
+  ],
+  "acceptance": [
+    "Persistent safe immutable snapshots and real FTS/vector retrieval per contract",
+    "Restart, revocation, pause, namespace, partial, purge checks",
+    "Full regression suite; no simulated claims for real providers"
+  ],
+  "reviewer": "independent reviewer; Claude when quota permits, otherwise fresh Codex",
+  "handoff": "docs/agents/runs/M1-INDEX/handoff.md",
+  "coordinator_schema_update": "13c3dde cherry-picked as e7c4a5e into task branch; schema5 versioned namespaces."
+}
