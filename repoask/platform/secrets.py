@@ -62,7 +62,13 @@ class SecretService:
 
     def status(self):
         with self.store.read():
-            return self.backend.status()
+            try:
+                status = self.backend.status()
+            except Exception:
+                pass
+            else:
+                return status
+            raise SecretStoreUnavailable('Unable to inspect secure credential storage.')
 
     def _available(self):
         try:
@@ -81,15 +87,25 @@ class SecretService:
     def create(self, purpose, label, value):
         if purpose not in ('provider_api_key', 'github_app_private_key', 'github_token') or not isinstance(label, str) or not 1 <= len(label) <= 100 or not isinstance(value, str) or not value:
             raise ValueError('Invalid secret input.')
-        with self.store.transaction() as conn:
+        with self.store.read():
             self._available()
             ref_id = new_id('sec')
-            conn.execute('INSERT INTO secret_refs VALUES (?,?,?,?,?,NULL)', (ref_id, self.backend.name, purpose, label, self.clock()))
             try:
-                self.backend.put(ref_id, value.encode('utf-8'))
+                with self.store.transaction() as conn:
+                    conn.execute('INSERT INTO secret_refs VALUES (?,?,?,?,?,NULL)', (ref_id, self.backend.name, purpose, label, self.clock()))
+                    self.backend.put(ref_id, value.encode('utf-8'))
+                    ref = self._ref(conn, ref_id)
             except Exception:
-                raise SecretStoreUnavailable('Unable to store credential securely.') from None
-            return self._ref(conn, ref_id)
+                # put may have partially succeeded, or the later COMMIT may have failed.
+                try:
+                    self.backend.delete(ref_id)
+                except Exception:
+                    pass
+            else:
+                return ref
+            # Raise outside the except suite: the backend's secret-bearing exception
+            # must not be retained in __context__ or __cause__.
+            raise SecretStoreUnavailable('Unable to store credential securely.')
 
     def describe(self, ref_id):
         with self.store.read() as conn:
@@ -103,12 +119,18 @@ class SecretService:
             self._available()
             if ref.backend != self.backend.name:
                 raise SecretMissing('Credential must be reconnected.')
+            missing = False
             try:
-                return SecretValue(self.backend.get(ref_id).decode('utf-8'))
+                value = self.backend.get(ref_id).decode('utf-8')
             except KeyError:
-                raise SecretMissing('Credential must be reconnected.') from None
+                missing = True
             except Exception:
-                raise SecretStoreUnavailable('Unable to read credential securely.') from None
+                pass
+            else:
+                return SecretValue(value)
+            if missing:
+                raise SecretMissing('Credential must be reconnected.')
+            raise SecretStoreUnavailable('Unable to read credential securely.')
 
     def revoke(self, ref_id):
         with self.store.read():

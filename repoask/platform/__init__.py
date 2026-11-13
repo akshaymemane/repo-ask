@@ -10,5 +10,5 @@ from .jobs import (JobQueue, Job, JobState, Lease, HeartbeatResult, TERMINAL,
                    DEFAULT_LEASE_MS, BACKOFF_BASE_MS, BACKOFF_CAP_MS)
 from .secrets import (SecretService, SecretBackend, SecretPurpose, BackendStatus,
                       UnavailableSecretStore, SecretRef, SecretValue)
-from .worker import Worker, JobContext, Handler, RetryableError, PermanentError, UnknownOutcomeError
+from .worker import Worker, JobContext, Handler, RetryableError, PermanentError, UnknownOutcomeError, CancelledError
 from .workspace import build_workspace_summary, build_health

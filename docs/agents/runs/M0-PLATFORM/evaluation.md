@@ -1,16 +1,13 @@
-# M0-PLATFORM self-evaluation
+# Revision self-evaluation
 
-Summary: 4.0/5; implementation ready for independent review, with integration deliberately coordinator-owned.
+Overall: 4.0/5. F1–F8 have fixes and behavioral evidence; independent re-review pending.
 
-| Axis | Score | Evidence and improvement |
+| Axis | Score | Evidence / remaining improvement |
 | --- | --- | --- |
-| Accuracy | 4 | 21 passing tests and accepted fixture checks; Python 3.10 syntax parsed but interpreter runtime not exercised. Run on Python 3.10 in integration CI. |
-| Completeness | 4 | All accepted public methods implemented with recovery/secret/diagnostic tests; HTTP integration remains a separately assigned coordinator slice. Complete that slice before milestone claims. |
-| Clarity | 4 | Modules follow contract ownership; migration SQL literals are long. A future formatting-only pass could improve registry readability without changing statement checksums. |
-| Actionability | 4 | Handoff names commands, coverage and exact next action; review still needs a finalized Git object if metadata writes are blocked. Coordinator finalizes commit and review packet. |
-| Conciseness | 4 | No framework, dependency or future-milestone abstraction; queue contains repetitive explicit transitions to keep state behavior visible. Review readability before extracting helpers. |
+| Accuracy | 4 | 33 tests pass, fixture checks pass, migration checksum unchanged; runtime is Python 3.12, so exercise actual Python 3.10 in coordinator CI. |
+| Completeness | 4 | Each finding covered, including partial put and commit failure; cleanup can only be best effort if backend deletion itself fails. |
+| Clarity | 4 | Revised handoff maps findings to tests; original migration literal remains long to preserve checksum. |
+| Actionability | 4 | Coordinator has precise review scope and commands; exact revision SHA still needs Git finalization if sandbox blocks metadata. |
+| Conciseness | 4 | One small shared snapshot/startup helper, no dependencies; queue remains explicit rather than reducing transitions through generic abstractions. |
 
-Critical issues: none identified by this self-check; independent review remains required.
-Top improvements: execute integration on Python 3.10; review exact commit with the other harness.
-Self-check: user should agree with bounded claims because runtime, fixture and not-run checks are distinguished.
-Verdict: submit this slice for independent review; no integration or publication.
+No critical self-check issues identified. Improvements: coordinator validates Python 3.10 and exact-commit independent review. Self-check: assessment should match user expectations because all not-run checks and remaining limits are explicit. Verdict: submit for re-review, not integration.

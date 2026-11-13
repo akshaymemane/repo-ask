@@ -121,6 +121,8 @@ class JobQueue:
 
     def _finish(self, conn, job_id, state, **values):
         values.update(state=state, lease_token=None, lease_owner=None, lease_expires_at=None)
+        if state in ('succeeded', 'cancelled'):
+            values.update(last_error_code=None, last_error_message=None)
         if state in TERMINAL:
             values['finished_at'] = self.clock()
         return self._update(conn, job_id, **values)
@@ -191,6 +193,8 @@ class JobQueue:
         values = self._error(code, message)
         with self.store.transaction() as conn:
             row = self._owned(conn, lease)
+            if retryable and row['cancel_requested']:
+                return self._finish(conn, row['id'], 'cancelled')
             retry = retryable and row['attempts'] < row['max_attempts']
             if retry:
                 values['run_after'] = self.clock() + min(BACKOFF_BASE_MS * 2 ** (row['attempts'] - 1), BACKOFF_CAP_MS)
@@ -225,6 +229,8 @@ class JobQueue:
             row = self._row(conn, job_id)
             if row['state'] != 'needs_reconciliation' or outcome not in ('succeeded', 'failed', 'requeue'):
                 raise InvalidTransition('Invalid reconciliation outcome.')
+            if outcome == 'requeue' and row['cancel_requested']:
+                raise InvalidTransition('Cancellation is pending; resolve a known outcome.')
             if outcome == 'requeue' and row['attempts'] >= row['max_attempts']:
                 raise InvalidTransition('Job attempts are exhausted.')
             return self._finish(conn, job_id, 'queued' if outcome == 'requeue' else outcome, run_after=self.clock())
@@ -239,5 +245,5 @@ class JobQueue:
         if type(limit) is not int or limit < 0:
             raise ValueError('Invalid failure limit.')
         with self.store.read() as conn:
-            rows = conn.execute('SELECT id,kind,last_error_code,updated_at FROM jobs WHERE last_error_code IS NOT NULL ORDER BY updated_at DESC,id LIMIT ?', (limit,)).fetchall()
+            rows = conn.execute("SELECT id,kind,last_error_code,updated_at FROM jobs WHERE state IN ('failed','needs_reconciliation') AND last_error_code IS NOT NULL ORDER BY updated_at DESC,id LIMIT ?", (limit,)).fetchall()
             return [dict(job_id=r[0], kind=r[1], code=r[2], at=format_ts(r[3])) for r in rows]
