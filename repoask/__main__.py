@@ -6,11 +6,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import re
+import signal
 from subprocess import SubprocessError
 from urllib.parse import parse_qs, urlsplit
 
 from .answer import Ollama, respond
 from .index import CodeIndex, MAX_REPOS, load_demos, load_git
+from .platform import Platform
+from .platform.clock import now_ms
+from .platform.errors import PlatformError
+from .platform.workspace import build_workspace_summary, build_health
 
 
 ROOT = Path(__file__).resolve().parent
@@ -71,6 +76,20 @@ class RequestHandler(BaseHTTPRequestHandler):
                 "repos": self.server.index.list_repos(),
                 "model": self.server.model.model if self.server.model else None,
             })
+        elif url.path in {"/api/workspace", "/api/health"}:
+            if url.query:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": "This status route takes no query parameters.", "code": "bad_request"})
+                return
+            builder = build_workspace_summary if url.path == "/api/workspace" else build_health
+            try:
+                result = builder(self.server.index, self.server.model,
+                                 getattr(self.server, "platform", None), now=now_ms())
+            except PlatformError as error:
+                self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Workspace status is temporarily unavailable.", "code": error.code})
+            except Exception:
+                self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Workspace status is unavailable.", "code": "internal"})
+            else:
+                self.send_json(HTTPStatus.OK, result)
         elif url.path == "/api/source":
             self.send_source(url.query)
         else:
@@ -140,6 +159,7 @@ def main():
                         help="Index HEAD of a local Git checkout. Repeat to add repositories.")
     parser.add_argument("--model", metavar="NAME", help="Generate answers with this local Ollama model.")
     parser.add_argument("--ollama-port", type=int, default=11434, help="Loopback port for Ollama.")
+    parser.add_argument("--data-dir", type=Path, help="Persist workspace metadata in this directory; omitted uses memory.")
     parser.add_argument("--port", type=int, default=8765, help="Loopback port for the web app.")
     args = parser.parse_args()
     if len(args.repo) > MAX_REPOS:
@@ -168,18 +188,32 @@ def main():
     index = CodeIndex(snapshots)
     model = Ollama(args.model, args.ollama_port) if args.model else None
     try:
+        platform = Platform.open(args.data_dir.expanduser() if args.data_dir else None)
+    except PlatformError:
+        index.db.close()
+        parser.exit(1, "Could not open workspace storage. Check the directory and database compatibility.\n")
+    try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), RequestHandler)
     except OSError as error:
+        platform.close()
+        index.db.close()
         parser.exit(1, f"Could not start Repo Ask on port {args.port}. {error.strerror}\n")
-    with server:
-        server.index = index
-        server.model = model
-        print(f"Indexed {len(snapshots)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
-
+    try:
+        with server:
+            server.index = index
+            server.platform = platform
+            server.model = model
+            print(f"Indexed {len(snapshots)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
+            def stop_server(_signum, _frame):
+                raise KeyboardInterrupt
+            signal.signal(signal.SIGTERM, stop_server)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+    finally:
+        platform.close()
+        index.db.close()
 
 if __name__ == "__main__":
     main()

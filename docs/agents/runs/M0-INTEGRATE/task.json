@@ -1,0 +1,64 @@
+{
+  "id": "M0-INTEGRATE",
+  "title": "Wire reviewed platform and UI with real HTTP lifecycle checks",
+  "state": "review",
+  "feature_ids": [
+    "F12",
+    "F11"
+  ],
+  "requirement_ids": [
+    "OP-01",
+    "OP-07",
+    "OP-09",
+    "OP-12",
+    "UX-02",
+    "UX-08"
+  ],
+  "persona": "coordinator",
+  "harness": "codex",
+  "owner_session": "Codex coordinator",
+  "depends_on": [
+    "M0-PLATFORM",
+    "M0-EXPERIENCE"
+  ],
+  "base_sha": "e4ff292017be36702b32d1856a9b343a0f612ecc",
+  "branch": "work/opendevin-integration",
+  "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+  "write_scope": [
+    "repoask/__main__.py",
+    "tests/test_http_foundation.py",
+    "docs/agents/runs/M0-INTEGRATE/"
+  ],
+  "read_inputs": [
+    "Master PRD.md",
+    "docs/features/12-platform-operations.md",
+    "accepted contract path"
+  ],
+  "contract_versions": {},
+  "acceptance": [
+    "Real workspace/health GET routes preserve legacy APIs and Host checks",
+    "Data-dir persistence survives server restart and diagnostics expose no payload/path",
+    "Server closes request workers before database resources; SIGTERM exits cleanly"
+  ],
+  "checks": [
+    "python3 -m unittest discover -s tests",
+    "node --test tests/ui/*.test.mjs"
+  ],
+  "reviewer": {
+    "persona": "quality-reviewer",
+    "harness": "claude",
+    "session": null
+  },
+  "merge_gate": "Acceptance evidence + exact-commit independent review + affected integration checks",
+  "handoff": "docs/agents/runs/M0-INTEGRATE/handoff.md",
+  "status_artifact": "docs/agents/runs/M0-INTEGRATE/status.md",
+  "heartbeat_at": null,
+  "submitted_sha": null,
+  "review_artifact": null,
+  "integration_sha": null,
+  "pr_url": null,
+  "blocker": null,
+  "next_action": "Shape card and fill missing assignment fields before ready",
+  "completion_depends_on": [],
+  "review_packet": null
+}
