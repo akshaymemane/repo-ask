@@ -16,6 +16,9 @@ from .platform import Platform
 from .platform.clock import now_ms
 from .platform.errors import PlatformError
 from .platform.workspace import build_workspace_summary, build_health
+from .api import error_status
+from .services import ApplicationServices
+from .platform.keyring_backend import OSKeyringBackend
 
 
 ROOT = Path(__file__).resolve().parent
@@ -42,7 +45,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         port = self.server.server_port
         return self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}
 
-    def send_data(self, status, content, body):
+    def send_data(self, status, content, body, extra_headers=None):
         self.send_response(status)
         self.send_header("Content-Type", content)
         self.send_header("Content-Length", str(len(body)))
@@ -54,14 +57,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             "default-src 'none'; script-src 'self'; style-src 'self'; "
             "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         )
+        for name, value in (extra_headers or {}).items():
+            if name in {"Location", "Retry-After"} and "\r" not in str(value) and "\n" not in str(value):
+                self.send_header(name, str(value))
         self.end_headers()
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def send_json(self, status, value):
-        self.send_data(status, "application/json; charset=utf-8", json.dumps(value).encode("utf-8"))
+    def send_json(self, status, value, headers=None):
+        self.send_data(status, "application/json; charset=utf-8", json.dumps(value).encode("utf-8"), headers)
 
     def do_GET(self):
         if not self.allowed_host():
@@ -84,6 +90,18 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 result = builder(self.server.index, self.server.model,
                                  getattr(self.server, "platform", None), now=now_ms())
+                services = getattr(self.server, "services", None)
+                if services is not None:
+                    if url.path == "/api/workspace":
+                        result["catalog"]["github"] = services.github.status_summary()
+                        result["providers"]["profiles"] = {"status": "available", **services.providers.status_summary()}
+                        result["navigation"][1]["status"] = "available"
+                        result["navigation"][2]["status"] = "available"
+                    else:
+                        result["components"]["jobs"]["workers_running"] = int(services.running)
+                        result["components"]["jobs"]["error_code"] = services.error_code
+                        if services.error_code:
+                            result["status"] = "degraded"
             except PlatformError as error:
                 self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Workspace status is temporarily unavailable.", "code": error.code})
             except Exception:
@@ -93,7 +111,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         elif url.path == "/api/source":
             self.send_source(url.query)
         else:
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            self.feature_request("GET", host_checked=True)
 
     def send_source(self, query):
         try:
@@ -121,7 +139,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_json(HTTPStatus.FORBIDDEN, {"error": "This request must come from Repo Ask."})
             return
         if self.path != "/api/ask":
-            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            self.feature_request("POST", host_checked=True)
             return
         if self.headers.get_content_type() != "application/json":
             self.send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Send an application/json request."})
@@ -137,6 +155,57 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         response = respond(self.server.index, self.server.model, repos, question, previous)
         self.send_json(HTTPStatus.OK, response)
+
+    def do_PATCH(self):
+        self.feature_request("PATCH")
+
+    def do_DELETE(self):
+        self.feature_request("DELETE")
+
+    def feature_request(self, method, *, host_checked=False):
+        origin = self.headers.get("Origin")
+        if not host_checked and (not self.allowed_host() or
+                (method != "GET" and origin and origin != f"http://{self.headers['Host']}")):
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "Use this workspace's local origin.", "code": "forbidden_host"})
+            return
+        features = getattr(self.server, "features", None)
+        if features is None:
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            return
+        try:
+            body = None
+            if method != "GET":
+                if self.headers.get_content_type() != "application/json":
+                    self.send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Send JSON.", "code": "unsupported_media_type"})
+                    return
+                if self.headers.get("Transfer-Encoding"):
+                    raise ValueError()
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 0 or length > 64 * 1024 or (length == 0 and method != "DELETE"):
+                    raise ValueError()
+                body = json.loads(self.rfile.read(length)) if length else {}
+                if not isinstance(body, dict):
+                    raise ValueError()
+            url = urlsplit(self.path)
+            result = features.dispatch(method, url.path, url.query, body)
+            if result is None:
+                self.send_json(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
+            else:
+                self.send_json(result.status, result.body, result.headers)
+        except PlatformError as error:
+            code = error.code if isinstance(error.code, str) and re.fullmatch(r"[a-z0-9_]{1,64}", error.code) else "internal"
+            status = getattr(error, "http_status", error_status(code))
+            if type(status) is not int or status not in {400,404,409,429,500,502,503,504}:
+                status = 500
+            payload = {"error": "The operation could not complete. Check setup and retry.", "code": code}
+            retry_at = getattr(error, "retry_at", None)
+            if type(retry_at) is int and 0 <= retry_at < 2**63:
+                payload["detail"] = {"retry_at": retry_at}
+            self.send_json(status, payload)
+        except (TimeoutError, ValueError, TypeError, KeyError, RecursionError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid request.", "code": "bad_request"})
+        except Exception:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "The operation could not complete.", "code": "internal"})
 
     def validate_question(self, request):
         question = request["question"]
@@ -188,7 +257,8 @@ def main():
     index = CodeIndex(snapshots)
     model = Ollama(args.model, args.ollama_port) if args.model else None
     try:
-        platform = Platform.open(args.data_dir.expanduser() if args.data_dir else None)
+        platform = Platform.open(args.data_dir.expanduser() if args.data_dir else None,
+                                 secret_backend=OSKeyringBackend() if args.data_dir else None)
     except (PlatformError, RuntimeError, ValueError, OSError):
         index.db.close()
         parser.exit(1, "Could not open workspace storage. Check the directory and database compatibility.\n")
@@ -198,11 +268,15 @@ def main():
         platform.close()
         index.db.close()
         parser.exit(1, f"Could not start Repo Ask on port {args.port}. {error.strerror}\n")
+    services = ApplicationServices(platform)
     try:
         with server:
             server.index = index
             server.platform = platform
             server.model = model
+            server.services = services
+            server.features = services.api
+            services.start()
             print(f"Indexed {len(snapshots)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
             def stop_server(_signum, _frame):
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -215,6 +289,7 @@ def main():
             except KeyboardInterrupt:
                 pass
     finally:
+        services.close()
         platform.close()
         index.db.close()
 
