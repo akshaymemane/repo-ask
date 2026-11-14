@@ -16,3 +16,12 @@ Node suite passes32/32. Tests use the existing DOM stand-in and actual service b
 layout and assistive-technology behavior still require the coordinator Chrome check.
 No GitHub credentials or account mutations were used. This follow-up requires
 independent re-review against its exact commit; it is not an approval by its author.
+
+Actual Chrome exposed an additional focus gap: disabling the focused submit button
+moves focus to body before the asynchronous panel reload begins. The DOM stand-in
+now models that behavior. Its existing focus test failed before the fix and passed
+after `perform` captured focus before disabling the button and restored it to the
+retained action or replacement panel heading. All32 Node tests pass. Chrome now
+confirms H2 focus after an actual saved role, exactlyone App setup form, empty secret
+inputs/localStorage and no horizontal overflow at1280 or640 pixels. No live App
+credentials or GitHub mutations were used.
