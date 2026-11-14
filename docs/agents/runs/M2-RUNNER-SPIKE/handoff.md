@@ -4,9 +4,30 @@
 
 - Author/harness and session ID: Claude (Claude Code, Opus 5.5) as runtime engineer; one session, no nested agents.
 - Persona, branch and worktree: runtime engineer persona; worktree `opendevin-m2-runner-spike` (isolated git worktree).
-- Base SHA and submitted commit SHA(s): base `4f068baa1677579718f2d9c22acffc75cee88137`; submitted = the commit containing this handoff (see `git log`, message "feat: add isolated Docker runner, guarded tool broker and MCP bridge spike").
+- Base SHA and submitted commit SHA(s): base `4f068baa1677579718f2d9c22acffc75cee88137`. First submission `dae233d`. Review-fix submission = the child commit of `dae233d` containing this revision (message "fix: fail closed on ambiguous stop and contain macOS process groups").
 - Task card and requirement IDs: `task.json` here; F05 SE-02, SE-04, SE-08, SE-09, SE-11; F07 AI-10, AI-11.
 - Status: review (candidate only; needs fresh Codex boundary review before integration).
+
+## Review-fix revision (Codex boundary review of dae233d, three majors)
+
+1. **Inspect failure was read as absence.** `_inspect_container` returned None on any nonzero exit, so `stop()` reported `confirmed: absent` with the daemon down.
+   - Fix: None now means only Docker's exact single-line `No such container|object: <this exact 64-hex id>` with exit 1 and empty stdout.
+   - Anything else raises `inspect_failed`: daemon unreachable, permission denied, a timeout, a different id, extra stderr lines, unparseable output, or an object whose `Id` differs.
+   - `stop()` maps any non-ownership control failure to `{'confirmed': False, 'code': 'containment_unverified'}`. `discard()` fails closed with `inspect_failed`. A forged handle (label mismatch) still raises `ownership_unverified`.
+2. **macOS process-group leak.** A parent that exited 0 with a detached child holding no pipes left the child running.
+   - Fix: `run_bounded` now detects leader exit without reaping it. On macOS/BSD it uses kqueue `KQ_FILTER_PROC`/`NOTE_EXIT`; on Linux, `waitid(WEXITED|WNOHANG|WNOWAIT)`.
+   - It then kills the group while the leader is still an unreaped zombie, and only then reaps. A zombie's pid cannot be recycled, so the pgid stays reserved and the kill can only reach our own new-session group. This removes the earlier pipe-heuristic fallback.
+   - Platforms with neither primitive refuse with `unsupported_platform` (after killing the live group) instead of guessing.
+3. **No total stop deadline.** Slow control calls could stack (inspect 4 s + kill 8 s + inspect 8 s → "stopped" after 20 s).
+   - Fix: `stop()` sets one monotonic deadline at entry (internal budget 9.0 s, inside the 10 s contract) and passes only the remaining budget to every inspect, kill and poll.
+   - An exhausted budget returns `containment_unverified`. A failed kill can never be confirmed; ambiguous polls keep polling within budget and never assume absence.
+
+Interfaces are unchanged (only an internal keyword-only `timeout` on private helpers). New regressions in `tests/test_execution_runner.py`:
+- `StopControlFailureTest` (9 tests). It patches `_cli` with a fake that honors the passed timeout the way `run_bounded` does, plus a runner-local fake clock. It asserts total elapsed ≤ 10 s and that every call's timeout ends before the stop deadline. It covers the reviewer's 4+8+8 scenario, a hung initial inspect, daemon down before and after kill, exact-vs-lookalike not-found strings, garbage/foreign inspect output, still-running-after-kill, the normal and already-stopped paths, and a forged handle.
+- `BoundedSubprocessTest`: detached descendant with all pipes closed is killed; exit observed without reaping (zombie still present, then reaped with code 3); 40 fast exits never misread as timeouts.
+- The real Docker test asserts that stop after discard returns the real not-found answer as `absent`.
+
+Negative control actually run: I loaded the `dae233d` runner source in place of the fixed one and ran the new regressions. 7 failures and 4 errors, covering all three majors. All pass on the fix.
 
 ## Outcome
 
@@ -53,8 +74,11 @@ Environment: macOS host, Python 3.12.0, Docker Desktop Engine 28.3.2 (context de
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
-| Pure boundary checks | `python3 -m unittest tests.test_execution_runner tests.test_execution_broker` | 53 run, OK, 5 Docker-gated skipped |
-| Regression | `python3 -m unittest discover -s tests` | 264 run, OK (30 skipped) |
+| Pure boundary checks (review-fix revision) | `python3 -m unittest tests.test_execution_runner tests.test_execution_broker` | 65 run, OK, 5 Docker-gated skipped |
+| Regression (review-fix revision) | `python3 -m unittest discover -s tests` | 276 run, OK (30 skipped) |
+| Review-fix real Docker | `run_docker_tests.py debian:stable-slim` / `python:3.12-slim`; `docker_probe.py` | 5/5 OK each image; probe: stop 0.40–0.42 s confirmed `stopped`, repeat `already_stopped`, stop after discard `absent` (real not-found wording), zero owned left; image IDs match the cached pins `00959f189b92…`/`78976a69c067…` |
+| Negative control | Load `dae233d` runner source, run new regressions | 7 failures + 4 errors on old code; all pass on fix |
+| (first submission dae233d) | focused / full | 53 OK (5 skip) / 264 OK (30 skip) |
 | SE-02/SE-09 real isolation (two sessions, nonroot, network none, no host mounts) | `python3 docs/agents/runs/M2-RUNNER-SPIKE/run_docker_tests.py debian:stable-slim` and `... python:3.12-slim` | 5/5 OK on each image (68 s / 58 s) |
 | Same, probe evidence | `python3 docs/agents/runs/M2-RUNNER-SPIKE/docker_probe.py` (both images) | uid/gid 65534; CapEff=CapBnd=0; NoNewPrivs 1; no routes, only `lo` up (kernel fallback tunnels down); no host markers or docker.sock; peer session file not visible (no timeout); root write exit 1; `/tmp` exec 126; pids.max 64; memory.max 536870912; DNS fails |
 | Strict workspace byte cap | probe and test with `workspace_mib=1` | 3 MB write stopped at 1044480 B (rc=1); `write_file` → `workspace_full` |
@@ -66,9 +90,9 @@ Environment: macOS host, Python 3.12.0, Docker Desktop Engine 28.3.2 (context de
 | MCP protocol | broker tests spawning the real bridge subprocess over a real Unix socket | initialize/version negotiation, initialized notification, list/call, error codes, stdout protocol-only, clean EOF exit 0; endpoint refusals (0644 token, 0750 dir, symlink token, split/relative paths, revoked endpoint) exit 2 with empty stdout |
 | Broker over real Docker via MCP | `BrokerOverRealDockerTest` | the bridge edited a synthetic `calc.py` fix, search found it, validation command ran in the container, checkpoint captured the diff, stop then confirmed and further tools denied |
 
-Two real bugs were found by the tests and fixed:
-- The macOS process-group straggler kill depended on `waitid(WNOWAIT)`. It now kills the group while descendants still hold our pipes; POSIX forbids pid reuse while the group exists.
+Two real bugs were found by the first-round tests and fixed:
 - `preflight` raised `UnboundLocalError`.
+- The first macOS straggler handling was a pipe-held heuristic. It was found insufficient in review and is replaced by the kqueue zombie-hold approach above.
 
 Not run / not claimed:
 - No model CLI and no inference. The Claude adapter/initialize inventory with an installed CLI is the next adapter spike.
@@ -83,6 +107,8 @@ Not run / not claimed:
   - There is no explicit per-session CPU-time budget beyond `--cpus` and wall time.
   - `ask_user` callback lifecycle and the follow-up path are untested with a real adapter.
   - Peer-UID check on macOS is best-effort.
+  - `run_bounded` group containment does not cover a descendant that calls `setsid` to leave our session/group. The Docker CLI does not do this; in-container commands are contained by the container's PID namespace and the stop kill.
+  - Reader-thread joins share one 0.75 s budget per call, so the worst-case overrun of the final stop control call keeps stop within 9.0 s + 0.75 s, inside 10 s. The remaining exception is a Docker CLI stuck in uninterruptible kernel state, where `wait()` after SIGKILL can block; that is not bounded by user space.
   - The bridge needs `repoask` importable (PYTHONPATH or installed package) when the adapter launches it from an empty trusted dir.
 - Migrations/configuration needed: none. Gated tests need `OPENDEVIN_DOCKER_TESTS=1` (optional `OPENDEVIN_TEST_IMAGE`) or the owned wrapper `run_docker_tests.py`.
 - Background processes still running: none. Probes and tests removed every container they created (`owned_after_cleanup: []`). They touched no unrelated Docker resources and pulled no images.

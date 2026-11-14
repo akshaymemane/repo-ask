@@ -77,6 +77,7 @@ def probe(runner, image):
             runner.stop(h)
             runner.discard(h)
     ev['owned_after_cleanup'] = [h.session_id for h in runner.list_owned()]
+    ev['stop_after_discard'] = runner.stop(a)  # must be verified absent, not inferred
     return ev
 
 

@@ -19,3 +19,9 @@
   removed. Full suite 264 OK.
 - Phase: review. Handoff written; committing scoped files. Candidate only until fresh Codex
   boundary review.
+- Committed dae233d. Codex boundary review found 3 majors (inspect failure read as absent;
+  macOS detached-descendant leak; no total stop deadline).
+- Review fix: verified-absence only, zombie-held group kill (kqueue/waitid WNOWAIT), single 9 s
+  stop budget passed to every call. 12 new regressions; negative control on dae233d source
+  7F+4E; focused 65 OK (5 skip), full 276 OK; real Docker 5/5 both images + probe OK incl.
+  stop-after-discard `absent`. Committing for independent re-review. No model/harness calls.

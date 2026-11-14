@@ -6,7 +6,9 @@ OPENDEVIN_DOCKER_TESTS=1 and uses a locally present image
 touches containers labelled with its own random instance id.
 """
 import io
+import json
 import os
+import unittest.mock
 from pathlib import Path
 import secrets
 import stat
@@ -207,6 +209,34 @@ class BoundedSubprocessTest(unittest.TestCase):
         res = run_bounded(['/bin/sh', '-c', 'sleep 60'], timeout=30, max_stdout=10, cancel=ev)
         self.assertTrue(res.timed_out)
 
+    def test_detached_descendant_with_all_pipes_closed_is_killed(self):
+        # Review major 2 repro: parent exits 0, child keeps running with no pipes held.
+        res = run_bounded(['/bin/sh', '-c', 'sleep 30 >/dev/null 2>&1 </dev/null & echo $!'],
+                          timeout=20, max_stdout=100)
+        self.assertEqual(res.returncode, 0)
+        self.assertFalse(res.timed_out)
+        child = int(res.stdout.split()[0])
+        self.assertTrue(_wait_dead(child), 'background descendant leaked after normal exit')
+
+    def test_exit_is_observed_without_reaping_leader(self):
+        # Group kill is only safe while the leader is an unreaped zombie (pgid reserved).
+        proc = subprocess.Popen(['/bin/sh', '-c', 'exit 3'], start_new_session=True)
+        watcher = R._ExitWatcher(proc.pid)
+        try:
+            self.assertTrue(watcher.wait(5))
+            self.assertIsNone(proc.returncode)
+            os.kill(proc.pid, 0)  # zombie still exists, so its pid/pgid is not recyclable
+        finally:
+            watcher.close()
+        self.assertEqual(proc.wait(timeout=5), 3)
+
+    def test_fast_exits_are_not_misread_as_timeouts(self):
+        start = time.monotonic()
+        for _ in range(40):
+            res = run_bounded(['/usr/bin/true'], timeout=5, max_stdout=10)
+            self.assertEqual((res.returncode, res.timed_out), (0, False))
+        self.assertLess(time.monotonic() - start, 20)
+
     def test_rejects_non_list_argv(self):
         with self.assertRaises(RunnerError):
             run_bounded('sleep 1', timeout=1, max_stdout=1)
@@ -246,6 +276,159 @@ class DockerBinaryTrustTest(unittest.TestCase):
             del os.environ['OPENDEVIN_TEST_HOST_SECRET']
         self.assertNotIn('OPENDEVIN_TEST_HOST_SECRET', runner._env)
         self.assertLessEqual(set(runner._env) - {'PATH', 'LANG', 'LC_ALL'}, set(R._DOCKER_ENV_PASSTHROUGH))
+
+
+class FakeClock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def monotonic(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += max(0.0, seconds)
+
+
+CID = 'a' * 64
+IMG = 'sha256:' + 'b' * 64
+DAEMON_DOWN = b'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?\n'
+
+
+def _info(running):
+    return {'Id': CID, 'Image': IMG, 'State': {'Running': running},
+            'Config': {'Labels': {'org.opendevin.managed': '1', 'org.opendevin.instance': 'inst',
+                                  'org.opendevin.session': 'sess', 'org.opendevin.attempt': 'att1'}}}
+
+
+class StopControlFailureTest(unittest.TestCase):
+    """Review majors 1 and 3: stop() must never report false confirmation and
+    must finish within one total 10 s budget regardless of control-plane delays."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        os.chmod(self.dir, 0o700)
+        exe = os.path.join(self.dir, 'docker')
+        Path(exe).write_text('#!/bin/sh\nexit 99\n')
+        os.chmod(exe, 0o755)
+        self.addCleanup(lambda: (os.unlink(exe), os.rmdir(self.dir)))
+        self.runner = DockerRunner('inst', docker_binary=exe)
+        self.handle = RunnerHandle('inst', 'sess', CID, IMG)
+        self.clock = FakeClock()
+        self.calls = []
+        fake_time = type('T', (), {'monotonic': staticmethod(self.clock.monotonic),
+                                   'sleep': staticmethod(self.clock.sleep)})
+        patcher = unittest.mock.patch.object(R, 'time', fake_time)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _fake(self, responder):
+        """responder(op, call_index) -> (delay_seconds, BoundedResult). The fake honors
+        the timeout passed in, as run_bounded does: a slower call returns timed_out."""
+        def cli(args, *, timeout=R.CONTROL_TIMEOUT, max_stdout=0, stdin=None):
+            op = args[0] if args[0] != 'container' else args[1]
+            delay, res = responder(op, len(self.calls))
+            self.calls.append((op, timeout, self.clock.t))
+            if delay > timeout:
+                self.clock.t += timeout
+                return R.BoundedResult(-9, b'', b'', True, False, False)
+            self.clock.t += delay
+            return res
+        self.runner._cli = cli
+
+    @staticmethod
+    def _ok(info):
+        return R.BoundedResult(0, json.dumps(info).encode(), b'', False, False, False)
+
+    @staticmethod
+    def _fail(stderr, stdout=b''):
+        return R.BoundedResult(1, stdout, stderr, False, False, False)
+
+    def _stop(self):
+        start = self.clock.t
+        result = self.runner.stop(self.handle)
+        elapsed = self.clock.t - start
+        self.assertLessEqual(elapsed, R.STOP_CONFIRM_SECONDS, f'stop took {elapsed}s')
+        for op, timeout, at in self.calls:
+            self.assertLessEqual(at + timeout, start + R.STOP_CONFIRM_SECONDS + 1e-9,
+                                 f'{op} given a timeout beyond the stop deadline')
+        return result
+
+    def test_daemon_unreachable_is_never_confirmed(self):
+        self._fake(lambda op, i: (0.01, self._fail(DAEMON_DOWN)))
+        self.assertEqual(self._stop(), {'confirmed': False, 'code': 'containment_unverified'})
+        with self.assertRaises(RunnerError) as cm:
+            self.runner.discard(self.handle)
+        self.assertEqual(cm.exception.code, 'inspect_failed')
+
+    def test_daemon_lost_after_kill_is_never_confirmed(self):
+        def responder(op, i):
+            if i == 0:
+                return 0.05, self._ok(_info(True))
+            if op == 'kill':
+                return 0.05, R.BoundedResult(0, CID.encode(), b'', False, False, False)
+            return 0.05, self._fail(DAEMON_DOWN)
+        self._fake(responder)
+        self.assertEqual(self._stop()['confirmed'], False)
+
+    def test_only_exact_not_found_for_this_id_counts_as_absent(self):
+        self._fake(lambda op, i: (0.01, self._fail(f'Error: No such container: {CID}\n'.encode())))
+        self.assertEqual(self._stop(), {'confirmed': True, 'code': 'absent'})
+        for stderr in [f'Error: No such container: {"c" * 64}\n'.encode(),
+                       f'Error: No such container: {CID}\nCannot connect to the Docker daemon\n'.encode(),
+                       b'Error response from daemon: No such container\n',
+                       b'permission denied while trying to connect to the Docker daemon socket\n']:
+            with self.subTest(stderr=stderr):
+                self.calls.clear()
+                self._fake(lambda op, i, s=stderr: (0.01, self._fail(s)))
+                self.assertEqual(self._stop()['code'], 'containment_unverified')
+
+    def test_garbage_or_foreign_inspect_output_is_not_trusted(self):
+        other = dict(_info(False), Id='d' * 64)
+        for res in [R.BoundedResult(0, b'not json', b'', False, False, False), self._ok(other), self._ok([])]:
+            with self.subTest(res=res.stdout[:20]):
+                self.calls.clear()
+                self._fake(lambda op, i, r=res: (0.01, r))
+                self.assertEqual(self._stop()['code'], 'containment_unverified')
+
+    def test_reviewer_slow_control_plane_scenario_bounded(self):
+        # inspect 4 s + kill 8 s + inspect 8 s previously "confirmed stopped" after 20 s.
+        def responder(op, i):
+            if op == 'kill':
+                return 8.0, R.BoundedResult(0, b'', b'', False, False, False)
+            if i == 0:
+                return 4.0, self._ok(_info(True))
+            return 8.0, self._ok(_info(False))
+        self._fake(responder)
+        self.assertEqual(self._stop(), {'confirmed': False, 'code': 'containment_unverified'})
+
+    def test_hung_initial_inspect_bounded(self):
+        self._fake(lambda op, i: (60.0, self._ok(_info(True))))
+        self.assertEqual(self._stop()['code'], 'containment_unverified')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_still_running_after_kill_times_out_unverified(self):
+        self._fake(lambda op, i: (0.3, self._ok(_info(True)) if op != 'kill'
+                                  else R.BoundedResult(0, b'', b'', False, False, False)))
+        self.assertEqual(self._stop()['code'], 'containment_unverified')
+
+    def test_normal_stop_confirmed(self):
+        def responder(op, i):
+            if op == 'kill':
+                return 0.2, R.BoundedResult(0, b'', b'', False, False, False)
+            return 0.1, self._ok(_info(i == 0))
+        self._fake(responder)
+        self.assertEqual(self._stop(), {'confirmed': True, 'code': 'stopped'})
+        self._fake(lambda op, i: (0.1, self._ok(_info(False))))
+        self.assertEqual(self._stop(), {'confirmed': True, 'code': 'already_stopped'})
+
+    def test_forged_handle_still_raises(self):
+        forged = dict(_info(True))
+        forged['Config'] = {'Labels': dict(_info(True)['Config']['Labels'], **{'org.opendevin.session': 'other'})}
+        self._fake(lambda op, i: (0.01, self._ok(forged)))
+        with self.assertRaises(RunnerError) as cm:
+            self.runner.stop(self.handle)
+        self.assertEqual(cm.exception.code, 'ownership_unverified')
+        self.assertEqual([c[0] for c in self.calls], ['inspect'])
 
 
 class CreateArgumentsTest(unittest.TestCase):
@@ -477,6 +660,10 @@ class RealDockerIsolationTest(unittest.TestCase):
         with self.assertRaises(RunnerError) as cm:
             self.runner.run_command(h, ['true'])
         self.assertEqual(cm.exception.code, 'not_running')
+        # Real Docker not-found wording must be recognised as verified absence.
+        self.runner.discard(h)
+        self.assertEqual(self.runner.stop(h), {'confirmed': True, 'code': 'absent'})
+        self.assertIsNone(self.runner.discard(h))
 
     def test_orphan_recovery_lists_only_owned_and_refuses_duplicates(self):
         h = self._provision('sessorph', {'x': b'1'})

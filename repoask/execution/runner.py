@@ -17,6 +17,7 @@ import math
 import os
 import re
 import secrets
+import select
 import signal
 import stat
 import subprocess
@@ -53,6 +54,9 @@ LABEL_ATTEMPT = LABEL_PREFIX + 'attempt'
 LABEL_LIMITS = LABEL_PREFIX + 'limits'
 CONTROL_TIMEOUT = 30
 STOP_CONFIRM_SECONDS = 10
+# Internal budget leaves headroom for process teardown inside the 10 s contract.
+STOP_BUDGET_SECONDS = 9.0
+JOIN_BUDGET_SECONDS = 0.75
 MAX_COMMAND_TIMEOUT = 600
 MAX_ARGV_ITEMS = 256
 MAX_ARG_BYTES = 8192
@@ -225,17 +229,73 @@ def _kill_group(pid: int) -> None:
         pass
 
 
-def _exited_unreaped(proc) -> bool:
-    waitid = getattr(os, 'waitid', None)
-    if waitid is None or proc.returncode is not None:
+class _ExitWatcher:
+    """Detect leader exit WITHOUT reaping it.
+
+    While the exited leader is an unreaped zombie its pid -- and therefore our
+    process-group id -- cannot be reused, so killpg(pgid) can only reach members
+    of our own new session/group. The leader is reaped only after that kill.
+    macOS/BSD: kqueue EVFILT_PROC/NOTE_EXIT. Linux: waitid(WNOWAIT).
+    """
+
+    def __init__(self, pid: int):
+        self.pid, self.exited, self.kq = pid, False, None
+        self.supported = True
+        if hasattr(select, 'kqueue') and hasattr(select, 'KQ_FILTER_PROC'):
+            self.kq = select.kqueue()
+            ev = select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                               flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT, fflags=select.KQ_NOTE_EXIT)
+            try:
+                self.kq.control([ev], 0)
+            except ProcessLookupError:
+                self.exited = True  # already a zombie (we have not reaped it)
+        elif not hasattr(os, 'waitid') or not hasattr(os, 'WNOWAIT'):
+            self.supported = False
+
+    def wait(self, timeout: float) -> bool:
+        if self.exited:
+            return True
+        if self.kq is not None:
+            try:
+                events = self.kq.control(None, 1, max(0.0, timeout))
+            except InterruptedError:
+                events = []
+            if any(e.ident == self.pid for e in events):
+                self.exited = True
+            return self.exited
+        if not self.supported:
+            return False
+        end = time.monotonic() + max(0.0, timeout)
+        while True:
+            try:
+                info = os.waitid(os.P_PID, self.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                return False
+            if info is not None and info.si_pid == self.pid:
+                self.exited = True
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(min(0.01, max(0.0, end - time.monotonic())))
+
+    def close(self):
+        if self.kq is not None:
+            self.kq.close()
+            self.kq = None
+
+
+_ABSENT_RE = re.compile(rb'^(?:Error: |Error response from daemon: )No such (?:container|object): ([0-9a-f]{64})\s*$')
+
+
+def _is_verified_absent(res, container_id: str) -> bool:
+    """True only for Docker's exact not-found answer about this exact id."""
+    if res.timed_out or res.returncode != 1 or res.stdout.strip() not in (b'', b'[]'):
         return False
-    try:
-        info = waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-    except ChildProcessError:
+    lines = [line for line in res.stderr.strip().splitlines() if line.strip()]
+    if len(lines) != 1:
         return False
-    except OSError:
-        return False
-    return info is not None and info.si_pid == proc.pid
+    match = _ABSENT_RE.match(lines[0].strip())
+    return bool(match) and match.group(1).decode('ascii') == container_id
 
 
 def run_bounded(argv, *, timeout: float, max_stdout: int, max_stderr: int = 16384,
@@ -271,30 +331,35 @@ def run_bounded(argv, *, timeout: float, max_stdout: int, max_stderr: int = 1638
         t.start()
     deadline = time.monotonic() + timeout
     timed_out = False
-    while True:
-        if _exited_unreaped(proc):
-            # Leader is a zombie, so its pid/pgid cannot be reused yet: killing the
-            # group now only reaches our own leftover descendants.
+    watcher = _ExitWatcher(proc.pid)
+    try:
+        if not watcher.supported:
+            # No way to observe exit without reaping: refuse rather than risk
+            # killing a recycled process group or leaking descendants.
             _kill_group(proc.pid)
             proc.wait()
-            break
-        if proc.poll() is not None:
-            # waitid(WNOWAIT) unavailable/unreliable (e.g. macOS). If descendants still
-            # hold our pipes, they keep the process group alive, and POSIX forbids
-            # reusing a pid while its process group exists, so the kill stays ours.
-            for t in threads[:2]:
-                t.join(timeout=0.2)
-            if any(t.is_alive() for t in threads[:2]):
+            raise RunnerError('unsupported_platform', 'cannot supervise process groups safely')
+        while True:
+            left = deadline - time.monotonic()
+            if watcher.wait(min(0.05, max(0.0, left))):
+                # Leader is an unreaped zombie: pgid cannot be recycled, so this
+                # kill reaches only our own leftover descendants (even ones that
+                # closed every pipe). Reap only afterwards.
                 _kill_group(proc.pid)
-            break
-        if time.monotonic() >= deadline or (cancel is not None and cancel.is_set()):
-            timed_out = True
-            _kill_group(proc.pid)
-            proc.wait()
-            break
-        time.sleep(0.02)
+                proc.wait()
+                break
+            if left <= 0 or (cancel is not None and cancel.is_set()):
+                timed_out = True
+                _kill_group(proc.pid)  # leader alive => pgid is ours
+                proc.wait()
+                break
+    finally:
+        watcher.close()
+    # The group is dead, so pipes normally hit EOF at once. One shared, small join
+    # budget keeps the caller's deadline (e.g. stop's 10 s contract) honest.
+    join_deadline = time.monotonic() + JOIN_BUDGET_SECONDS
     for t in threads:
-        t.join(timeout=5)
+        t.join(timeout=max(0.0, join_deadline - time.monotonic()))
     return BoundedResult(proc.returncode, out.data, err.data, timed_out, out.truncated, err.truncated)
 
 
@@ -485,16 +550,26 @@ class DockerRunner:
             raise RunnerError(code, 'docker operation failed')
         return res
 
-    def _inspect_container(self, container_id: str):
-        res = self._cli(['container', 'inspect', '--format', '{{json .}}', '--', container_id])
+    def _inspect_container(self, container_id: str, *, timeout: float = CONTROL_TIMEOUT):
+        """Return inspect info, or None only when Docker *verifiably* reports the
+        container absent. Any other failure (daemon unreachable, timeout, unknown
+        error, garbage output) raises ``inspect_failed``: absence is never inferred."""
+        if not _CONTAINER_RE.match(container_id):
+            raise RunnerError('invalid_argument', 'invalid container id')
+        res = self._cli(['container', 'inspect', '--format', '{{json .}}', '--', container_id], timeout=timeout)
         if res.timed_out:
-            raise RunnerError('timeout', 'docker inspect timed out')
+            raise RunnerError('inspect_failed', 'docker inspect timed out')
         if res.returncode != 0:
-            return None
+            if _is_verified_absent(res, container_id):
+                return None
+            raise RunnerError('inspect_failed', 'docker inspect failed')
         try:
-            return json.loads(res.stdout.decode('utf-8'))
+            info = json.loads(res.stdout.decode('utf-8'))
         except (ValueError, UnicodeDecodeError):
-            raise RunnerError('container_failure', 'unparseable inspect output') from None
+            raise RunnerError('inspect_failed', 'unparseable inspect output') from None
+        if not isinstance(info, dict) or info.get('Id') != container_id:
+            raise RunnerError('inspect_failed', 'inspect returned a different object')
+        return info
 
     def _owned_labels(self, info) -> dict | None:
         labels = ((info or {}).get('Config') or {}).get('Labels') or {}
@@ -504,12 +579,12 @@ class DockerRunner:
             return None
         return labels
 
-    def _verify_handle(self, handle: RunnerHandle, info=None):
+    def _verify_handle(self, handle: RunnerHandle, info=None, *, timeout: float = CONTROL_TIMEOUT):
         if not isinstance(handle, RunnerHandle) or handle.instance_id != self.instance_id:
             raise RunnerError('ownership_unverified', 'handle not owned by this runner')
         if not _CONTAINER_RE.match(handle.container_id):
             raise RunnerError('ownership_unverified', 'invalid handle')
-        info = info if info is not None else self._inspect_container(handle.container_id)
+        info = info if info is not None else self._inspect_container(handle.container_id, timeout=timeout)
         if info is None:
             return None
         labels = self._owned_labels(info)
@@ -801,21 +876,49 @@ class DockerRunner:
         return parse_workspace_tar(res.stdout, limits)
 
     def stop(self, handle) -> dict:
-        info = self._verify_handle(handle)
+        """Kill and confirm within one total STOP_CONFIRM_SECONDS budget from entry.
+
+        Every inspect/kill/poll gets only the remaining budget. Only a verified
+        absent or verified not-running container is ``confirmed``; any control
+        failure or exhausted budget returns ``containment_unverified``.
+        """
+        deadline = time.monotonic() + STOP_BUDGET_SECONDS
+        unverified = {'confirmed': False, 'code': 'containment_unverified'}
+
+        def remaining():
+            return deadline - time.monotonic()
+
+        if remaining() <= 0:
+            return unverified
+        try:
+            info = self._verify_handle(handle, timeout=remaining())
+        except RunnerError as exc:
+            if exc.code == 'ownership_unverified':
+                raise
+            return unverified
         if info is None:
             return {'confirmed': True, 'code': 'absent'}
-        if not (info.get('State') or {}).get('Running'):
+        if (info.get('State') or {}).get('Running') is False:
             return {'confirmed': True, 'code': 'already_stopped'}
-        self._cli(['kill', '--signal', 'KILL', '--', handle.container_id], timeout=STOP_CONFIRM_SECONDS)
-        deadline = time.monotonic() + STOP_CONFIRM_SECONDS
-        while time.monotonic() < deadline:
-            info = self._inspect_container(handle.container_id)
+        if remaining() <= 0:
+            return unverified
+        try:
+            self._cli(['kill', '--signal', 'KILL', '--', handle.container_id], timeout=remaining())
+        except RunnerError:
+            pass  # confirmation below decides; a failed kill cannot be "confirmed"
+        while remaining() > 0:
+            try:
+                info = self._inspect_container(handle.container_id, timeout=remaining())
+            except RunnerError:
+                info = False  # ambiguous: keep polling within budget, never assume absent
             if info is None:
                 return {'confirmed': True, 'code': 'absent'}
-            if not (info.get('State') or {}).get('Running'):
+            if info and (info.get('State') or {}).get('Running') is False:
                 return {'confirmed': True, 'code': 'stopped'}
-            time.sleep(0.1)
-        return {'confirmed': False, 'code': 'containment_unverified'}
+            pause = min(0.1, remaining())
+            if pause > 0:
+                time.sleep(pause)
+        return unverified
 
     def discard(self, handle) -> None:
         info = self._verify_handle(handle)
