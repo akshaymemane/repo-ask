@@ -64,3 +64,9 @@ Overall 4.0/5. Highest-impact next step: exact-commit review, then shared-main e
 - `git diff --check` and `node --check repoask/web/context.js`: passed.
 
 No test sessions remain running. All implementation checks precede independent review.
+
+## Independent review correction R1
+
+The reviewer found that the demo loader and recovery tests used project-root `examples`, while packaged fixtures live under `repoask/examples`. The original demo tests therefore exercised empty snapshots, and their earlier passing counts did not establish successful real demo restoration. Corrected the loader to the package directory and the test fixture path independently.
+
+Recovery now explicitly requires nonempty demo snapshots and four files for orders-api. It verifies exact OutboxPublisher.java content in both the restored legacy mirror and cached metadata, then runs the real indexing worker and resolves stored source containing `public class OutboxPublisher` and `public void publishPending()`. Six focused recovery tests pass with these assertions; the corrected full run passed all 186 Python tests in 57.992 seconds. No other production scope changed.

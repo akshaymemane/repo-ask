@@ -76,7 +76,7 @@ class ApplicationServices:
     def _bundled_demos():
         from pathlib import Path
         from .index import load_demos
-        return load_demos(Path(__file__).resolve().parent.parent / 'examples')
+        return load_demos(Path(__file__).resolve().parent / 'examples')
 
     def bootstrap_context(self, snapshots, local_roots, *, demo_loader=None):
         self._before_start()

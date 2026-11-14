@@ -39,7 +39,12 @@ class ContextPurgeRecoveryTests(TestCase):
             self.assertEqual(conn.execute('SELECT count(*) FROM code_chunks').fetchone()[0],0)
 
     def test_demo_purge_survives_restart_and_only_explicit_enable_reloads_source(self):
-        snapshots = load_demos(Path(__file__).resolve().parent.parent/'examples')
+        snapshots = load_demos(Path(__file__).resolve().parent.parent/'repoask'/'examples')
+        self.assertTrue(all(snapshot.files for snapshot in snapshots))
+        original = next(snapshot for snapshot in snapshots if snapshot.name == 'orders-api')
+        publisher = 'src/main/java/example/orders/OutboxPublisher.java'
+        self.assertEqual(len(original.files), 4)
+        self.assertIn('public class OutboxPublisher', '\n'.join(original.files[publisher]))
         with TemporaryDirectory() as directory:
             app = self.open_app(Path(directory), snapshots)
             platform, services, index, legacy = app
@@ -61,10 +66,18 @@ class ContextPurgeRecoveryTests(TestCase):
                 self.assert_erased(app,target,'orders-api')
                 response=services.api.dispatch('PATCH','/api/repositories/demo%3Aorders-api/context',body={'index_enabled':True})
                 self.assertTrue(response.body['eligible']); self.assertFalse(response.body['purged'])
-                self.assertIn('orders-api',legacy.snapshots)
+                self.assertEqual(legacy.snapshots['orders-api'].files, original.files)
                 self.assertIn(target,services.scheduler.local_markers)
                 with platform.store.read() as conn:
-                    self.assertIn('files',json.loads(conn.execute('SELECT metadata_json FROM index_sources WHERE id=?',(target,)).fetchone()[0]))
+                    cached = json.loads(conn.execute('SELECT metadata_json FROM index_sources WHERE id=?',(target,)).fetchone()[0])['files']
+                    self.assertEqual(len(cached), 4)
+                    self.assertEqual(cached[publisher], '\n'.join(original.files[publisher]))
+                index.request_index(target)
+                Worker(platform.jobs,{'index.run':index.run_index},worker_id='restored-fixture',lease_ms=600000).run_once()
+                restored = index.get_state(target)['active_snapshot']
+                source = index.source(target,restored['id'],publisher,1,20)
+                self.assertIn('public class OutboxPublisher', '\n'.join(source['lines']))
+                self.assertIn('public void publishPending()', '\n'.join(source['lines']))
             finally:self.close_app(app)
 
     def test_local_purge_restart_and_enable_use_registered_path_and_committed_source(self):
@@ -94,7 +107,7 @@ class ContextPurgeRecoveryTests(TestCase):
             finally:self.close_app(app)
 
     def test_failed_cleanup_stays_blocked_and_can_retry_without_restoring_other_source(self):
-        snapshots=load_demos(Path(__file__).resolve().parent.parent/'examples')
+        snapshots=load_demos(Path(__file__).resolve().parent.parent/'repoask'/'examples')
         app=self.open_app(None,snapshots)
         try:
             platform,services,index,legacy=app
@@ -147,7 +160,7 @@ class ContextPurgeRecoveryTests(TestCase):
         finally:index.vectors.close();platform.close()
 
     def test_disabled_source_can_restore_mirror_after_empty_mirror_startup(self):
-        snapshots=load_demos(Path(__file__).resolve().parent.parent/'examples')
+        snapshots=load_demos(Path(__file__).resolve().parent.parent/'repoask'/'examples')
         with TemporaryDirectory() as directory:
             app=self.open_app(Path(directory),snapshots)
             app[1].select_context('demo:orders-api',False)
