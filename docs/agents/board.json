@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated": "2026-11-14T11:49:48.459263+00:00",
-  "phase": "M1_services_resumed",
+  "updated": "2026-11-14T18:11:01.968855+00:00",
+  "phase": "M1_review_recovery",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
@@ -414,7 +414,7 @@
       "id": "M1-ASK-UI",
       "milestone": "M1",
       "title": "Ask conversation and plan editor",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F04",
         "F11"
@@ -437,13 +437,13 @@
       "base_sha": "7fe71b85e57e4feea4beab7fbca267611fab950d",
       "branch": "task/m1-ask-ui",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-ask-ui",
-      "reviewer_session": null,
+      "reviewer_session": "fd28c41a-e171-4995-9fda-adc88bb07472",
       "handoff": null,
-      "heartbeat_at": "2026-11-14T09:36:20.868084+00:00",
-      "submitted_sha": "c2482553b7ff85b767ac7e3a2980107d48eaac28",
-      "integration_sha": null,
+      "heartbeat_at": "2026-11-14T18:11:01.939518+00:00",
+      "submitted_sha": "2d5d2fa811b9198d13b13217f7a502b9a2ee4092",
+      "integration_sha": "35b2f5a",
       "blocker": null,
-      "next_action": "Resolve2major+medium+ownedminorClaude findings witherror/navigationtests.",
+      "next_action": "Claude approved2d5d2fa; root56initial and60combinedUIpass; rootUIcompositionapproved2c, full217pass. RealChrome acceptance ongoing.",
       "completion_depends_on": [
         "M1-INDEX",
         "M1-ASK-BACKEND"
@@ -466,7 +466,7 @@
       "id": "M2-RUNNER-SPIKE",
       "milestone": "M2",
       "title": "Container/event/state ownership proof",
-      "state": "backlog",
+      "state": "review",
       "feature_ids": [
         "F05",
         "F12"
@@ -474,7 +474,8 @@
       "planned_persona": "runtime",
       "planned_harness": "codex",
       "depends_on": [
-        "M1-INTEGRATE"
+        "M1-INDEX",
+        "M1-PROVIDERS"
       ],
       "proposed_write_scope": [
         "docs/architecture/runner/",
@@ -484,31 +485,34 @@
         "Isolation/cancellation/recovery assumptions demonstrated",
         "Runner contract accepted before service implementation"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
-      "submitted_sha": null,
+      "owner_session": "e8f518a8-7f9b-47de-a2ac-85c8e688bc9b",
+      "base_sha": "4f068baa1677579718f2d9c22acffc75cee88137",
+      "branch": "task/m2-runner-spike",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-runner-spike",
+      "reviewer_session": "fresh Codex boundary reviewer pending",
+      "handoff": "docs/agents/runs/M2-RUNNER-SPIKE/handoff.md",
+      "heartbeat_at": "2026-11-14T18:11:01.968855+00:00",
+      "submitted_sha": "dae233de8df0bbb959466865f8d552d504b3d6b3",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Claude completed runner/broker/MCP withrealDockerandprotocolproof. FreshCodex boundaryreview androotrealDockerchecks now; additiveinterfaceacceptancepending.",
+      "completion_depends_on": [
+        "M1-INTEGRATE"
+      ]
     },
     {
       "id": "M2-ADAPTER-SPIKE",
       "milestone": "M2",
       "title": "Select first headless coding agent through lifecycle proof",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F07"
       ],
       "planned_persona": "integration",
       "planned_harness": "claude",
       "depends_on": [
-        "M1-INTEGRATE"
+        "M1-PROVIDERS",
+        "M1-ASK-BACKEND"
       ],
       "proposed_write_scope": [
         "docs/architecture/adapters/",
@@ -518,18 +522,21 @@
         "Actual adapter startup/output/cancel/auth evidence",
         "Licensing and unsupported resume behavior documented"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "owner_session": "native Codex adapter_spike (launch now)",
+      "base_sha": "4f068baa1677579718f2d9c22acffc75cee88137",
+      "branch": "task/m2-adapter-spike",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-spike",
+      "reviewer_session": "Claude boundary reviewer pending",
+      "handoff": "docs/agents/runs/M2-ADAPTER-SPIKE/handoff.md",
+      "heartbeat_at": "2026-11-14T12:18:34.234803+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Implement adapter against4f068 fixedbrokercontract; real inference only with reserved agent slot, no pretending mocksuccess is acceptance",
+      "completion_depends_on": [
+        "M1-INTEGRATE",
+        "M2-RUNNER-SPIKE"
+      ]
     },
     {
       "id": "M2-SESSIONS",
@@ -1018,7 +1025,7 @@
     },
     {
       "id": "M1-ASK-BACKEND",
-      "state": "review",
+      "state": "integrated",
       "base_sha": "c0e15ea59620346a912d986441aa644b77e4bcdb",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-ask",
       "branch": "task/m1-ask",
@@ -1038,10 +1045,11 @@
         "tests/fixtures/routing/**",
         "docs/agents/runs/M1-ASK-BACKEND/**"
       ],
-      "next_action": "Exactre-review correctedbackend; root169socket-enabledsuite.",
-      "submitted_sha": "dd2931fff0ec4fba334cfe14ba7b5c3cd20b5dcd",
+      "next_action": "Claude approval dd293+0b04; root169+174 candidatefullpass; root2c217+60pass. Finalcombinedpostmergechecks andrealmodelacceptance pending.",
+      "submitted_sha": "0b04cf0f669a6c7d03bb86fe9ef5199b40a1c652",
       "review_attempt": "review-m1-ask-claude-r2",
-      "heartbeat_at": "2026-11-14T11:24:32.897430+00:00"
+      "heartbeat_at": "2026-11-14T18:11:01.932397+00:00",
+      "integration_sha": "904eba001ef98931be4f83c9ec4116a7860e1fab"
     },
     {
       "id": "M1-ASK-FOUNDATION",
@@ -1097,6 +1105,25 @@
         "tests/test_saved_api_boundary.py"
       ],
       "next_action": "Independentreview ofbackgroundcomposition andschema7; actualmainwiring aftercoregates."
+    },
+    {
+      "id": "M1-CONTEXT-RECOVERY",
+      "milestone": "M1",
+      "title": "Preserve purge and exclusion edits across restart/save",
+      "state": "integrated",
+      "owner_session": "native Codex /root/context_recovery",
+      "base_sha": "95b8f1e6c9db58365941fa7ea5486b1dfbbe81ab",
+      "branch": "task/m1-context-recovery",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-context-recovery",
+      "depends_on": [
+        "M1-INDEX"
+      ],
+      "reviewer_session": "native /root/review_index_foundation",
+      "handoff": "docs/agents/runs/M1-CONTEXT-RECOVERY/handoff.md",
+      "next_action": "Independent native approval7f84 final; root6purge+5bridge+8UI passed; mainemptybootstrap2CLI+4schedulerpass",
+      "submitted_sha": "b9ea72c269e09bccd20395875cddd08b8a7b404b",
+      "heartbeat_at": "2026-11-14T12:19:05.179614+00:00",
+      "integration_sha": "45a283c"
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",

@@ -1,0 +1,1 @@
+Independent native Codex /root/review_index_foundation APPROVED exact7f84b6047555a2701f197dd42ea2a9657bae3077. Verified immutablepacket/diff, focused real nonempty4-file orders-api purge/restart/Enable/reindexsource test passed. Root6purge+5bridge+8UIpassed. Root2c258da full217Python+60Nodepassed includingCLIrestart/purge. No accountcalls.
