@@ -3,7 +3,7 @@ import json
 import threading
 from contextlib import contextmanager
 from repoask.platform.clock import now_ms, new_id
-from repoask.platform.errors import InvalidTransition, IdempotencyConflict, LeaseLost, NotFound
+from repoask.platform.errors import InvalidTransition, IdempotencyConflict, LeaseLost, NotFound, StorageBusy
 from repoask.platform.worker import CancelledError
 from .common import encode, text, ids, one, page, eligible, citation, export_text, retrieval_query
 
@@ -167,19 +167,31 @@ class ConversationService:
         interval=max(.05,min(5.,context.lease_ms/3000))
         def renew():
             while not stop.wait(interval):
-                try:
-                    # Keep expiry check and public queue renewal under the same Store lock.
-                    with self.store.read() as db:
-                        self._fence(db,job,context)
-                        result=self.jobs.heartbeat(context.lease,lease_ms=context.lease_ms)
-                        if result.cancel_requested:
-                            raise CancelledError()
-                except Exception as exc:
-                    errors.append(exc); event.set(); return
+                for attempt in range(2):
+                    try:
+                        # Every attempt rechecks ownership/expiry, including after contention.
+                        with self.store.read() as db:
+                            self._fence(db,job,context)
+                            result=self.jobs.heartbeat(context.lease,lease_ms=context.lease_ms)
+                            if result.cancel_requested:
+                                raise CancelledError()
+                        break
+                    except StorageBusy as exc:
+                        if attempt==0:
+                            if stop.wait(min(.1,interval/4)):
+                                return
+                            continue
+                        errors.append(exc); event.set(); return
+                    except Exception as exc:
+                        errors.append(exc); event.set(); return
         thread=threading.Thread(target=renew,name='ask-lease-renewal',daemon=True)
         thread.start()
         try:
             yield
+        except Exception:
+            if errors:
+                raise errors[0] from None
+            raise
         finally:
             stop.set(); thread.join()
         if errors:
@@ -356,7 +368,7 @@ class ConversationService:
         except Exception as exc:
             # Only content-free codes are durable; provider/model exception text is untrusted.
             from repoask.providers.errors import ALL_ERRORS
-            allowed={e.code for e in ALL_ERRORS}|{'scope_unavailable'}
+            allowed={e.code for e in ALL_ERRORS}|{'scope_unavailable','storage_busy'}
             code=getattr(exc,'code',None)
             if code in ('repository_unavailable','source_unavailable','snapshot_unavailable') or any(not eligible(self.index,r) for r in locals().get('scope',[])):
                 code='scope_unavailable'
