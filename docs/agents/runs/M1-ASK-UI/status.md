@@ -1,14 +1,13 @@
-# M1-ASK-UI
+# M1-ASK-UI — R1 correction candidate
 
-State: implementation candidate; commit submission blocked by sandbox; not approved or integrated.
-Author: Codex, experience engineer, task/m1-ask-ui.
-Worktree: /Users/apple/workspace/vibe-coding/opendevin-m1-ask-ui.
-Base: 7fe71b85e57e4feea4beab7fbca267611fab950d.
+Author: Codex experience engineer; branch task/m1-ask-ui; worktree /Users/apple/workspace/vibe-coding/opendevin-m1-ask-ui.
+Reviewed base: c2482553b7ff85b767ac7e3a2980107d48eaac28 (root recorded initial commit).
+State: R1 fixes implemented; independent exact-commit re-review pending. Not approved/integrated.
 
-Implemented persistent Ask and human-readable immutable plan editor against submitted AskAPI and ContextAPI. Kept context.js, context tests, Python, HTTP entrypoints and asset registration untouched. Backend/index remain independently reviewed candidates. No worker spawned, package installed, model downloaded or remote operation performed.
+Both major findings, medium stale actions, listed minor findings and coordinator browser NodeList/main/H1 note are addressed. Scope: ask.js/app.js, new ask-recovery.test.mjs, task-local handoff/status/response. Read-only neighboring context.js/tests and shared Python are untouched.
 
-Verification: 38 existing Node checks preserved; 43/43 Node checks passed, including 5 added behavioral checks (real services/process restart bridge, API absence fallback, uncertain submission/navigation, stale source safety, reserved launch contract). Python suite: root .venv ran 177, 170 passed, 7 socket-bind errors. Browser smoke attempted but sandbox forbids loopback server bind; no Chrome profile touched or process launched.
+Checks: node --test tests/ui/ — 56/56 passed (original 43 preserved, 13 new). Existing real AskAPI/ContextAPI/SQLite process-restart integration remains green. node --check and git diff --check pass. Root owns actual Chrome against synthetic server 8880; no worker browser or runtime claim. No spawned agents, package installs, account writes or owned processes.
 
-Root next actions: independent exact-commit review; resolve candidate corrections; register ask.js and compose live services; run HTTP/browser checks in a socket-enabled environment. Root owns M2 session route/preflight.
+Next: new scoped commit attempt, independent Claude re-review at resulting SHA, root browser verification and integration. Backend/index candidates remain gated on independent approval/corrections.
 
-Commit attempt: git add failed creating shared Git worktree index.lock outside writable root. No commit created. Coordinator must commit scoped files and request exact-commit review in its authorized environment.
+R1 commit attempt: scoped git add failed creating the shared Git worktree index.lock (Operation not permitted). No new commit created. Root must commit scoped changes plus review-r1-response.md in its authorized environment and request review at that SHA.

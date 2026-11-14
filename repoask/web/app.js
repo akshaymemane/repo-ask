@@ -426,7 +426,10 @@ function showRoute(moveFocus) {
     renderSettings();
     if (moveFocus && previous !== "settings") refreshStatus();
   }
-  if (moveFocus) byId(ROUTES[route].title).focus();
+  if (moveFocus) {
+    if (route === "ask" && persistentAsk) persistentAsk.focus();
+    else byId(ROUTES[route].title).focus();
+  }
 }
 
 window.addEventListener("hashchange", () => showRoute(true));
@@ -1210,9 +1213,10 @@ await Promise.all([loadGitHub(), loadProviders(), loadCatalog(), contextUI.refre
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
 
-persistentAsk = await createAskPanel({host: byId("view-ask")});
-if (persistentAsk) {
-  for (const child of [...byId("view-ask").children]) if (child !== persistentAsk.panel) child.hidden = true;
+persistentAsk = await createAskPanel({host: byId("view-ask"), onMount: handle => {
+  // Retire legacy content before the first saved-page/history read can wait or fail.
+  persistentAsk = handle;
+  for (const child of [...byId("view-ask").children]) if (child !== handle.panel) child.hidden = true;
   byId("show-repos").hidden = true;
   byId("history-toggle").hidden = true;
-}
+}});
