@@ -69,7 +69,16 @@ class Store:
 
     def size_bytes(self):
         with self.read() as conn:
-            return conn.execute("PRAGMA page_count").fetchone()[0] * conn.execute("PRAGMA page_size").fetchone()[0] if self.persistent else 0
+            if not self.persistent:
+                return 0
+            filename = conn.execute("PRAGMA database_list").fetchone()[2]
+            total = 0
+            for suffix in ("", "-wal", "-shm"):
+                try:
+                    total += Path(filename + suffix).stat().st_size
+                except FileNotFoundError:
+                    pass  # A concurrent checkpoint may have removed its WAL.
+            return total
 
     def backup_to(self, target):
         with self.read() as conn:
