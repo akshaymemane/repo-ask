@@ -7,7 +7,7 @@ import time
 from ..platform.clock import now_ms, new_id
 from ..platform.errors import PlatformError, NotFound, LeaseLost
 from ..platform.worker import CancelledError
-from .safety import CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks
+from .safety import CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
 from .snapshots import local_snapshot, github_snapshot
 from .vectors import VectorStore, VectorUnavailable
 
@@ -133,6 +133,9 @@ class IndexService:
             row = db.execute("SELECT id FROM index_runs WHERE repository_id=? AND state IN ('queued','running','waiting','paused')", (repository_id,)).fetchone()
             if row:
                 return self._public_run(self._one(db, 'index_runs', row[0]))
+            abandoned = [r[0] for r in db.execute("SELECT s.id FROM repository_snapshots s WHERE s.repository_id=? AND s.state='staging' AND NOT EXISTS(SELECT 1 FROM index_runs r WHERE r.snapshot_id=s.id AND r.state IN ('queued','running','waiting','paused'))",(repository_id,))]
+            for sid in abandoned:
+                self._discard_staging(db,sid)
             ident, now = new_id('ix'), self.clock()
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': ident}, priority=priority, idempotency_key=ident + ':0')
             db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded(caps), now, now))
@@ -161,6 +164,9 @@ class IndexService:
             self._require(self._source(db, run['repository_id']))
             if run['state'] not in states:
                 return self._public_run(run)
+            conflict = db.execute("SELECT id FROM index_runs WHERE repository_id=? AND id!=? AND state IN ('queued','running','waiting','paused')",(run['repository_id'],run_id)).fetchone()
+            if conflict:
+                raise IndexError('active_run_conflict')
             if run['job_id']:
                 old = self.jobs.get(run['job_id'])
                 if old.state == 'leased' and old.lease_expires_at >= self.clock():
@@ -169,6 +175,13 @@ class IndexService:
                 if self.jobs.get(run['job_id']).state == 'queued':
                     # Cancel the stale pending job in this same transaction.
                     self.jobs._finish(db, run['job_id'], 'cancelled')
+            if run['snapshot_id']:
+                snapshot = self._one(db,'repository_snapshots',run['snapshot_id'])
+                policy = json.loads(snapshot['coverage_json']).get('selection_hash')
+                current = digest(encoded(self._source(db,run['repository_id'])['exclusions']))
+                if run['error_code'] == 'selection_changed' or snapshot['chunker_version'] != CHUNKER or (policy is not None and policy != current):
+                    self._discard_staging(db,run['snapshot_id'])
+                    db.execute("UPDATE index_runs SET snapshot_id=NULL,phase='queued',checkpoint_json='{}',progress_json='{}',requested_revision=? WHERE id=?",(snapshot['revision'],run_id))
             continuation = run['continuation'] + 1
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': run_id}, idempotency_key=f'{run_id}:{continuation}')
             db.execute("UPDATE index_runs SET state='queued',job_id=?,continuation=?,error_code=NULL,retry_at=NULL,updated_at=? WHERE id=?", (job.id,continuation,self.clock(),run_id))
@@ -190,8 +203,38 @@ class IndexService:
                 raise IndexError('purge_pending')
             if source['kind'] == 'github':
                 raise IndexError('selection_authoritative_in_github')
+            if index_enabled and source['kind'] == 'demo' and 'revision' not in json.loads(source['metadata_json']):
+                raise IndexError('demo_registration_required')
             db.execute('UPDATE index_sources SET index_enabled=?,exclusions_json=?,updated_at=? WHERE id=?', (index_enabled, source['exclusions_json'] if patterns is None else encoded(patterns), self.clock(), repository_id))
         return self.get_state(repository_id)
+
+    def set_exclusions(self, repository_id, exclusions):
+        """Change source policy only, never GitHub indexing/implementation selection."""
+        patterns = validate_exclusions(exclusions)
+        self._ensure_source(repository_id)
+        with self.store.transaction() as db:
+            source = self._source(db,repository_id)
+            self._require(source)
+            db.execute('UPDATE index_sources SET exclusions_json=?,updated_at=? WHERE id=?',
+                       (encoded(patterns),self.clock(),repository_id))
+        return self.get_state(repository_id)
+
+    def _discard_staging(self, db, snapshot_id):
+        snapshot = self._one(db,'repository_snapshots',snapshot_id)
+        if snapshot['state'] != 'staging':
+            return
+        if not self.vectors.available:
+            return  # Defer vector cleanup until dependencies are available again.
+        self.vectors.discard_snapshot(snapshot_id)
+        db.execute('DELETE FROM repository_snapshots WHERE id=?',(snapshot_id,))
+
+    def _schedule(self, db, run, code, retry_at=None):
+        continuation = run['continuation'] + 1
+        when = max(self.clock()+1000,retry_at or 0)
+        job = self.jobs.enqueue_in_transaction(db,'index.run',{'run_id':run['id']},
+            idempotency_key=f"{run['id']}:{continuation}",run_after=when)
+        db.execute("UPDATE index_runs SET state='waiting',job_id=?,continuation=?,error_code=?,retry_at=?,updated_at=? WHERE id=?",
+                   (job.id,continuation,code,when,self.clock(),run['id']))
 
     def get_state(self, repository_id):
         self._ensure_source(repository_id)
@@ -244,6 +287,11 @@ class IndexService:
             raise StopRun()
         source = self._source(db, run['repository_id'])
         self._require(source)
+        if run['snapshot_id']:
+            snapshot = self._one(db,'repository_snapshots',run['snapshot_id'])
+            policy = json.loads(snapshot['coverage_json']).get('selection_hash')
+            if policy is not None and policy != digest(encoded(source['exclusions'])):
+                raise IndexError('selection_changed')
         return run, source
 
     def _boundary(self, job, context):
@@ -293,20 +341,25 @@ class IndexService:
         except Exception as exc:
             # Only stable content-free codes enter durable diagnostics.
             code = getattr(exc, 'code', 'index_failed')
-            if code not in {'repository_unavailable','rate_limited','timeout','auth','cost_unavailable','disk_limit'}:
+            code = {'provider_rate_limited':'rate_limited','provider_timeout':'timeout','provider_unavailable':'upstream_unavailable'}.get(code,code)
+            if code not in {'repository_unavailable','rate_limited','timeout','upstream_unavailable','auth','cost_unavailable','disk_limit','selection_changed'}:
                 code = 'index_failed'
             with self.store.transaction() as db:
                 run, _ = self._fence_for_error(db, job, context)
                 if run['state'] in ('paused','cancelled'):
                     return {'run_id':run['id'],'state':run['state']}
-                state = 'waiting' if code == 'rate_limited' else 'failed'
+                source = self._source(db,run['repository_id'])
+                if not self._eligible(source):
+                    code = 'repository_unavailable'
+                elif run['snapshot_id']:
+                    policy = json.loads(self._one(db,'repository_snapshots',run['snapshot_id'])['coverage_json']).get('selection_hash')
+                    if policy is not None and policy != digest(encoded(source['exclusions'])):
+                        code = 'selection_changed'
+                state = 'waiting' if code in {'rate_limited','timeout','upstream_unavailable'} else 'failed'
                 retry_at = getattr(exc,'retry_at',None)
                 db.execute('UPDATE index_runs SET state=?,error_code=?,retry_at=?,updated_at=? WHERE id=?', (state,code,retry_at,self.clock(),run['id']))
                 if state == 'waiting':
-                    continuation = run['continuation'] + 1
-                    next_job = self.jobs.enqueue_in_transaction(db,'index.run',{'run_id':run['id']},
-                        idempotency_key=f"{run['id']}:{continuation}",run_after=max(self.clock()+1000,retry_at or 0))
-                    db.execute('UPDATE index_runs SET job_id=?,continuation=? WHERE id=?',(next_job.id,continuation,run['id']))
+                    self._schedule(db,run,code,retry_at or self.clock()+min(300000,2000*2**min(run['continuation'],7)))
             return {'run_id':job.payload['run_id'],'state':state,'error_code':code}
 
     def _fence_for_error(self, db, job, context):
@@ -331,16 +384,26 @@ class IndexService:
             self._fence(db,job,context)
             active = db.execute("SELECT count(*) FROM index_runs r JOIN jobs j ON j.id=r.job_id WHERE r.state='running' AND j.state='leased' AND j.lease_expires_at>? AND r.id!=?",(self.clock(),run['id'])).fetchone()[0]
             if active >= 2:
-                self._pause_limit(db,run,'worker_limit')
-                return {'state':'paused'}
+                self._schedule(db,run,'worker_limit')
+                return {'state':'waiting'}
             db.execute("UPDATE index_runs SET state='running',phase=CASE WHEN phase='queued' THEN 'acquiring' ELSE phase END,updated_at=? WHERE id=?", (self.clock(),run['id']))
         if run['snapshot_id']:
             with self.store.read() as db:
                 snapshot = self._one(db,'repository_snapshots',run['snapshot_id'])
             revision = snapshot['revision']
+            if snapshot['chunker_version'] != CHUNKER:
+                with self.store.transaction() as db:
+                    run,source = self._fence(db,job,context)
+                    self._discard_staging(db,run['snapshot_id'])
+                    db.execute("UPDATE index_runs SET snapshot_id=NULL,phase='queued',checkpoint_json='{}',progress_json='{}',requested_revision=? WHERE id=?",(revision,run['id']))
+                    run = self._one(db,'index_runs',run['id'])
         else:
             revision = run['requested_revision']
         if run['phase'] not in ('embedding','activation'):
+            if run['snapshot_id']:
+                with self.store.read() as db:
+                    source['_ingested_paths'] = {r[0] for r in db.execute('SELECT path FROM snapshot_files WHERE snapshot_id=?',(run['snapshot_id'],))}
+            acquisition_policy = digest(encoded(source['exclusions']))
             data = self._snapshot(source, revision, caps)
             rev, kind = data.get('revision'), data.get('revision_kind')
             if kind not in ('git','content_hash') or not isinstance(rev,str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})' if kind == 'git' else r'[0-9a-f]{64}',rev) or (revision and revision != rev):
@@ -349,35 +412,51 @@ class IndexService:
                 raise IndexError('invalid_snapshot')
             with self.store.transaction() as db:
                 run, source = self._fence(db,job,context)
+                if acquisition_policy != digest(encoded(source['exclusions'])):
+                    raise IndexError('selection_changed')
                 sid = run['snapshot_id'] or new_id('snap')
                 if not run['snapshot_id']:
                     db.execute("INSERT INTO repository_snapshots(id,repository_id,revision,revision_kind,branch,state,chunker_version,parser_version,created_at) VALUES(?,?,?,?,?,'staging',?,?,?)", (sid,source['id'],rev,kind,data.get('branch'),CHUNKER,PARSER,self.clock()))
+                    db.execute('UPDATE repository_snapshots SET coverage_json=? WHERE id=?',(encoded({'selection_hash':digest(encoded(source['exclusions']))}),sid))
                     db.execute('UPDATE index_runs SET snapshot_id=? WHERE id=?',(sid,run['id']))
-            skips, seen, total, count, chunk_count = Counter(), set(), 0, 0, 0
-            for entry in data['files']:
-                run, source = self._boundary(job,context)
+            checkpoint = json.loads(run['checkpoint_json'])
+            cursor = checkpoint.get('ingest_cursor',0)
+            skips = Counter(checkpoint.get('skipped',{}))
+            total, count, chunk_count = (checkpoint.get(k,0) for k in ('source_bytes','files','chunks'))
+            seen = set()
+            def save_ingest(db, position):
+                self._fence(db,job,context)
+                progress = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps)
+                db.execute("UPDATE index_runs SET phase='ingesting',progress_json=?,checkpoint_json=?,updated_at=? WHERE id=?",
+                    (encoded(progress),encoded(dict(progress,ingest_cursor=position)),self.clock(),run['id']))
+            for position,entry in enumerate(data['files']):
                 path = entry.get('path')
-                reason = excluded(path,source['exclusions'])
-                if time.monotonic() - started > caps['elapsed_ms']/1000:
-                    skips['elapsed_limit'] += 1
-                    break
+                if position < cursor:
+                    seen.add(path)
+                    continue
+                run, source = self._boundary(job,context)
+                if position > cursor and time.monotonic() - started > caps['elapsed_ms']/1000:
+                    with self.store.transaction() as db:
+                        save_ingest(db,position)
+                        self._schedule(db,run,'elapsed_limit')
+                    return {'state':'waiting'}
                 if len(seen) >= caps['files']*4:
                     skips['tree_limit'] += 1
                     break
+                reason = excluded(path,source['exclusions']) or entry.get('kind')
                 if path in seen:
-                    continue
+                    reason = 'duplicate'
                 seen.add(path)
-                reason = reason or entry.get('kind')
-                if reason:
-                    skips[reason if reason in {'unsafe_path','generated','sensitive','configured','symlink','submodule','file_bytes','tree_limit','unsupported'} else 'unsupported'] += 1
-                    continue
                 raw = entry.get('content')
-                if not isinstance(raw,bytes) or len(raw)>caps['file_bytes']:
-                    skips['file_bytes'] += 1
-                    continue
-                text = decode(raw)
-                if text is None:
-                    skips['binary_or_sensitive'] += 1
+                if not reason and (not isinstance(raw,bytes) or len(raw)>caps['file_bytes']):
+                    reason = 'file_bytes'
+                text = decode(raw) if not reason else None
+                if not reason and text is None:
+                    reason = 'binary_or_sensitive'
+                if reason:
+                    skips[reason if reason in {'unsafe_path','generated','sensitive','configured','symlink','submodule','file_bytes','tree_limit','unsupported','duplicate','binary_or_sensitive'} else 'unsupported'] += 1
+                    with self.store.transaction() as db:
+                        save_ingest(db,position+1)
                     continue
                 if count >= caps['files'] or total+len(raw)>caps['source_bytes']:
                     skips['source_limit'] += 1
@@ -389,8 +468,7 @@ class IndexService:
                 with self.store.transaction() as db:
                     run, current = self._fence(db,job,context)
                     if excluded(path,current['exclusions']):
-                        skips['configured'] += 1
-                        continue
+                        raise IndexError('selection_changed')
                     if self.store.size_bytes() + self.vectors.size_bytes() + len(raw)*4 > caps['disk_bytes']:
                         self._pause_limit(db,run,'disk_limit')
                         return {'state':'paused'}
@@ -403,9 +481,10 @@ class IndexService:
                     count += 1
                     total += len(raw)
                     chunk_count += len(parts)
-                    progress = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps)
-                    db.execute("UPDATE index_runs SET phase='ingesting',progress_json=?,checkpoint_json=?,updated_at=? WHERE id=?",(encoded(progress),encoded({'files':count}),self.clock(),run['id']))
-            coverage = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps,partial=bool(skips) or bool(data.get('limited')))
+                    save_ingest(db,position+1)
+            resource_skips = {'file_bytes','tree_limit','source_limit','chunk_limit'}
+            coverage = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps,
+                            partial=bool(resource_skips & skips.keys()) or bool(data.get('limited')))
             coverage['selection_hash'] = digest(encoded(source['exclusions']))
             if source['kind'] == 'github':
                 repo = self.github.get_repository(source['id'])
@@ -416,6 +495,8 @@ class IndexService:
                 db.execute("UPDATE index_runs SET phase='embedding',progress_json=?,checkpoint_json='{}' WHERE id=?",(encoded(coverage),run['id']))
         run,source = self._boundary(job,context)
         sid = run['snapshot_id']
+        # Embedding receives its own time slice after the ingestion checkpoint.
+        started = time.monotonic()
         namespace_id = None
         degradation = 'embedding_unassigned'
         if run['profile_version_id'] and self.vectors.available:
@@ -429,70 +510,82 @@ class IndexService:
                 db.execute('UPDATE repository_snapshots SET namespace_id=? WHERE id=?',(namespace_id,sid))
             with self.store.read() as db:
                 rows = [dict(r) for r in db.execute('SELECT * FROM code_chunks WHERE snapshot_id=? ORDER BY path,start_line',(sid,))]
-            tokens = 0
             checkpoint = json.loads(run['checkpoint_json'])
             cursor = checkpoint.get('embedded',0)
             tokens = checkpoint.get('tokens',0)
-            price = self.providers.get_version(run['profile_version_id'])['config'].get('input_price_per_million')
+            semantic_skipped = checkpoint.get('semantic_skipped',0)
+            config = self.providers.get_version(run['profile_version_id'])['config']
+            price = config.get('input_price_per_million')
             offset = cursor
             while offset < len(rows):
                 run, source = self._boundary(job,context)
-                batch, batch_bytes = [], 0
+                if offset > cursor and time.monotonic()-started > caps['elapsed_ms']/1000:
+                    with self.store.transaction() as db:
+                        self._fence(db,job,context)
+                        self._schedule(db,run,'elapsed_limit')
+                    return {'state':'waiting'}
+                batch, values, estimate, skipped = [], [], 0, 0
+                # Budget/cache decisions are per chunk. One large or unaffordable
+                # chunk must not disable vectors already staged for other chunks.
+                end = offset
                 for row in rows[offset:offset+caps['batch_size']]:
-                    size = len(row['text'].encode())
-                    if batch_bytes + size > caps['batch_tokens']:
+                    value = self.vectors.cached(source['id'],namespace_id,row['content_hash'])
+                    charge = estimated_tokens(row['text']) if value is None else 0
+                    if value is None and (charge > caps['batch_tokens'] or tokens+charge > caps['embedding_tokens']):
+                        skipped += 1
+                        end += 1
+                        continue
+                    if estimate+charge > caps['batch_tokens'] or tokens+estimate+charge > caps['embedding_tokens']:
                         break
                     batch.append(row)
-                    batch_bytes += size
-                if not batch:
-                    # A caller-lowered per-batch cap may not fit one chunk. Retain
-                    # source/FTS, declare partial semantic coverage, activate lexical.
-                    namespace_id = None
-                    degradation = 'embedding_token_limit'
-                    break
+                    values.append(value)
+                    estimate += charge
+                    end += 1
                 if any(excluded(r['path'],source['exclusions']) for r in batch):
-                    # Selection changed mid-run: force a new ingestion with new policy.
                     raise IndexError('selection_changed')
-                estimate = sum(len(r['text'].encode()) for r in batch) # conservative tokens <= bytes
-                if tokens+estimate>caps['embedding_tokens']:
-                    namespace_id = None
-                    degradation = 'embedding_token_limit'
-                    break
-                if 'monetary_cap' in caps and (price is None or (tokens+estimate)*price/1000000>caps['monetary_cap']):
+                missing = [i for i,v in enumerate(values) if v is None]
+                if missing and 'monetary_cap' in caps and (price is None or (tokens+estimate)*price/1000000>caps['monetary_cap']):
                     with self.store.transaction() as db:
                         self._fence(db,job,context)
                         self._pause_limit(db,run,'cost_unavailable' if price is None else 'cost_limit')
                     return {'state':'paused'}
-                values = [self.vectors.cached(source['id'],namespace_id,r['content_hash']) for r in batch]
-                missing = [i for i,v in enumerate(values) if v is None]
+                charged = 0
                 if missing:
+                    # A default 60s provider timeout must fit inside the live queue
+                    # lease (normally 30s). Extend only while strictly fenced, before
+                    # I/O, within the queue's existing finite 600s lease maximum.
+                    duration = min(600000,max(context.lease_ms,int(config.get('timeout_seconds',60)*1000)+5000))
+                    with self.store.transaction() as db:
+                        self._fence(db,job,context)
+                        db.execute('UPDATE jobs SET lease_expires_at=? WHERE id=?',(self.clock()+duration,job.id))
                     result = self.providers.embed(run['profile_version_id'],[batch[i]['text'] for i in missing],contains_source=True,cancel_event=self._cancel_guard(job,context,[r['path'] for r in batch]))
                     if result.get('namespace',{}).get('key') != spec['key'] or len(result['vectors']) != len(missing):
                         raise IndexError('namespace_mismatch')
                     for i,v in zip(missing,result['vectors']):
                         values[i] = v
+                    usage = result.get('usage') or {}
+                    actual = usage.get('input_tokens')
+                    charged = actual if type(actual) is int and actual >= 0 else estimate
                 with self.store.transaction() as db:
                     run,source = self._fence(db,job,context)
                     if any(excluded(r['path'],source['exclusions']) for r in batch):
                         raise IndexError('selection_changed')
-                    # Vector DB commits precede metadata checkpoint; replay is idempotent.
-                    if self.store.size_bytes()+self.vectors.size_bytes()+estimate*4+len(batch)*spec['dimensions']*8 > caps['disk_bytes']:
+                    if self.store.size_bytes()+self.vectors.size_bytes()+sum(len(r['text'].encode()) for r in batch)*4+len(batch)*spec['dimensions']*8 > caps['disk_bytes']:
                         self._pause_limit(db,run,'disk_limit')
                         return {'state':'paused'}
                     for row,vector in zip(batch,values):
                         self.vectors.put(namespace_id,spec['dimensions'],source['id'],sid,row['id'],row['content_hash'],vector)
-                    tokens += estimate
-                    db.execute('UPDATE index_runs SET checkpoint_json=?,updated_at=? WHERE id=?',(encoded({'embedded':offset+len(batch),'tokens':tokens}),self.clock(),run['id']))
-                offset += len(batch)
-                if time.monotonic()-started>caps['elapsed_ms']/1000:
-                    with self.store.transaction() as db:
-                        self._fence(db,job,context)
-                        self._pause_limit(db,run,'elapsed_limit')
-                    return {'state':'paused'}
-            if namespace_id:
-                if self.vectors.count(namespace_id,sid) != len(rows):
-                    raise IndexError('vector_incomplete')
-                degradation = None
+                    tokens += charged
+                    semantic_skipped += skipped
+                    db.execute('UPDATE index_runs SET checkpoint_json=?,updated_at=? WHERE id=?',
+                        (encoded({'embedded':end,'tokens':tokens,'semantic_skipped':semantic_skipped}),self.clock(),run['id']))
+                offset = end
+            semantic_count = self.vectors.count(namespace_id,sid)
+            if semantic_count + semantic_skipped != len(rows):
+                raise IndexError('vector_incomplete')
+            if not semantic_count:
+                namespace_id = None
+            degradation = 'embedding_token_limit' if semantic_skipped else None
         elif run['profile_version_id']:
             degradation = 'vector_unavailable'
         with self.store.transaction() as db:
@@ -521,8 +614,10 @@ class IndexService:
             coverage = json.loads(snapshot['coverage_json'])
             if degradation == 'embedding_token_limit':
                 coverage['partial'] = True
-                coverage.setdefault('skipped',{})['embedding_token_limit'] = 1
-            coverage.update(mode='hybrid' if namespace_id else 'lexical_only',degradation_code=degradation,embedding_tokens=tokens if namespace_id else 0)
+                coverage.setdefault('skipped',{})['embedding_token_limit'] = semantic_skipped
+            coverage.update(mode='hybrid' if namespace_id else 'lexical_only',degradation_code=degradation,embedding_tokens=tokens if run['profile_version_id'] and self.vectors.available else 0,
+                            token_accounting='provider_reported_or_utf8_div4_estimate',
+                            semantic_chunks=semantic_count if run['profile_version_id'] and self.vectors.available else 0)
             manifest = digest(encoded([list(f) for f in files]))
             if source['active_snapshot_id']:
                 db.execute("UPDATE repository_snapshots SET state='retained' WHERE id=?",(source['active_snapshot_id'],))
@@ -576,6 +671,9 @@ class IndexService:
         if semantic and ids:
             namespaces = {}
             for _,snap in scopes.values():
+                code = json.loads(snap['coverage_json']).get('degradation_code')
+                if code:
+                    degradation = code
                 if snap['namespace_id']:
                     namespaces.setdefault(snap['namespace_id'],[]).append(snap['id'])
             if not namespaces:
@@ -591,7 +689,7 @@ class IndexService:
                             ns = self._one(db,'embedding_namespaces',namespace)
                         result = self.providers.embed(ns['profile_version_id'],[query],contains_source=False)
                         spec = self.providers.embedding_namespace(ns['profile_version_id'])
-                        if result['namespace']['key'] != spec['key'] or digest(encoded([spec['key'],ns['profile_version_id'],spec['dimensions'],'none',CHUNKER])) != namespace:
+                        if result['namespace']['key'] != spec['key'] or digest(encoded([spec['key'],ns['profile_version_id'],spec['dimensions'],'none',ns['chunker_version']])) != namespace:
                             raise IndexError('namespace_mismatch')
                         hits = self.vectors.query(namespace,result['vectors'][0],snapshot_list,min(100,limit*4))
                         semantic_used = True
@@ -615,14 +713,14 @@ class IndexService:
                 row = rows_by_id[cid]
                 if row['repository_id'] not in current or row['snapshot_id'] != current[row['repository_id']][1]['id'] or excluded(row['path'],current[row['repository_id']][0]['exclusions']):
                     continue
-                cost = len(row['text'].encode())
+                cost = estimated_tokens(row['text'])
                 if used+cost>context_token_budget:
                     truncated = True
                     continue
                 if len(result_hits)>=limit:
                     truncated = True
                     break
-                used += cost # UTF-8 bytes is a conservative upper bound on tokens.
+                used += cost
                 result_hits.append(dict(chunk_id=cid,**{k:row[k] for k in ('repository_id','snapshot_id','revision','path','start_line','end_line','text')},rank=len(result_hits)+1,methods=methods[cid]))
             snapshots = {ident:dict(id=snap['id'],revision=snap['revision'],revision_kind=snap['revision_kind'],coverage=json.loads(snap['coverage_json'])) for ident,(_,snap) in current.items()}
         return dict(mode='hybrid' if semantic_used else 'lexical_only',degradation_code=degradation,hits=result_hits,snapshots=snapshots,truncated=truncated)

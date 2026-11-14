@@ -106,6 +106,16 @@ class VectorStore:
             table = self._table(namespace)
             return self.conn.execute(f'SELECT count(*) FROM {table} WHERE snapshot_id=?', (snapshot,)).fetchone()[0]
 
+    def discard_snapshot(self, snapshot):
+        """Remove only unactivated staging rows; reusable content cache is retained."""
+        with self.lock:
+            if not self.available and (self.path is None or not Path(self.path).exists()):
+                return
+            self._require()
+            for namespace, in list(self.conn.execute('SELECT id FROM namespaces')):
+                table = self._table(namespace)
+                self.conn.execute(f'DELETE FROM {table} WHERE snapshot_id=?',(snapshot,))
+
     def size_bytes(self):
         if self.path:
             return sum(Path(p).stat().st_size for p in (self.path,self.path+'-wal',self.path+'-shm') if Path(p).exists())

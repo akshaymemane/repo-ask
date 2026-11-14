@@ -4,11 +4,11 @@ import hashlib
 import re
 from pathlib import PurePosixPath
 
-CHUNKER = 'lines-symbols-v1'
+CHUNKER = 'lines-symbols-v2'
 PARSER = 'text-v1'
 DEFAULTS = dict(files=2000, file_bytes=256*1024, source_bytes=16*1024*1024,
                 chunks=10000, batch_size=16, batch_tokens=8192,
-                embedding_tokens=250000, elapsed_ms=120000, disk_bytes=512*1024*1024)
+                embedding_tokens=8*1024*1024, elapsed_ms=81920, disk_bytes=512*1024*1024)
 BLOCKED = {'node_modules', 'vendor', 'dist', 'build', 'target', '__pycache__',
            '.git', '.svn', 'coverage', 'generated', '.next', 'venv', '.venv'}
 
@@ -38,7 +38,7 @@ def limits(value):
 
 def exclusions(value):
     if not isinstance(value, (list, tuple)) or len(value) > 100 or any(
-            not isinstance(x, str) or not x or len(x) > 256 for x in value):
+            not isinstance(x, str) or not safe_path(x.rstrip('/')) or len(x) > 256 for x in value):
         raise ValueError('Invalid exclusions.')
     return list(value)
 
@@ -82,25 +82,34 @@ def decode(content):
 
 
 def chunks(text):
-    """Bound windows by lines and estimated UTF-8 tokens; prefer symbol starts."""
+    """Bound normal chunks to 2048 estimated tokens; preserve oversized lines for FTS."""
     lines = text.splitlines()
     start = 0
     while start < len(lines):
         end, size = start, 0
         while end < len(lines) and end - start < 60:
             n = len(lines[end].encode())
-            if n > 12000:
-                # Whole source is retained; oversized line is not sent for embeddings.
+            if n > 8192:
+                # Oversized lines retain exact line citations; semantic indexing may skip them.
                 if end == start:
                     end += 1
                 break
-            if size + n > 12000:
+            if size + n > 8192:
                 break
             if end - start >= 25 and re.match(r'^(?:async )?(?:def |class |function |export (?:function|class) )', lines[end]):
                 break
             size += n + 1
             end += 1
         body = '\n'.join(lines[start:end])
-        if len(body.encode()) <= 12000 and body.strip():
+        if body.strip():
             yield start + 1, end, body
         start = end if end - start < 10 else end - 5
+
+
+def estimated_tokens(text):
+    """Explicit UTF-8/4 planning estimate, not a tokenizer or a byte count.
+
+    Provider-reported input usage takes precedence for charged totals. Source/disk
+    safety remains independently byte-bounded; estimates are not exact model usage.
+    """
+    return (len(text.encode('utf-8')) + 3) // 4

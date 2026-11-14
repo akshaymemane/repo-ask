@@ -44,6 +44,15 @@ class GitHubIndexingTests(unittest.TestCase):
         self.assertEqual(result['hits'][0]['revision'],'a'*40)
         self.assertEqual(sum('/git/blobs/' in p for p in calls),1)
         self.assertEqual(service.get_state('gh:1')['active_snapshot']['coverage']['skipped']['submodule'],1)
+        before = fixture.service.get_repository('gh:1')
+        service.set_exclusions('gh:1',['api.py'])
+        self.assertFalse(service.search('api_identifier',['gh:1'],semantic=False)['hits'])
+        with self.assertRaises(IndexError):
+            service.source('gh:1',result['hits'][0]['snapshot_id'],'api.py',1,1)
+        after = fixture.service.get_repository('gh:1')
+        for key in ('index_enabled','implementation_enabled'):
+            self.assertEqual(after[key],before[key])
+        service.set_exclusions('gh:1',[])
         fixture.service.update_selection('gh:1',index_enabled=False,implementation_enabled=False)
         with self.assertRaises(IndexError):
             service.search('api_identifier',['gh:1'])

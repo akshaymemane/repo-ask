@@ -1,16 +1,15 @@
-# Self-evaluation (ECC agent-self-evaluation)
+# Author self-evaluation — R1 revision
 
-Overall 4.0/5. This is author reflection, not independent approval.
+ECC agent-self-evaluation reflection, not independent approval. Overall4.0/5.
 
-| Axis | Score | Evidence and improvement |
-| --- | ---: | --- |
-| Accuracy | 4 | Real SQLite/APSW, Git, GitHubService and ProviderService integration checks; HTTP regression evidence is sandbox-limited. Rerun five HTTP checks outside this socket restriction. |
-| Completeness | 4 | IX-01–11 mapped in handoff; absent hybrid queries return neighbors and no live embedding quality is claimed. Expand F03 corpus and validate a configured model before routing release. |
-| Clarity | 4 | Reader protocol, finite limits and handoff are explicit; run orchestration is sizable. Future refactoring should separate acquisition/embedding while preserving fences. |
-| Actionability | 4 | Repeatable verification runner and exclusive-scope handoff; coordinator still owns HTTP integration and independent review. Review exact submitted work before applying it. |
-| Conciseness | 4 | Modular safety/readers/vectors; service remains about 700 lines including public API and fencing. Avoid growing its orchestration function with future features. |
+| Axis | Score | Concrete evidence and remaining improvement |
+| --- | --- | --- |
+| Accuracy | 4 | 34 focused real SQLite/APSW checks cover each R1 finding, real ProviderService transport errors and >500KB source. Five HTTP checks require an environment permitting socket binds. |
+| Completeness | 4 | B1/B2/M1/M2/M3 and requested minor fixes/setter implemented. Independent exact-commit re-review remains required. |
+| Clarity | 4 | Separate review-response maps findings to exact scenarios and clarifies assignment/prerequisite/submission ancestry. Service orchestration remains sizable; avoid expanding this revision into a broad refactor. |
+| Actionability | 4 | Stable existing signatures, one approved additive setter, repeatable commands and a hashed handoff. Coordinator must commit if sandbox prevents Git administration writes, then request independent review. |
+| Conciseness | 4 | Findings-focused fixes share scheduling and cleanup helpers; detailed evidence is in task artifacts. Future unrelated features should not grow the indexing orchestrator. |
 
-Top improvements: independent exact-commit review; unrestricted HTTP regression rerun;
-F03 answerability evaluation with real embeddings. No axis <=3.
-Self-check: the coordinator should agree with the measured evidence and explicit
-remaining integration/review gates; these scores do not declare release readiness.
+Top improvements: independent re-review; coordinator HTTP rerun; F03 real-model corpus.
+Self-check: claims are bounded by actual storage/transport evidence and do not imply
+independent approval, integrated HTTP behavior or production semantic answerability.

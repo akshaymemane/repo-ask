@@ -1,25 +1,24 @@
-# Local commit blocked by sandbox Git lock
+# M1-INDEX commit provenance and R1 revision attempt
 
-Implementation base / current HEAD: db85564688f25ab7345cdcd689fe18fd160c6d7a.
-Branch: task/m1-index. No implementation commit was created; files remain untracked
-and preserved in the assigned worktree. No index or repository history was modified.
+Original assignment base: db85564688f25ab7345cdcd689fe18fd160c6d7a.
+Coordinator schema5 prerequisite: e7c4a5e328b69207804cbbbbf3fdcae7deb0f4bd.
+Actual reviewed submission: d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d.
+Local log and merge-base checks confirm this linear ancestry. The original worker's
+sandbox commit failure was subsequently resolved by the coordinator, who created
+d8f1005. The original handoff's "no submitted commit" text is therefore superseded.
 
-Attempted:
+Current R1 revision starts at d8f1005 on task/m1-index. Author addressed both blocking
+and all three major findings plus requested minor fixes and the approved setter.
+R1 staging attempt (exit128):
 
 ```
-git add repoask/indexing tests/test_indexing_service.py tests/test_indexing_github.py tests/fixtures/indexing docs/agents/runs/M1-INDEX
-```
-
-Result (exit 128):
-
-```
+git add repoask/indexing tests/test_indexing_service.py tests/test_indexing_github.py tests/test_indexing_review.py docs/agents/runs/M1-INDEX
 fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-index/index.lock': Operation not permitted
 ```
 
-The linked worktree's Git administration directory is outside this worker's writable
-sandbox. No lock deletion, permission bypass, alternative Git directory, reset or
-remote mutation was attempted. Coordinator must stage/commit the exclusive-scope
-files from an authorized environment before exact-commit independent review.
-`files.sha256` records the exact handoff contents (excluding itself and ignored
-bytecode). The handoff/status identify the implementation and test evidence; no
-commit, approval or integration is claimed.
+No R1 commit was created; HEAD remains d8f1005. Linked worktree Git administration
+is outside the worker's writable sandbox. No bypass, alternate Git directory, lock
+removal, reset or remote mutation was attempted. Coordinator must stage/commit the
+preserved exclusive-scope files in an authorized environment, then request independent
+exact-commit review. files.sha256 identifies current files, excluding itself.
+No remote action is authorized.
