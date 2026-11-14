@@ -1,0 +1,16 @@
+{
+  "tests_run": 169,
+  "failures": [],
+  "errors": [
+    "test_feature_api.FeatureHTTPTests.test_domain_errors_keep_stable_code_without_private_message",
+    "test_feature_api.FeatureHTTPTests.test_new_mutations_check_origin_and_media_before_any_service_call",
+    "test_http_foundation.ApplicationLifecycleTests.test_actual_cli_serves_then_sigterm_exits_cleanly_without_demo_files",
+    "test_http_foundation.ApplicationLifecycleTests.test_actual_cli_storage_failure_has_no_traceback_path_or_fallback",
+    "test_http_foundation.FoundationHTTPTests.test_durable_job_survives_server_restart",
+    "test_http_foundation.FoundationHTTPTests.test_status_routes_preserve_host_and_query_boundaries",
+    "test_http_foundation.FoundationHTTPTests.test_summary_health_and_legacy_routes_are_real"
+  ],
+  "skipped": [],
+  "elapsed_seconds": 67.921,
+  "successful": false
+}

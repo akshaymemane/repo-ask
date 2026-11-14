@@ -21,22 +21,27 @@ class RoutingService:
                 if not pins:
                     pins=json.loads(conv['scope_json'])
         # Morphological variants improve ordinary plural/tense paraphrases without a model.
-        tokens=re.findall(r'\w+',prompt.lower())
+        slash_pattern=r'(?<![\w/-])([\w.-]+(?:/[\w.-]+)+)'
+        slash_tokens=set(re.findall(slash_pattern,prompt.lower()))
+        catalog_prompt=re.sub(slash_pattern,' ',prompt)
+        tokens=re.findall(r'\w+',catalog_prompt.lower())
         variants=[]
         for token in tokens[:64]:
             if len(token)>4 and token.endswith('s'):
                 variants.append(token[:-1])
             if len(token)>5 and token.endswith('ed'):
                 variants.append(token[:-2])
-        query=(prompt+' '+' '.join(variants))[:4000]
+        query=(catalog_prompt+' '+' '.join(variants))[:4000]
         raw=self.index.catalog_candidates(query,pinned_repository_ids=pins,limit=max(30,len(pins)))
-        generic=set('a an the to for of in on at by and or with without our their from when after before should never add update fix change improve generate design show keep allow require explain trace track investigate reject prevent preserve during through into that this is are be as it first small'.split())
-        qualified=set(re.findall(r'(?<![\w/-])([\w.-]+/[\w.-]+)',prompt.lower()))
-        for mention in sorted(qualified)[:10]:
+        generic=set('a an the to for of in on at by and or with without our their from when after before should never add update fix change improve generate design build show keep allow require explain trace track investigate reject prevent preserve during through into that this is are be as it first small'.split())
+        for mention in sorted(slash_tokens)[:10]:
             for item in self.index.catalog_candidates(mention,limit=10):
                 if item['name'].lower()==mention and not any(c['repository_id']==item['repository_id'] for c in raw):
                     raw.append(item)
-        words=set(re.findall(r'[\w.-]+',prompt.lower()))
+        # A slash token is explicit only when it names a current catalog entry.
+        qualified={item['name'].lower() for item in raw if item['name'].lower() in slash_tokens}
+        without_paths=re.sub(slash_pattern,' ',prompt.lower())
+        words=set(re.findall(r'[\w.-]+',without_paths))
         candidates=[]
         degradation=None
         for item in raw:
@@ -69,10 +74,6 @@ class RoutingService:
         if not selected and len(short)==1:
             selected=[short[0]['repository_id']]
         status='resolved' if selected else 'needs_selection' if candidates or missing else 'no_match'
-        if qualified-set(c['name'].lower() for c in candidates):
-            selected=[]
-            status='needs_selection'
-            degradation='explicit_repository_unavailable'
         if missing:
             selected=[]
             status='needs_selection'

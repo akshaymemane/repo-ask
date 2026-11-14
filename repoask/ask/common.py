@@ -68,15 +68,17 @@ def citation(index, item):
 
 
 def export_text(value):
-    """Escape active markup and conservatively suppress recognizable secret/host paths."""
-    import html
+    """Plain-text export: preserve identifiers while suppressing recognizable secrets/host paths."""
     import re
     value=str(value)
     value=re.sub(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)','[redacted credential]',value,flags=re.S)
     value=re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{20,})\b','[redacted credential]',value)
     value=re.sub(r'(?i)\b(?:authorization|password|api[_-]?key|access[_-]?token)\s*[:=]\s*[^\s,;]+','[redacted credential]',value)
     value=re.sub(r'(?:/Users/|/home/|/private/|[A-Z]:\\Users\\)[^\s"<>]+','[private host path]',value)
-    value=html.escape(value,quote=True)
-    for char in ('\\','`','*','_','[',']','#'):
-        value=value.replace(char,'\\'+char)
     return value
+
+
+def retrieval_query(prompt):
+    """A byte-bounded query independent of the complete persisted/model request."""
+    text(prompt)
+    return prompt.encode('utf-8')[:3000].decode('utf-8', errors='ignore')
