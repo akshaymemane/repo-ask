@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-14T11:24:32.897430+00:00",
+  "updated": "2026-11-14T11:49:48.459263+00:00",
   "phase": "M1_services_resumed",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -239,7 +239,7 @@
       "id": "M1-INDEX",
       "milestone": "M1",
       "title": "Persistent snapshots and hybrid retrieval",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": [
         "F02"
       ],
@@ -264,11 +264,11 @@
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-index",
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": "2026-11-14T11:16:53.353833+00:00",
+      "heartbeat_at": "2026-11-14T11:49:48.459263+00:00",
       "submitted_sha": "3def367b1875caecf5c542bc23eb7d0feed3c66e",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Finaltest-onlycommit binds approval; productioncorrections alreadyreviewed.147fullchecks passed.",
+      "next_action": "Exact147 andcombined173checks passed. RootCLI/scheduler/legacybridge additions under separate M1-CONTEXT-OPS review.",
       "completion_depends_on": [],
       "actual_harness": "Codex CLI",
       "attempt": "m1-index-r3",
@@ -279,7 +279,9 @@
         "docs/agents/runs/M1-INDEX/**"
       ],
       "review_attempt": "review-m1-index-claude-r4",
-      "review_session": "d6c8a9c3-29b5-423b-ae65-ad25a55ca2c4"
+      "review_session": "d6c8a9c3-29b5-423b-ae65-ad25a55ca2c4",
+      "integrated_sha": "d35e599d833978a338021a3882247549d0f7e17f",
+      "review_verdict": "approved"
     },
     {
       "id": "M1-CATALOG-UI",

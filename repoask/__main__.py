@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .answer import Ollama, respond
 from .index import CodeIndex, MAX_REPOS, load_demos, load_git
+from .indexing import IndexService
 from .platform import Platform
 from .platform.clock import now_ms
 from .platform.errors import PlatformError
@@ -45,6 +46,10 @@ class RequestHandler(BaseHTTPRequestHandler):
     def allowed_host(self):
         port = self.server.server_port
         return self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    def legacy_allowed(self, name, path=None):
+        services = getattr(self.server, "services", None)
+        return services is None or services.legacy_source_allowed(name, path)
 
     def send_data(self, status, content, body, extra_headers=None):
         self.send_response(status)
@@ -80,7 +85,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.send_data(HTTPStatus.OK, mime, (ROOT / "web" / filename).read_bytes())
         elif url.path == "/api/repos":
             self.send_json(HTTPStatus.OK, {
-                "repos": self.server.index.list_repos(),
+                "repos": [repo for repo in self.server.index.list_repos() if self.legacy_allowed(repo["name"])],
                 "model": self.server.model.model if self.server.model else None,
             })
         elif url.path in {"/api/workspace", "/api/health"}:
@@ -126,6 +131,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid source request."})
             return
+        if not self.legacy_allowed(repo, path):
+            self.send_json(HTTPStatus.NOT_FOUND, {"error": "This source is unavailable."})
+            return
         try:
             source = self.server.index.source(repo, revision, path, start, end)
         except KeyError:
@@ -155,7 +163,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         except (TimeoutError, ValueError, TypeError, KeyError, RecursionError):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "Enter a question and select valid repositories."})
             return
-        response = respond(self.server.index, self.server.model, repos, question, previous)
+        response = respond(self.server.index, self.server.model, repos, question, previous, allowed_path=self.legacy_allowed)
+        if any(not self.legacy_allowed(repo) for repo in repos) or any(not self.legacy_allowed(c["repo"], c["path"]) for c in response["sources"]):
+            self.send_json(HTTPStatus.CONFLICT, {"error": "Source access changed. Reload repository selection.", "code": "repository_unavailable"})
+            return
         self.send_json(HTTPStatus.OK, response)
 
     def do_PATCH(self):
@@ -219,7 +230,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ValueError
         if not isinstance(repos, list) or not 1 <= len(repos) <= MAX_REPOS:
             raise ValueError
-        if any(not isinstance(repo, str) or repo not in self.server.index.snapshots for repo in repos):
+        if any(not isinstance(repo, str) or repo not in self.server.index.snapshots or not self.legacy_allowed(repo) for repo in repos):
             raise ValueError
         return question.strip(), previous.strip(), list(dict.fromkeys(repos))
 
@@ -239,6 +250,7 @@ def main():
         parser.error("Ports must be between 1 and 65535.")
 
     snapshots = []
+    local_roots = {}
     names = set()
     for spec in args.repo:
         name, separator, directory = spec.partition("=")
@@ -252,6 +264,7 @@ def main():
             detail = str(error) if isinstance(error, ValueError) else "Check the path, Git installation, and committed HEAD."
             parser.error(f"Could not index {name}. {detail}")
         snapshots.append(snapshot)
+        local_roots[name] = Path(directory).expanduser().resolve()
         names.add(name)
     if not snapshots:
         snapshots = load_demos(ROOT / "examples")
@@ -273,6 +286,10 @@ def main():
     services = ApplicationServices(platform)
     try:
         with server:
+            indexing = IndexService(platform.store, platform.jobs, services.github, services.providers)
+            services.enable_context(indexing)
+            services.legacy_index = index
+            services.bootstrap_context(snapshots, local_roots)
             server.index = index
             server.platform = platform
             server.model = model

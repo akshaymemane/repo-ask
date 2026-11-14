@@ -56,6 +56,8 @@ class IndexService:
     def _source(self, db, repository_id):
         source = self._one(db, 'index_sources', repository_id)
         source['exclusions'] = json.loads(source['exclusions_json'])
+        if source['kind'] == 'github' and self.github is not None:
+            source['name'] = self.github.get_repository(source['github_repository_id'])['full_name']
         return source
 
     def _eligible(self, source):
@@ -112,7 +114,7 @@ class IndexService:
             existing = db.execute('SELECT metadata_json FROM index_sources WHERE id=?',(ident,)).fetchone()
             if existing and json.loads(existing[0]).get('purging'):
                 raise IndexError('purge_pending')
-            db.execute("INSERT INTO index_sources(id,kind,name,metadata_json,created_at,updated_at) VALUES(?,'demo',?,?,?,?) ON CONFLICT(id) DO UPDATE SET metadata_json=excluded.metadata_json,updated_at=excluded.updated_at", (ident, snapshot.name, metadata, now, now))
+            db.execute("INSERT INTO index_sources(id,kind,name,metadata_json,created_at,updated_at) VALUES(?,'demo',?,?,?,?) ON CONFLICT(id) DO UPDATE SET metadata_json=excluded.metadata_json,updated_at=excluded.updated_at WHERE index_sources.metadata_json!=excluded.metadata_json", (ident, snapshot.name, metadata, now, now))
         return self.get_state(ident)
 
     def _ensure_source(self, repository_id):

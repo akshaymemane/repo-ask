@@ -145,8 +145,8 @@ def validate_reply(reply, source_count):
     return sections, gap.strip()
 
 
-def respond(index, model, repos, question, previous):
-    evidence = index.search(repos, question, previous)
+def respond(index, model, repos, question, previous, *, allowed_path=None):
+    evidence = index.search(repos, question, previous, **({"allowed_path": allowed_path} if allowed_path is not None else {}))
     citations = [{"id": number, **item.citation()} for number, item in enumerate(evidence, 1)]
     response = {
         "mode": "search", "sections": [], "note": "", "sources": citations,

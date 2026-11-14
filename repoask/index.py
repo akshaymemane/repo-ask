@@ -184,6 +184,8 @@ class CodeIndex:
                         break
 
     def list_repos(self):
+        with self.lock:
+            snapshots = list(self.snapshots.values())
         return [{
             "name": snapshot.name,
             "revision": snapshot.revision,
@@ -191,9 +193,17 @@ class CodeIndex:
             "indexed_at": self.indexed_at,
             "demo": snapshot.demo,
             "limited": snapshot.limited,
-        } for snapshot in self.snapshots.values()]
+        } for snapshot in snapshots]
 
-    def search(self, repos, question, previous=""):
+    def purge(self, repos):
+        """Remove workspace mirrors as well as their searchable FTS payloads."""
+        with self.lock:
+            with self.db:
+                for repo in repos:
+                    self.db.execute("DELETE FROM chunks WHERE repo=?", (repo,))
+                    self.snapshots.pop(repo, None)
+
+    def search(self, repos, question, previous="", *, allowed_path=None):
         query_terms = [term for term in terms(question) if term not in STOP_WORDS]
         context_terms = [term for term in terms(previous) if term not in STOP_WORDS]
         search_terms = list(dict.fromkeys(query_terms[:16] + context_terms[:8]))[:20]
@@ -230,7 +240,12 @@ class CodeIndex:
             key = (repo, path)
             if file_counts.get(key, 0) >= 2:
                 continue
-            snapshot = self.snapshots[repo]
+            if allowed_path is not None and not allowed_path(repo, path):
+                continue
+            with self.lock:
+                snapshot = self.snapshots.get(repo)
+            if snapshot is None or path not in snapshot.files:
+                continue
             code = "\n".join(snapshot.files[path][start - 1:end])
             evidence.append(Evidence(repo, snapshot.revision, path, start, end, code))
             file_counts[key] = file_counts.get(key, 0) + 1

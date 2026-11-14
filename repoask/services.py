@@ -35,6 +35,8 @@ class ApplicationServices:
         self.providers = ProviderService(platform.store, platform.secrets, transport=provider_transport)
         self.indexing = self.routing = self.plans = self.conversations = None
         self.scheduler = None
+        self.legacy_index = None
+        self.legacy_sources = {}
         self.api = FeatureAPI(platform, self.github, self.providers)
         self.stop_event = Event()
         self.thread = None
@@ -74,11 +76,42 @@ class ApplicationServices:
         from .scheduling import IndexScheduler
         self.scheduler = IndexScheduler(self.platform, self.indexing, self.github, self.providers)
         for snapshot in snapshots:
-            if snapshot.demo:
-                state = self.indexing.register_demo(snapshot)
-            else:
-                state = self.indexing.register_local(snapshot.name, local_roots[snapshot.name])
+            try:
+                if snapshot.demo:
+                    state = self.indexing.register_demo(snapshot)
+                else:
+                    state = self.indexing.register_local(snapshot.name, local_roots[snapshot.name])
+            except PlatformError as error:
+                if error.code != 'purge_pending':
+                    raise
+                if self.legacy_index is not None:
+                    self.legacy_index.purge([snapshot.name])
+                continue  # Other sources and cleanup controls remain available.
             self.scheduler.register(state['repository_id'], snapshot.revision)
+            self.legacy_sources[snapshot.name] = state['repository_id']
+
+    def legacy_source_allowed(self, name, path=None):
+        if self.indexing is None:
+            return True
+        repository_id = self.legacy_sources.get(name)
+        if repository_id is None:
+            return False
+        try:
+            if not self.indexing.get_state(repository_id)['eligible']:
+                return False
+            if path is not None:
+                from .indexing.safety import excluded, decode
+                with self.platform.store.read() as conn:
+                    row = conn.execute('SELECT exclusions_json FROM index_sources WHERE id=?',(repository_id,)).fetchone()
+                import json
+                if row is None or excluded(path,json.loads(row[0])):
+                    return False
+                snapshot = self.legacy_index.snapshots.get(name) if self.legacy_index is not None else None
+                if snapshot is None or path not in snapshot.files or decode('\n'.join(snapshot.files[path]).encode()) is None:
+                    return False
+            return True
+        except PlatformError:
+            return False
 
     def purge_context(self, repository_id):
         if self.indexing is None:
@@ -88,6 +121,8 @@ class ApplicationServices:
             raise ValueError('Use the GitHub purge operation.')
         # Hide retrieval before removing duplicated answers and physical context.
         self.indexing.set_local_selection(repository_id, False)
+        if self.legacy_index is not None:
+            self.legacy_index.purge([name for name, ident in self.legacy_sources.items() if ident == repository_id])
         with self.platform.store.transaction() as conn:
             conn.execute('DELETE FROM index_schedule_state WHERE repository_id=?',(repository_id,))
         if self.conversations is not None:
