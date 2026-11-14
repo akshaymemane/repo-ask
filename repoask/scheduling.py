@@ -1,7 +1,7 @@
 """Bounded background indexing reconciliation; failed signatures need explicit retry."""
 import hashlib
 import json
-from .platform.clock import now_ms
+from .platform.clock import now_ms, new_id
 from .platform.errors import PlatformError
 
 
@@ -37,10 +37,12 @@ class IndexScheduler:
             row = conn.execute('SELECT signature FROM index_schedule_state WHERE repository_id=?',(repository_id,)).fetchone()
         if row is not None and row[0] == signature:
             return False
-        run = self.index.request_index(repository_id, priority=-10, embedding_version_id=embedding_version)
+        intent = new_id("schedule")
+        run = self.index.request_index(repository_id, priority=-10, embedding_version_id=embedding_version,
+                                       scheduling_intent=intent)
         with self.platform.store.transaction() as conn:
-            current = conn.execute('SELECT profile_version_id FROM index_runs WHERE id=?',(run['id'],)).fetchone()
-            if current is None or current[0] != embedding_version:
+            current = conn.execute('SELECT profile_version_id,scheduling_intent FROM index_runs WHERE id=?',(run['id'],)).fetchone()
+            if current is None or current[0] != embedding_version or current[1] != intent:
                 return False  # A concurrent explicit run is not this scheduling intent.
             conn.execute('INSERT INTO index_schedule_state VALUES(?,?,?,?) ON CONFLICT(repository_id) DO UPDATE SET signature=excluded.signature,run_id=excluded.run_id,requested_at=excluded.requested_at',
                          (repository_id,signature,run['id'],self.clock()))

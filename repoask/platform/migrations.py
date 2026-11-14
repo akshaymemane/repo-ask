@@ -24,6 +24,9 @@ from .ask_schema import ASK_SQL
 MIGRATIONS += (Migration(6, "conversations_and_plans", ASK_SQL),)
 from .scheduling_schema import SCHEDULING_SQL
 MIGRATIONS += (Migration(7, "index_reconciliation_markers", SCHEDULING_SQL),)
+MIGRATIONS += (Migration(8, "index_scheduling_intent", (
+    "ALTER TABLE index_runs ADD COLUMN scheduling_intent TEXT",
+)),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 

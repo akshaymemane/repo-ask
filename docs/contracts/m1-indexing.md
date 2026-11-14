@@ -130,3 +130,7 @@ registration. GitHub per-repository exclusion UI will require an additive servic
 setter before exposing that control. Disabled/purged states remain visible in catalog;
 retrieval still checks eligibility. UI should poll only visible active runs, preserve
 focus, show real partial/degraded coverage, and use source-backedready fields.
+
+## Background scheduling intent (integration revision)
+
+Schema 8 adds a nullable internal `index_runs.scheduling_intent`. The background scheduler supplies a fresh opaque intent to `request_index(..., scheduling_intent=...)`. It records a catalog/profile signature only if the returned run carries exactly that intent and embedding version. A concurrent explicit run is returned unchanged and cannot consume the background intent. The HTTP API does not accept this parameter. Existing runs migrate with NULL. Ordinary requests, pause/resume/retry and public response shapes are unchanged.

@@ -128,7 +128,9 @@ class IndexService:
         with self.store.transaction() as db:
             db.execute("INSERT OR IGNORE INTO index_sources(id,kind,github_repository_id,name,created_at,updated_at) VALUES(?,'github',?,?,?,?)", (repository_id, repository_id, repo.get('full_name', repo['name']), self.clock(), self.clock()))
 
-    def request_index(self, repository_id, revision=None, priority=0, embedding_version_id=None, limits=None):
+    def request_index(self, repository_id, revision=None, priority=0, embedding_version_id=None, limits=None, *, scheduling_intent=None):
+        if scheduling_intent is not None and (not isinstance(scheduling_intent, str) or not re.fullmatch(r"[A-Za-z0-9:_-]{1,128}", scheduling_intent)):
+            raise ValueError("Invalid scheduling intent.")
         caps = validate_limits(limits)
         if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', revision)):
             raise ValueError('An immutable revision is required.')
@@ -147,7 +149,7 @@ class IndexService:
                 self._discard_staging(db,sid)
             ident, now = new_id('ix'), self.clock()
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': ident}, priority=priority, idempotency_key=ident + ':0')
-            db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at) VALUES(?,?,?,'queued',?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded(caps), now, now))
+            db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at,scheduling_intent) VALUES(?,?,?,'queued',?,?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded(caps), now, now, scheduling_intent))
             return self._public_run(self._one(db, 'index_runs', ident))
 
     def _public_run(self, row):

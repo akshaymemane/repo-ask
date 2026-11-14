@@ -2,6 +2,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 from repoask.platform import Platform,Worker
 from repoask.platform.errors import PlatformError
 from repoask.scheduling import IndexScheduler
@@ -30,12 +31,12 @@ class QueueIndex:
             c.execute("INSERT OR IGNORE INTO index_sources(id,kind,github_repository_id,name,created_at,updated_at) VALUES(?,'github',?,?,1,1)",(repository_id,repository_id,repository_id))
             run=c.execute("SELECT id FROM index_runs WHERE repository_id=? AND state IN ('queued','running','waiting','paused')",(repository_id,)).fetchone()
         return {'eligible':True,'active_run':{'id':run[0]} if run else None}
-    def request_index(self,repository_id,priority=0,embedding_version_id=None):
+    def request_index(self,repository_id,priority=0,embedding_version_id=None,*,scheduling_intent=None):
         if repository_id==self.fail:raise PlatformError('Synthetic domain failure.')
         with self.platform.store.transaction() as c:
             job=self.platform.jobs.enqueue_in_transaction(c,'index.run',{'repository_id':repository_id},priority=priority)
             ident='run:'+job.id
-            c.execute("INSERT INTO index_runs(id,repository_id,job_id,state,profile_version_id,created_at,updated_at) VALUES(?,?,?,'queued',?,1,1)",(ident,repository_id,job.id,embedding_version_id))
+            c.execute("INSERT INTO index_runs(id,repository_id,job_id,state,profile_version_id,created_at,updated_at,scheduling_intent) VALUES(?,?,?,'queued',?,1,1,?)",(ident,repository_id,job.id,embedding_version_id,scheduling_intent))
         return {'id':ident,'state':'queued'}
     def finish(self):
         def handle(job,context):
@@ -88,3 +89,30 @@ class IndexSchedulingTests(TestCase):
         providers.status='ready';index.fail='gh:1'
         self.assertEqual(scheduler.run_once(),2)
         self.assertEqual(scheduler.error_code,'index_schedule_unavailable')
+
+
+    def test_concurrent_explicit_revision_cannot_consume_background_intent(self):
+        from repoask.indexing import IndexService
+        from repoask.index import Snapshot
+        p=Platform.open(None); self.addCleanup(p.close)
+        index=IndexService(p.store,p.jobs,None,None)
+        self.addCleanup(index.vectors.close)
+        snapshot=Snapshot('intent-race','1'*64,{'a.py':('value = 1',)},demo=True)
+        repository_id=index.register_demo(snapshot)['repository_id']
+        scheduler=IndexScheduler(p,index,Catalog(0),Providers(),clock=lambda:1)
+        scheduler.register(repository_id,snapshot.revision)
+        original=index.request_index
+        competing=[]
+        def race(repo,**kwargs):
+            competing.append(original(repo,revision='a'*40))
+            return original(repo,**kwargs)
+        with patch.object(index,'request_index',side_effect=race):
+            self.assertFalse(scheduler._schedule(repository_id,snapshot.revision,None))
+        with p.store.transaction() as conn:
+            self.assertEqual(conn.execute('SELECT count(*) FROM index_schedule_state').fetchone()[0],0)
+            conn.execute("UPDATE index_runs SET state='failed' WHERE id=?",(competing[0]['id'],))
+            conn.execute("UPDATE jobs SET state='failed' WHERE id=?",(competing[0]['job_id'],))
+        self.assertTrue(scheduler._schedule(repository_id,snapshot.revision,None))
+        with p.store.read() as conn:
+            row=conn.execute('SELECT r.requested_revision,r.scheduling_intent FROM index_schedule_state s JOIN index_runs r ON r.id=s.run_id').fetchone()
+        self.assertIsNone(row[0]); self.assertTrue(row[1].startswith('schedule_'))
