@@ -1,0 +1,159 @@
+{
+  "kind": "real_local_index_inference",
+  "source": "bundled synthetic demo repositories",
+  "embedding_model": "nomic-embed-text:latest",
+  "dimensions": 768,
+  "all_completed": true,
+  "embedding_check": "passed",
+  "repositories": [
+    {
+      "repository_id": "demo:storefront-web",
+      "state": "completed",
+      "status": "ready",
+      "chunks": 2,
+      "mode": "hybrid",
+      "elapsed_seconds": 7.13
+    },
+    {
+      "repository_id": "demo:orders-api",
+      "state": "completed",
+      "status": "ready",
+      "chunks": 8,
+      "mode": "hybrid",
+      "elapsed_seconds": 21.34
+    },
+    {
+      "repository_id": "demo:orders-db",
+      "state": "completed",
+      "status": "ready",
+      "chunks": 2,
+      "mode": "hybrid",
+      "elapsed_seconds": 3.02
+    },
+    {
+      "repository_id": "demo:notifications-worker",
+      "state": "completed",
+      "status": "ready",
+      "chunks": 2,
+      "mode": "hybrid",
+      "elapsed_seconds": 5.84
+    }
+  ],
+  "queries": [
+    {
+      "query": "confirmation email",
+      "mode": "hybrid",
+      "top3": [
+        {
+          "repository_id": "demo:orders-api",
+          "path": "src/main/java/example/orders/OrderRepository.java",
+          "start_line": 17,
+          "end_line": 21,
+          "rank": 1,
+          "methods": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:orders-api",
+          "path": "src/main/java/example/orders/OrderService.java",
+          "start_line": 18,
+          "end_line": 22,
+          "rank": 2,
+          "methods": [
+            "lexical",
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:notifications-worker",
+          "path": "src/OrderEmailConsumer.java",
+          "start_line": 1,
+          "end_line": 18,
+          "rank": 3,
+          "methods": [
+            "lexical",
+            "semantic"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "create_order",
+      "mode": "hybrid",
+      "top3": [
+        {
+          "repository_id": "demo:orders-db",
+          "path": "migrations/V001__checkout.sql",
+          "start_line": 1,
+          "end_line": 14,
+          "rank": 1,
+          "methods": [
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:orders-api",
+          "path": "src/main/java/example/orders/OrderService.java",
+          "start_line": 18,
+          "end_line": 22,
+          "rank": 2,
+          "methods": [
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:notifications-worker",
+          "path": "src/OrderEmailConsumer.java",
+          "start_line": 14,
+          "end_line": 18,
+          "rank": 3,
+          "methods": [
+            "semantic"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "how does a purchase notify the customer",
+      "mode": "hybrid",
+      "top3": [
+        {
+          "repository_id": "demo:orders-api",
+          "path": "src/main/java/example/orders/OrderController.java",
+          "start_line": 16,
+          "end_line": 20,
+          "rank": 1,
+          "methods": [
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:notifications-worker",
+          "path": "src/OrderEmailConsumer.java",
+          "start_line": 1,
+          "end_line": 18,
+          "rank": 2,
+          "methods": [
+            "semantic"
+          ]
+        },
+        {
+          "repository_id": "demo:orders-db",
+          "path": "migrations/V001__checkout.sql",
+          "start_line": 1,
+          "end_line": 14,
+          "rank": 3,
+          "methods": [
+            "semantic"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Small synthetic demo smoke check; not a routing-quality benchmark.",
+    "Live GitHub App ingestion remains untested without product credentials."
+  ]
+}

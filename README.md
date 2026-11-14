@@ -1,54 +1,103 @@
-# Repo Ask
+# OpenDevin
 
-Select a set of Git repositories, ask an engineering question, and open the cited source lines beside the result. Repo Ask is a small, read-only, local prototype for understanding a feature that spans repositories.
+OpenDevin is an open-source, self-hosted workspace for finding the right GitHub
+repository, discussing a change, saving an implementation plan, and following an
+agent session through to a pull request.
 
-## Product planning
+Development is in progress. GitHub App connections, repository discovery, model
+profiles, secure credential references and durable background jobs are integrated.
+Persistent indexing and its UI are under review. Saved Ask conversations, plans,
+isolated implementation sessions and customization are the next implementation
+slices. The bundled Ask demo remains usable throughout development; it does not
+represent a connected GitHub account or a completed implementation session.
 
-The planned OpenDevin product is described in the [Master PRD](Master%20PRD.md), with [12 detailed feature specifications](docs/features). These documents describe future capabilities; the application below remains the current read-only prototype.
+The [Master PRD](Master%20PRD.md) and [12 feature specifications](docs/features)
+define the intended product. The [development workflow](docs/agents/README.md) and
+[task board](docs/agents/board.json) record the current delivery state.
 
-The [Codex + Claude development workflow](docs/agents/README.md) defines agent personas, task ownership, worktree isolation, review gates and the tmux runbook. Development has started; the [task board](docs/agents/board.json) tracks the current wave.
+## Run locally
 
-## Run the sample
-
-Use Python 3.10 or later with SQLite FTS5. Git is required when adding your own checkouts.
-
-```sh
-python3 -m repoask
-```
-
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765) and select **Trace checkout**, then **Ask**. The bundled source fixtures show a TypeScript storefront, a Spring Boot API, a SQL migration, and a Kafka consumer. Click a result to see its numbered source lines. Match cards link both sides of HTTP paths, SQL tables, and event topics when the index retrieves them. These are literal matches and can be ambiguous in larger systems.
-
-## Ask a local model
-
-With [Ollama](https://ollama.com/download) running locally, pull a model and start the app in answer mode.
+Use Python3.10 or later with SQLite FTS5. Git is required for explicit local
+checkouts. A project virtual environment keeps optional integrations isolated:
 
 ```sh
-ollama pull qwen2.5-coder:3b
-python3 -m repoask --model qwen2.5-coder:3b
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[full]'
+opendevin --data-dir ~/.local/share/opendevin
 ```
 
-The model is configurable. Repo Ask sends the question and retrieved excerpts to the loopback Ollama endpoint. Use a downloaded local model for local-only inference. In search mode, no model is called. Generated answers are grouped into sections with clickable citations. The server checks that citation IDs refer to retrieved excerpts. Check the source itself to verify the interpretation.
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Omitting `--data-dir` runs an
+in-memory demo; GitHub credentials and credentialed profiles require persistent
+storage. Without optional packages, `python3 -m repoask` still runs the sample.
+The Python package retains its existing `repoask` name for compatibility.
 
-## Index your own repositories
+Credential setup uses the supported OS vault: macOS Keychain, Linux SecretService
+or Windows Credential Manager. Missing or locked secure storage blocks credential
+setup; there is no plaintext fallback. Metadata, source context and vectors belong
+in a private data directory. The app binds to loopback for a single user. Remote
+hosting needs a separate authentication and TLS design.
+
+## GitHub and model setup
+
+The connected settings UI is being reviewed. The implemented backend uses a
+GitHub App rather than importing credentials from your GitHub CLI login. Configure
+an App ID, slug and private key, then complete its installation flow. The App setup
+URL is `http://127.0.0.1:8765/api/github/callback` when using the default port.
+Metadata and contents read access support discovery/indexing; contents write and
+pull-request write permissions are separate capabilities for later publication.
+Indexing and implementation selections are independent.
+
+Provider profiles support Ollama and OpenAI-compatible chat/embedding endpoints.
+Configure capability flags, limits, dimensions, credentials and role assignments.
+Local-only mode is enabled by default. Remote source processing additionally needs
+explicit profile opt-in. Connection tests send synthetic content. Missing token
+pricing is reported as unknown.
+
+With Ollama already running and a downloaded model, the legacy demo can generate
+cited answers immediately:
 
 ```sh
-python3 -m repoask \
-  --repo web=/path/to/storefront \
-  --repo api=/path/to/orders-api \
-  --repo db=/path/to/orders-db \
-  --model qwen2.5-coder:3b
+python -m repoask --model YOUR_LOCAL_MODEL --data-dir ~/.local/share/opendevin
 ```
 
-Use up to eight Git checkout roots. The app indexes committed text files from each checkout's `HEAD` and keeps the index in memory. Restart it after changing a branch or committing changes. Citations include the indexed commit, and the code pane reads the same snapshot. Conversation history lasts for the current browser page. Changing the repository selection starts a new conversation.
+Use the bundled **Trace checkout** example and open its citations in the source
+pane. The samples contain a storefront, orders API, migration and notification
+consumer. Source citations refer to the indexed snapshot.
 
-The index recognizes common code and configuration extensions, skips hidden paths, symlinks, and common build and vendor directories, and caps each repository at 4,000 files or 12 MiB of selected source. The repository picker reports when a limit is hit. Use public or synthetic repositories for demos. Repo Ask binds to loopback for single-user use.
+Explicit local checkouts remain supported by the demo:
 
-Run the tests with `python3 -m unittest discover -s tests`.
+```sh
+python -m repoask --repo web=/path/to/storefront --repo api=/path/to/orders-api
+```
 
-## What to build next
+The legacy demo supports up to eight explicit checkouts and rebuilds its in-memory
+index at startup. The new GitHub catalog has separate pagination and is designed
+for hundreds of repositories. Until the persistent Ask slice is integrated, its
+provider roles and connected catalog do not replace the legacy demo's startup
+model and repository picker.
 
-1. Create a public evaluation set with questions about request flow, configuration, database writes, event producers and consumers, and missing evidence. Record the expected commit, file and line range for each step. Measure how many required steps appear in the first ten results and how many cited passages support the answer.
-2. Add framework-aware lookup for Spring routes and Feign clients, Kafka topics, and SQL migrations. Track how often a linked pair is correct across repositories, including cases with matching names in unrelated services.
-3. Compare lookup quality and time to a verified answer against [Sourcebot](https://docs.sourcebot.dev/docs/features/ask/ask-sourcebot). It already supports cross-repository search, Q&A, and side-by-side code citations. Use it as a baseline for the evaluation set.
+## Development and verification
+
+```sh
+python -m unittest discover -s tests
+node --test tests/ui/*.test.mjs
+```
+
+Vector checks require the `vectors` extra, which includes APSW and sqlite-vec.
+[ADR0002](docs/architecture/0002-vector-store.md) records why vectors use a separate
+SQLite connection. The development lockfile records a tested environment; resolve
+optional packages for your operating system rather than copying virtual environments.
+
+The development team uses separate worktrees and review gates. On the configured
+workstation, attach to visible worker windows with:
+
+```sh
+tmux attach -t opendevin-dev
+```
+
+Terminal activity is separate from acceptance: the board and exact-commit review
+artifacts record what has actually passed. Quota-limited workers are resumed from
+saved sessions; a stopped process never counts as completed work.
 
 Released under the [MIT License](LICENSE).

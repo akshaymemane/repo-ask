@@ -1,4 +1,4 @@
-"""Run the local Repo Ask web app."""
+"""Run the local OpenDevin web app."""
 
 from argparse import ArgumentParser
 from http import HTTPStatus
@@ -30,7 +30,7 @@ ASSETS = {
 
 
 class RequestHandler(BaseHTTPRequestHandler):
-    server_version = "RepoAsk"
+    server_version = "OpenDevin"
     sys_version = ""
 
     def setup(self):
@@ -71,7 +71,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self.allowed_host():
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "Use the local URL printed by Repo Ask."})
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "Use the local URL printed by OpenDevin."})
             return
         url = urlsplit(self.path)
         if url.path in ASSETS:
@@ -137,7 +137,7 @@ class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         origin = self.headers.get("Origin")
         if not self.allowed_host() or (origin and origin != f"http://{self.headers['Host']}"):
-            self.send_json(HTTPStatus.FORBIDDEN, {"error": "This request must come from Repo Ask."})
+            self.send_json(HTTPStatus.FORBIDDEN, {"error": "This request must come from OpenDevin."})
             return
         if self.path != "/api/ask":
             self.feature_request("POST", host_checked=True)
@@ -268,7 +268,7 @@ def main():
     except OSError as error:
         platform.close()
         index.db.close()
-        parser.exit(1, f"Could not start Repo Ask on port {args.port}. {error.strerror}\n")
+        parser.exit(1, f"Could not start OpenDevin on port {args.port}. {error.strerror}\n")
     services = ApplicationServices(platform)
     try:
         with server:

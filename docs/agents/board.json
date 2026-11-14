@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-13T17:51:17.382991+00:00",
+  "updated": "2026-11-14T04:19:16.898522+00:00",
   "phase": "M1_services_resumed",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -264,20 +264,22 @@
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-index",
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": "2026-11-13T17:36:30.606306+00:00",
-      "submitted_sha": null,
+      "heartbeat_at": "2026-11-14T04:19:16.896278+00:00",
+      "submitted_sha": "d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Build persistent context per frozen migration4 contract; independent review on completion.",
+      "next_action": "Resolve2blocking+3major Claude findings with real provider retry/large-source regressions and additive exclusion setter.",
       "completion_depends_on": [],
       "actual_harness": "Codex CLI",
-      "attempt": "m1-index",
+      "attempt": "m1-index-r2",
       "write_scope": [
         "repoask/indexing/**",
         "tests/test_indexing_*.py",
         "tests/fixtures/indexing/**",
         "docs/agents/runs/M1-INDEX/**"
-      ]
+      ],
+      "review_attempt": "review-m1-index-claude",
+      "review_session": "d6c8a9c3-29b5-423b-ae65-ad25a55ca2c4"
     },
     {
       "id": "M1-CATALOG-UI",
@@ -310,28 +312,30 @@
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-catalog-ui",
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": "2026-11-13T17:51:17.382991+00:00",
-      "submitted_sha": "6542bb0f00dd572ce3631babd51674e3d54e51c5",
+      "heartbeat_at": "2026-11-14T04:19:16.898522+00:00",
+      "submitted_sha": "94ad03efd6360eda57a1fab77fb3d70fc5b2c8cf",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Fix actual-browser textarea readonly type failure while independent original exactcommit review completes.",
+      "next_action": "Root fixes GitHub refresh race/callback outcome and catalog save/reload reconciliation; no external UI writer active.",
       "completion_depends_on": [
         "M1-INDEX"
       ],
       "actual_harness": "Codex CLI",
-      "attempt": "m1-catalog-ui-r2",
+      "attempt": "m1-catalog-ui-r4",
       "write_scope": [
         "repoask/web/**",
         "tests/ui/**",
         "docs/agents/runs/M1-CATALOG-UI/**"
       ],
-      "review_attempt": "review-m1-catalog-ui"
+      "review_attempt": "review-m1-catalog-ui-claude-r2",
+      "review_session": "c271c8ae-a782-4c49-ae10-1ff177837abd",
+      "actual_owner": "coordinator temporary takeover"
     },
     {
       "id": "M1-ROUTING",
       "milestone": "M1",
       "title": "Explainable repository routing and evaluation",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F03"
       ],
@@ -359,14 +363,17 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Implemented sequentially by combined M1-ASK-BACKEND owner; not independently integrated.",
+      "completion_depends_on": [
+        "M1-INDEX"
+      ],
+      "execution_card": "M1-ASK-BACKEND"
     },
     {
       "id": "M1-PLANS",
       "milestone": "M1",
       "title": "Durable Ask conversations and versioned plans",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F04"
       ],
@@ -393,8 +400,11 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Implemented sequentially by combined M1-ASK-BACKEND owner; not independently integrated.",
+      "completion_depends_on": [
+        "M1-INDEX"
+      ],
+      "execution_card": "M1-ASK-BACKEND"
     },
     {
       "id": "M1-ASK-UI",
@@ -987,6 +997,41 @@
       "heartbeat_at": "2026-11-13T17:36:06.826479+00:00",
       "integrated_sha": "0bdeb3324069200e5652845aa11bd21244c4eb77",
       "review_verdict": "approved"
+    },
+    {
+      "id": "M1-ASK-BACKEND",
+      "state": "running",
+      "base_sha": "c0e15ea59620346a912d986441aa644b77e4bcdb",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-ask",
+      "branch": "task/m1-ask",
+      "actual_harness": "Codex CLI",
+      "attempt": "m1-ask-backend",
+      "depends_on": [
+        "M1-ASK-FOUNDATION",
+        "M1-GITHUB",
+        "M1-PROVIDERS"
+      ],
+      "completion_depends_on": [
+        "M1-INDEX"
+      ],
+      "write_scope": [
+        "repoask/ask/**",
+        "tests/test_ask_*.py",
+        "tests/fixtures/routing/**",
+        "docs/agents/runs/M1-ASK-BACKEND/**"
+      ],
+      "next_action": "Build routing then durable Ask/plans against submitted interface; final upstream approval gates integration."
+    },
+    {
+      "id": "M1-ASK-FOUNDATION",
+      "state": "integrated",
+      "depends_on": [
+        "M1-SERVICE-FOUNDATION"
+      ],
+      "integrated_sha": "f69a4820567b99ccce3a47ab7ff84819379be92e",
+      "review_verdict": "approved",
+      "reviewer": "independent Codex /root/review_index_foundation",
+      "next_action": "Schema6/contracts accepted; M1-ASK-BACKEND consumes them."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",

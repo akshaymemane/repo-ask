@@ -1,1 +1,1 @@
-"""Repo Ask, a local source explorer for multiple Git repositories."""
+"""OpenDevin, a local source explorer for multiple Git repositories."""

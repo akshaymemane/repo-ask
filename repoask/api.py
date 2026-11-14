@@ -59,8 +59,12 @@ def error_status(code):
 
 
 class FeatureAPI:
-    def __init__(self, platform, github, providers, *, indexing=None):
+    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None):
         self.platform, self.github, self.providers = platform, github, providers
+        self.ask = None
+        if all(service is not None for service in (conversations, plans, routing)):
+            from .ask_api import AskAPI
+            self.ask = AskAPI(conversations, plans, routing)
         self.context = None
         if indexing is not None:
             from .context_api import ContextAPI
@@ -78,6 +82,10 @@ class FeatureAPI:
             raise ValueError('Mutation query parameters are not supported.')
         if self.context is not None:
             response = self.context.dispatch(method, path, raw_query, body)
+            if response is not None:
+                return response
+        if self.ask is not None:
+            response = self.ask.dispatch(method, path, raw_query, body)
             if response is not None:
                 return response
         if path == '/api/github/callback' and method == 'GET':
