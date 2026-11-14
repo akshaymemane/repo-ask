@@ -1005,9 +1005,20 @@ async function loadCatalog(reset = false) {
       const implementation = toggle(form, `Allow implementation in ${repo.full_name}`, repo.implementation_enabled);
       const save = submitButton(form, "Save repository selection"); const status = notice(form);
       if (repo.access_state !== "accessible") { indexing.disabled = true; implementation.disabled = true; save.disabled = true; status.textContent = "Access unavailable. Reconnect or refresh GitHub; saved choices do not grant access."; }
+      for (const checkbox of [indexing, implementation]) checkbox.addEventListener("change", () => {
+        if (!save.disabled) status.textContent = "Unsaved selection. Save to apply these permissions.";
+      });
       form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
-        await featureRequest(`/api/repositories/${encodeURIComponent(repo.id)}`, "PATCH", { index_enabled: indexing.checked, implementation_enabled: implementation.checked });
-        status.textContent = "Selection saved. GitHub capabilities will be checked again before execution.";
+        const submitted = { index_enabled: indexing.checked, implementation_enabled: implementation.checked };
+        indexing.disabled = true; implementation.disabled = true;
+        try {
+          const saved = await featureRequest(`/api/repositories/${encodeURIComponent(repo.id)}`, "PATCH", submitted);
+          if (typeof saved.index_enabled !== "boolean" || typeof saved.implementation_enabled !== "boolean") {
+            throw new Error("Selection response unavailable. Reload catalog to confirm saved permissions.");
+          }
+          indexing.checked = saved.index_enabled; implementation.checked = saved.implementation_enabled;
+          status.textContent = "Selection saved. GitHub capabilities will be checked again before execution.";
+        } finally { indexing.disabled = false; implementation.disabled = false; }
       }); }); box.append(form); catalogRows.append(box);
     }
     catalogPrevious.disabled = !catalog.previous.length; catalogNext.disabled = !catalog.next;
@@ -1017,12 +1028,27 @@ async function loadCatalog(reset = false) {
 let providerProfiles = [];
 let providerSettings;
 let providerEditor;
+let providerLoadGeneration = 0;
+let providerMutationPending = false;
+async function providerMutation(path, method, payload) {
+  if (providerMutationPending) throw new Error("A provider update is pending. Wait for it to finish before submitting another change.");
+  // A read started before this write can no longer describe current settings.
+  ++providerLoadGeneration;
+  providerMutationPending = true;
+  try { return await featureRequest(path, method, payload); }
+  finally { providerMutationPending = false; }
+}
 async function loadProviders() {
+  // Keep the active form and its status while a write outcome is pending. The
+  // successful mutation reloads after completion; errors remain on that form.
+  if (providerMutationPending) return;
+  const generation = ++providerLoadGeneration;
   providerPanel.replaceChildren(node("h2", "Model providers and roles"));
   const output = notice(providerPanel); output.textContent = "Loading provider settings…";
   providerPanel.append(action("Reload provider settings", loadProviders));
   try {
     const [profiles, settings] = await Promise.all([featureRequest("/api/provider-profiles"), featureRequest("/api/settings/model-roles")]);
+    if (generation !== providerLoadGeneration) return;
     if (!Array.isArray(profiles.profiles) || typeof settings.settings?.local_only !== "boolean" || !settings.roles) throw new Error("Unsupported provider response.");
     providerProfiles = profiles.profiles; providerSettings = settings;
     connectedUI.providersReady = true;
@@ -1031,7 +1057,7 @@ async function loadProviders() {
     const local = toggle(policy, "Local-only inference and embeddings (blocks remote destinations)", settings.settings.local_only);
     const savePolicy = submitButton(policy, "Save destination policy"); const policyStatus = notice(policy);
     policy.addEventListener("submit", event => { event.preventDefault(); perform(savePolicy, policyStatus, async () => {
-      await featureRequest("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders();
+      await providerMutation("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders();
     }); });
     providerPanel.append(policy, node("p", "External source sharing requires a separate profile opt-in. Disabling local-only does not authorize source sharing. Model profiles cannot execute repository tools or publish PRs."));
     for (const profile of providerProfiles) {
@@ -1042,12 +1068,12 @@ async function loadProviders() {
       const status = notice(box);
       box.append(action(`Edit ${profile.name} / rotate credential`, () => { renderProviderEditor(profile); providerEditor.querySelector("input")?.focus(); }));
       const test = action(`Test ${profile.name}`, () => perform(test, status, async () => {
-        const result = await featureRequest(`/api/provider-profiles/${encodeURIComponent(profile.id)}/test`, "POST", { capabilities: version.config.capabilities });
+        const result = await providerMutation(`/api/provider-profiles/${encodeURIComponent(profile.id)}/test`, "POST", { capabilities: version.config.capabilities });
         status.textContent = `Test ${result.status}: ${Object.entries(result.capabilities || {}).map(([cap, value]) => `${cap}: ${value.status}${value.error_code ? ` (${value.error_code})` : ""}`).join(" · ")}. Destination ${result.destination?.kind || "unknown"}: ${result.destination?.host || "unknown"}. Synthetic content only; cost unknown.`;
       })); box.append(test);
       const remove = action(`Delete ${profile.name}`, () => {
         const confirm = action(`Confirm delete ${profile.name}`, () => perform(confirm, status, async () => {
-          await featureRequest(`/api/provider-profiles/${encodeURIComponent(profile.id)}`, "DELETE", {}); await loadProviders();
+          await providerMutation(`/api/provider-profiles/${encodeURIComponent(profile.id)}`, "DELETE", {}); await loadProviders();
         }));
         status.replaceChildren(node("span", "Deletion revokes credentials and removes active roles; historical metadata remains. "), confirm, action("Cancel deletion", () => { status.textContent = "Deletion cancelled."; }));
       }); box.append(remove); providerPanel.append(box);
@@ -1059,12 +1085,14 @@ async function loadProviders() {
       form.append(node("p", `${value.status || "unknown"} · Destination: ${value.destination ? `${value.destination.kind}: ${value.destination.host}` : "none"} · Version ${value.version_id || "none"}`));
       const save = submitButton(form, `Save ${role} role`); const status = notice(form);
       form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
-        await featureRequest("/api/settings/model-roles", "PATCH", { assignments: { [role]: select.value || null } }); await loadProviders();
+        await providerMutation("/api/settings/model-roles", "PATCH", { assignments: { [role]: select.value || null } }); await loadProviders();
       }); }); roles.append(form);
     }
     providerPanel.append(roles);
     providerEditor = node("section", undefined, "setting-box"); providerPanel.append(providerEditor); renderProviderEditor();
-  } catch (error) { output.textContent = `Provider settings unavailable: ${error.message}`; }
+  } catch (error) {
+    if (generation === providerLoadGeneration) output.textContent = `Provider settings unavailable: ${error.message}`;
+  }
 }
 function renderProviderEditor(profile = null) {
   const version = profile?.version; const config = version?.config || {};
@@ -1101,7 +1129,7 @@ function renderProviderEditor(profile = null) {
     const payload = { name: name.value.trim(), adapter: adapter.value, endpoint: endpoint.value.trim(), model: model.value.trim(), config };
     if (secretValue) payload.secret_value = secretValue;
     perform(save, status, async () => {
-      try { await featureRequest(profile ? `/api/provider-profiles/${encodeURIComponent(profile.id)}` : "/api/provider-profiles", profile ? "PATCH" : "POST", payload); }
+      try { await providerMutation(profile ? `/api/provider-profiles/${encodeURIComponent(profile.id)}` : "/api/provider-profiles", profile ? "PATCH" : "POST", payload); }
       finally { delete payload.secret_value; }
       await loadProviders();
     });

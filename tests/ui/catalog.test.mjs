@@ -143,3 +143,60 @@ test('GitHub settings renders with browser-like getter-only textarea.type', asyn
  assert.equal(key.hasAttribute('type'), false);
  assert.equal(input(form, 'App ID').type, 'number');
 });
+
+
+function delayed() { let resolve; const promise = new Promise(done => { resolve = done; }); return {promise, resolve}; }
+test('newest provider load wins when older response arrives last', async () => {
+ let delayReads = false; const reads = [];
+ const app = await boot((method, url) => {
+  if (delayReads && method === 'GET' && ['/api/provider-profiles', '/api/settings/model-roles'].includes(url)) {
+   const gate = delayed(); reads.push({url, ...gate}); return gate.promise;
+  }
+ });
+ const root = app.document.getElementById('settings-content');
+ delayReads = true;
+ button(root, 'Reload provider settings').click(); await settle();
+ button(root, 'Reload provider settings').click(); await settle();
+ assert.equal(reads.length, 4);
+ const respond = (entries, name, localOnly) => entries.forEach(entry => entry.resolve(entry.url === '/api/provider-profiles'
+  ? {profiles: [{...profile, name}]} : {settings:{local_only:localOnly}, roles:{}}));
+ respond(reads.slice(2), 'Newest profile', true); await settle();
+ respond(reads.slice(0, 2), 'Stale profile', false); await settle();
+ assert.ok(button(root, 'Edit Newest profile / rotate credential'));
+ assert.equal(Boolean(button(root, 'Edit Stale profile / rotate credential')), false);
+ assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Save destination policy').length, 1);
+ assert.equal(input(formFor(root, 'Save destination policy'), 'Local-only inference').checked, true);
+});
+
+test('provider mutation prevents reloads from rendering pre-mutation settings', async () => {
+ const mutation = delayed(); let pending = false; let readsWhilePending = 0;
+ const app = await boot((method, url) => {
+  if (method === 'PATCH' && url === '/api/settings/model-roles') { pending = true; return mutation.promise; }
+  if (pending && method === 'GET' && ['/api/provider-profiles', '/api/settings/model-roles'].includes(url)) readsWhilePending++;
+ });
+ const root = app.document.getElementById('settings-content');
+ const policy = formFor(root, 'Save destination policy'); policy.requestSubmit(); await settle();
+ button(root, 'Reload provider settings').click(); await settle();
+ assert.equal(readsWhilePending, 0, 'reads must wait for the pending mutation to settle');
+ pending = false; mutation.resolve({}); await settle();
+ assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Save destination policy').length, 1);
+});
+
+test('permission submission freezes both controls and reconciles saved response before re-enabling', async () => {
+ const patch = delayed();
+ const app = await boot((method) => method === 'PATCH' ? patch.promise : undefined, '#/repositories');
+ const root = app.document.getElementById('repositories-content'); const form = formFor(root, 'Save repository selection');
+ const indexing = input(form, 'Index team/widget'); const implementation = input(form, 'Allow implementation in team/widget');
+ indexing.checked = true; implementation.checked = true; form.requestSubmit(); await settle();
+ assert.equal(indexing.disabled, true); assert.equal(implementation.disabled, true);
+ assert.equal(button(form, 'Save repository selection').disabled, true);
+ assert.doesNotMatch(visibleText(form), /Selection saved/);
+ // Even programmatic changes cannot leave a false view beside a saved message.
+ indexing.checked = false; implementation.checked = false;
+ patch.resolve({...repo, index_enabled:true, implementation_enabled:true}); await settle();
+ assert.equal(indexing.checked, true); assert.equal(implementation.checked, true);
+ assert.equal(indexing.disabled, false); assert.equal(implementation.disabled, false);
+ assert.match(visibleText(form), /Selection saved/);
+ implementation.checked = false; implementation.dispatchEvent({type:'change'});
+ assert.match(visibleText(form), /Unsaved selection/); assert.doesNotMatch(visibleText(form), /Selection saved/);
+});
