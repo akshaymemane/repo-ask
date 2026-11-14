@@ -820,8 +820,11 @@ const githubPanel = node("section", undefined, "connected-panel");
 const providerPanel = node("section", undefined, "connected-panel");
 const catalogPanel = node("section", undefined, "connected-panel");
 function renderSettings() {
+  const focused = document.activeElement;
+  const restore = inside(githubPanel, focused) || inside(providerPanel, focused);
   renderLegacySettings();
   byId("settings-content").append(githubPanel, providerPanel);
+  if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
 function renderRepositories() {
   renderLegacyRepositories();
@@ -909,12 +912,41 @@ async function perform(button, output, operation) {
 }
 function timeLabel(value) { return value ? new Date(value).toLocaleString() : "Never"; }
 
+let githubLoadGeneration = 0;
+let githubMutationPending = false;
+function inside(root, element) {
+  for (let current = element; current; current = current.parentNode) if (current === root) return true;
+  return false;
+}
+function restorePanelFocus(panel, restore) {
+  if (restore && state.route === "settings" &&
+      (document.activeElement === document.body || !document.activeElement?.isConnected)) {
+    const heading = panel.querySelector("h2"); heading?.setAttribute("tabindex", "-1"); heading?.focus();
+  }
+}
+async function githubMutation(path, payload) {
+  if (githubMutationPending) throw new Error("A GitHub update is pending. Wait for it to finish.");
+  if (catalog.pendingSaves) throw new Error("Repository permissions are being saved. Wait before changing GitHub access.");
+  ++githubLoadGeneration; githubMutationPending = true;
+  try { return await featureRequest(path, "POST", payload); }
+  finally { githubMutationPending = false; }
+}
 async function loadGitHub() {
+  if (githubMutationPending) {
+    byId("app-status").textContent = "A GitHub update is pending. Reload status after it finishes.";
+    return;
+  }
+  const generation = ++githubLoadGeneration;
+  const restore = inside(githubPanel, document.activeElement);
   githubPanel.replaceChildren(node("h2", "GitHub connection"));
+  if (/^#\/settings\?github=[a-z_]{1,64}$/.test(location.hash)) {
+    githubPanel.append(node("p", "GitHub setup returned. Check the connection status below; if setup failed or expired, create a new connect link and try again.", "page-status"));
+  }
   const output = notice(githubPanel); output.textContent = "Loading connections…";
   const retry = action("Reload GitHub status", loadGitHub); githubPanel.append(retry);
   try {
     const data = await featureRequest("/api/github/connections");
+    if (generation !== githubLoadGeneration) return;
     if (!Array.isArray(data.connections) || !data.summary) throw new Error("Unsupported GitHub response.");
     connectedUI.githubReady = true;
     output.textContent = `${data.summary.status} · ${data.summary.installations} active installations · ${data.summary.repository_count} accessible repositories`;
@@ -926,10 +958,11 @@ async function loadGitHub() {
       const status = notice(box);
       for (const [label, endpoint] of [["Create connect link", "connect"], ["Refresh catalog", "refresh"], ["Disconnect", "disconnect"]]) {
         const button = action(label, () => perform(button, status, async () => {
-          const result = await featureRequest(`/api/github/${endpoint}`, "POST", { connection_id: connection.id });
+          const result = await githubMutation(`/api/github/${endpoint}`, { connection_id: connection.id });
           if (endpoint === "connect") {
-            const url = new URL(result.install_url);
-            if (url.origin !== "https://github.com" || !url.pathname.startsWith("/apps/")) throw new Error("Invalid installation destination.");
+            let url;
+            try { url = new URL(result.install_url); } catch { throw new Error("Invalid installation destination."); }
+            if (url.origin !== "https://github.com" || url.username || url.password || !url.pathname.startsWith("/apps/")) throw new Error("Invalid installation destination.");
             const link = node("a", "Continue installation on GitHub"); link.href = url.href; link.rel = "noreferrer";
             status.replaceChildren(link, node("span", ` · Expires ${timeLabel(result.expires_at)}`));
           } else {
@@ -951,13 +984,14 @@ async function loadGitHub() {
       event.preventDefault(); if (save.disabled) return;
       const payload = { app_id: appID.value.trim(), slug: slug.value.trim(), private_key: key.value, index_new: indexNew.checked };
       key.value = "";
-      perform(save, status, async () => { try { await featureRequest("/api/github/configure", "POST", payload); } finally { payload.private_key = ""; } await loadGitHub(); });
+      perform(save, status, async () => { try { await githubMutation("/api/github/configure", payload); } finally { payload.private_key = ""; } await loadGitHub(); });
     });
     githubPanel.append(form);
-  } catch (error) { output.textContent = `GitHub unavailable: ${error.message}`; }
+  } catch (error) { if (generation === githubLoadGeneration) output.textContent = `GitHub unavailable: ${error.message}`; }
+  finally { if (generation === githubLoadGeneration) restorePanelFocus(githubPanel, restore); }
 }
 
-const catalog = { cursor: null, previous: [], next: null, sequence: 0 };
+const catalog = { cursor: null, previous: [], next: null, sequence: 0, pendingSaves: 0 };
 const catalogForm = node("form", undefined, "settings-form catalog-filters");
 catalogPanel.append(node("h2", "GitHub repository catalog"), node("p", "Catalog metadata is available before source indexing. Indexing selection does not grant implementation permission. Ask below still uses its explicit local/demo snapshots."));
 const searchCatalog = control(catalogForm, "Search name or description", "", "search"); searchCatalog.maxLength = 200;
@@ -966,14 +1000,22 @@ const indexCatalog = choose(catalogForm, "Indexing selection", [["", "All"], ["t
 const languageCatalog = control(catalogForm, "Language on this page");
 const archivedCatalog = choose(catalogForm, "Archive state on this page", [["", "All"], ["true", "Archived"], ["false", "Active"]], "");
 const forkCatalog = choose(catalogForm, "Fork state on this page", [["", "All"], ["true", "Forks"], ["false", "Originals"]], "");
-submitButton(catalogForm, "Apply catalog filters"); catalogPanel.append(catalogForm);
+const catalogApply = submitButton(catalogForm, "Apply catalog filters"); catalogPanel.append(catalogForm);
 const catalogStatus = notice(catalogPanel); const catalogRows = node("div"); catalogPanel.append(catalogRows);
-const catalogPrevious = action("Previous page", () => { catalog.cursor = catalog.previous.pop() ?? null; loadCatalog(); });
-const catalogNext = action("Next page", () => { catalog.previous.push(catalog.cursor); catalog.cursor = catalog.next; loadCatalog(); });
+const catalogPrevious = action("Previous page", () => { if (catalog.pendingSaves) return; catalog.cursor = catalog.previous.pop() ?? null; loadCatalog(); });
+const catalogNext = action("Next page", () => { if (catalog.pendingSaves) return; catalog.previous.push(catalog.cursor); catalog.cursor = catalog.next; loadCatalog(); });
 const catalogReload = action("Reload catalog", () => loadCatalog(true));
 catalogPanel.append(catalogPrevious, catalogNext, catalogReload);
 catalogForm.addEventListener("submit", event => { event.preventDefault(); loadCatalog(true); });
+function catalogBusy() {
+  const busy = catalog.pendingSaves > 0;
+  catalogApply.disabled = busy; catalogReload.disabled = busy;
+  catalogPrevious.disabled = busy || !catalog.previous.length;
+  catalogNext.disabled = busy || !catalog.next;
+  if (busy) catalogStatus.textContent = "Saving repository permissions. Catalog reloads wait until the save finishes.";
+}
 async function loadCatalog(reset = false) {
+  if (catalog.pendingSaves) { catalogBusy(); return; }
   if (reset) { catalog.cursor = null; catalog.previous = []; }
   const sequence = ++catalog.sequence;
   catalogPrevious.disabled = true; catalogNext.disabled = true; catalogStatus.textContent = "Loading catalog…";
@@ -1009,7 +1051,10 @@ async function loadCatalog(reset = false) {
         if (!save.disabled) status.textContent = "Unsaved selection. Save to apply these permissions.";
       });
       form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
+        if (githubMutationPending) throw new Error("GitHub access is changing. Wait before saving repository permissions.");
+        if (catalog.pendingSaves) throw new Error("Another repository selection is being saved. Wait before submitting.");
         const submitted = { index_enabled: indexing.checked, implementation_enabled: implementation.checked };
+        ++catalog.pendingSaves; ++catalog.sequence; catalogBusy();
         indexing.disabled = true; implementation.disabled = true;
         try {
           const saved = await featureRequest(`/api/repositories/${encodeURIComponent(repo.id)}`, "PATCH", submitted);
@@ -1018,7 +1063,11 @@ async function loadCatalog(reset = false) {
           }
           indexing.checked = saved.index_enabled; implementation.checked = saved.implementation_enabled;
           status.textContent = "Selection saved. GitHub capabilities will be checked again before execution.";
-        } finally { indexing.disabled = false; implementation.disabled = false; }
+        } finally {
+          indexing.disabled = false; implementation.disabled = false;
+          --catalog.pendingSaves; catalogBusy();
+          catalogStatus.textContent = "Repository save finished. Reload catalog to confirm current permissions.";
+        }
       }); }); box.append(form); catalogRows.append(box);
     }
     catalogPrevious.disabled = !catalog.previous.length; catalogNext.disabled = !catalog.next;
@@ -1041,7 +1090,11 @@ async function providerMutation(path, method, payload) {
 async function loadProviders() {
   // Keep the active form and its status while a write outcome is pending. The
   // successful mutation reloads after completion; errors remain on that form.
-  if (providerMutationPending) return;
+  if (providerMutationPending) {
+    byId("app-status").textContent = "A provider update is pending. Reload settings after it finishes.";
+    return;
+  }
+  const restore = inside(providerPanel, document.activeElement);
   const generation = ++providerLoadGeneration;
   providerPanel.replaceChildren(node("h2", "Model providers and roles"));
   const output = notice(providerPanel); output.textContent = "Loading provider settings…";
@@ -1092,7 +1145,7 @@ async function loadProviders() {
     providerEditor = node("section", undefined, "setting-box"); providerPanel.append(providerEditor); renderProviderEditor();
   } catch (error) {
     if (generation === providerLoadGeneration) output.textContent = `Provider settings unavailable: ${error.message}`;
-  }
+  } finally { if (generation === providerLoadGeneration) restorePanelFocus(providerPanel, restore); }
 }
 function renderProviderEditor(profile = null) {
   const version = profile?.version; const config = version?.config || {};
@@ -1136,10 +1189,6 @@ function renderProviderEditor(profile = null) {
   }); providerEditor.append(form);
 }
 
-// Callback contains a bounded status code only; never display callback query data.
-if (/^#\/settings\?github=[a-z_]{1,64}$/.test(location.hash)) {
-  const callbackNotice = node("p", "GitHub setup returned. Reload connection status to confirm installation or pending approval."); githubPanel.append(callbackNotice);
-}
 await Promise.all([loadGitHub(), loadProviders(), loadCatalog()]);
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
