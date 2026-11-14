@@ -91,3 +91,33 @@ test('malformed context cannot enable actions from a truthy permission string',a
  assert.match(visibleText(app.panel.element),/Unsupported context response/);
  assert.equal(Boolean(button(app.panel.element,'Reindex Example')),false);
 });
+
+test('pending exclusion save freezes controls and preserves newer programmatic edits',async()=>{
+ const gate=deferred();
+ const app=await boot(({path,method})=>method==='PATCH'&&path.endsWith('/exclusions')?gate.promise:undefined);
+ const root=app.panel.element;
+ button(root,'Edit exclusions for Example').click();await settle();
+ const input=root.querySelector('textarea');
+ input.value='first/**';input.dispatchEvent({type:'input'});
+ input.closest('form').requestSubmit();await settle();
+ assert.equal(input.disabled,true);
+ assert.equal(button(root,'Discard local exclusion edits').disabled,true);
+ assert.deepEqual(app.calls.find(c=>c.method==='PATCH').body,{exclusions:['first/**']});
+ // Even a programmatic edit must not be mistaken for the submitted draft.
+ input.value='newer/**';input.dispatchEvent({type:'input'});
+ gate.resolve({});await settle();
+ assert.equal(root.querySelector('textarea'),input);
+ assert.equal(input.value,'newer/**');assert.equal(input.disabled,false);
+ assert.match(visibleText(root),/Unsaved exclusions/);
+});
+
+test('failed exclusion save restores editing and retains submitted draft',async()=>{
+ const gate=deferred();
+ const app=await boot(({path,method})=>method==='PATCH'&&path.endsWith('/exclusions')?gate.promise:undefined);
+ const root=app.panel.element;button(root,'Edit exclusions for Example').click();await settle();
+ const input=root.querySelector('textarea');input.value='keep/**';input.dispatchEvent({type:'input'});
+ input.closest('form').requestSubmit();await settle();gate.resolve(Promise.reject(new Error('Save failed')));await settle();
+ assert.equal(input.disabled,false);assert.equal(input.value,'keep/**');
+ assert.equal(button(root,'Discard local exclusion edits').disabled,false);
+ assert.match(visibleText(root),/Save failed/);
+});

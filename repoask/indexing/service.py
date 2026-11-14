@@ -61,7 +61,8 @@ class IndexService:
         return source
 
     def _eligible(self, source):
-        return source['metadata_json'] != encoded({'purging':True}) and bool(source['index_enabled']) and (source['kind'] != 'github' or self.github.is_eligible(source['github_repository_id']))
+        metadata = json.loads(source['metadata_json'])
+        return not (metadata.get('purging') or metadata.get('purged')) and bool(source['index_enabled']) and (source['kind'] != 'github' or self.github.is_eligible(source['github_repository_id']))
 
     def _require(self, source):
         if not self._eligible(source):
@@ -72,7 +73,12 @@ class IndexService:
     def _eligibility_changed(self, repository_id, eligible):
         if eligible:
             with self.store.transaction() as db:
-                db.execute("UPDATE index_sources SET index_enabled=1,updated_at=? WHERE id=? AND kind='github'",(self.clock(),repository_id))
+                row = db.execute("SELECT metadata_json FROM index_sources WHERE id=? AND kind='github'", (repository_id,)).fetchone()
+                if row:
+                    metadata = json.loads(row[0])
+                    if not metadata.get('purging'):
+                        metadata.pop('purged', None)
+                        db.execute("UPDATE index_sources SET index_enabled=1,metadata_json=?,updated_at=? WHERE id=?",(encoded(metadata),self.clock(),repository_id))
         else:
             with self.store.transaction() as db:
                 db.execute("UPDATE index_runs SET state='cancelled',error_code='repository_unavailable',updated_at=? WHERE repository_id=? AND state IN ('queued','running','waiting','paused')", (self.clock(), repository_id))
@@ -91,10 +97,17 @@ class IndexService:
             db.execute("INSERT INTO index_sources(id,kind,name,local_path,exclusions_json,created_at,updated_at) VALUES(?,'local',?,?,?,?,?)", (ident, name, str(root), encoded(patterns), now, now))
         return self.get_state(ident)
 
-    def register_demo(self, snapshot):
+    def register_demo(self, snapshot, *, restore=False):
         if not isinstance(snapshot.name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', snapshot.name):
             raise ValueError('Invalid demo name.')
         ident = 'demo:' + snapshot.name
+        with self.store.read() as db:
+            existing = db.execute('SELECT metadata_json FROM index_sources WHERE id=?',(ident,)).fetchone()
+            metadata = json.loads(existing[0]) if existing else {}
+            if metadata.get('purging'):
+                raise IndexError('purge_pending')
+            if metadata.get('purged') and not restore:
+                return self.get_state(ident)
         # Demo source is bounded, filtered and cached privately, never job payload data.
         files, size = {}, 0
         for path, lines in snapshot.files.items():
@@ -114,6 +127,8 @@ class IndexService:
             existing = db.execute('SELECT metadata_json FROM index_sources WHERE id=?',(ident,)).fetchone()
             if existing and json.loads(existing[0]).get('purging'):
                 raise IndexError('purge_pending')
+            if existing and json.loads(existing[0]).get('purged') and not restore:
+                return self.get_state(ident)
             db.execute("INSERT INTO index_sources(id,kind,name,metadata_json,created_at,updated_at) VALUES(?,'demo',?,?,?,?) ON CONFLICT(id) DO UPDATE SET metadata_json=excluded.metadata_json,updated_at=excluded.updated_at WHERE index_sources.metadata_json!=excluded.metadata_json", (ident, snapshot.name, metadata, now, now))
         return self.get_state(ident)
 
@@ -215,13 +230,16 @@ class IndexService:
         patterns = None if exclusions is None else validate_exclusions(exclusions)
         with self.store.transaction() as db:
             source = self._source(db, repository_id)
-            if source['metadata_json'] == encoded({'purging':True}):
+            if json.loads(source['metadata_json']).get('purging'):
                 raise IndexError('purge_pending')
             if source['kind'] == 'github':
                 raise IndexError('selection_authoritative_in_github')
             if index_enabled and source['kind'] == 'demo' and 'revision' not in json.loads(source['metadata_json']):
                 raise IndexError('demo_registration_required')
-            db.execute('UPDATE index_sources SET index_enabled=?,exclusions_json=?,updated_at=? WHERE id=?', (index_enabled, source['exclusions_json'] if patterns is None else encoded(patterns), self.clock(), repository_id))
+            metadata = json.loads(source['metadata_json'])
+            if index_enabled:
+                metadata.pop('purged', None)
+            db.execute('UPDATE index_sources SET index_enabled=?,exclusions_json=?,metadata_json=?,updated_at=? WHERE id=?', (index_enabled, source['exclusions_json'] if patterns is None else encoded(patterns), encoded(metadata), self.clock(), repository_id))
         return self.get_state(repository_id)
 
     def set_exclusions(self, repository_id, exclusions):
@@ -298,7 +316,9 @@ class IndexService:
             implementation = False
             if source['kind'] == 'github':
                 implementation = self.github.get_repository(repository_id)['implementation_enabled']
+            metadata = json.loads(source['metadata_json'])
             return dict(repository_id=repository_id,name=source['name'],kind=source['kind'],eligible=eligible,
+                        purged=bool(metadata.get('purged')),purging=bool(metadata.get('purging')),
                         implementation_enabled=implementation,status=status,active_snapshot=public_active,
                         active_run=self._public_run(run) if run and run['state'] in ('queued','running','waiting','paused') else None)
 
@@ -856,5 +876,5 @@ class IndexService:
             # Retain the disabled registry identity/local path, not derived source.
             db.execute('DELETE FROM index_runs WHERE repository_id=?',(repository_id,))
             db.execute('DELETE FROM repository_snapshots WHERE repository_id=?',(repository_id,))
-            db.execute("UPDATE index_sources SET metadata_json='{}',index_enabled=0 WHERE id=?",(repository_id,))
+            db.execute("UPDATE index_sources SET metadata_json=?,index_enabled=0 WHERE id=?",(encoded({'purged':True}),repository_id))
         return {'repository_id':repository_id,'state':'completed'}

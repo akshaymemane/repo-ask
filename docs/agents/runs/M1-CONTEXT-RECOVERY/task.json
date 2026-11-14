@@ -1,0 +1,33 @@
+{
+  "id": "M1-CONTEXT-RECOVERY",
+  "base_sha": "95b8f1e6c9db58365941fa7ea5486b1dfbbe81ab",
+  "owner": "Codex platform builder",
+  "reviewer": "independent exact-commit reviewer",
+  "requirements": [
+    "F02 exclusion privacy and physical purge restart",
+    "F11 no loss of exclusion edits"
+  ],
+  "exclusive_paths": [
+    "repoask/services.py",
+    "repoask/index.py",
+    "repoask/context_api.py",
+    "repoask/api.py",
+    "repoask/web/context.js",
+    "repoask/indexing/service.py except request_index and _public_run",
+    "tests/test_legacy_context_bridge.py",
+    "tests/test_context_metadata_refresh.py",
+    "tests/test_context_api.py",
+    "tests/test_indexing_review.py:242 explicit restore expectation (coordinator approved)",
+    "tests/ui/context.test.mjs",
+    "new focused purge tests",
+    "docs/agents/runs/M1-CONTEXT-RECOVERY/**"
+  ],
+  "acceptance": [
+    "Completed demo and local purge survives normal restart: no source cache or legacy FTS restored until explicit Enable",
+    "Explicit Enable restores from configured local/demo source only; HTTP cannot register arbitrary host paths",
+    "Purging failure blocks enable; other repositories survive",
+    "Exclusion draft cannot be lost when PATCH pending; held-response regression",
+    "Focused Python/Node checks pass; no schema changes"
+  ],
+  "handoff": "docs/agents/runs/M1-CONTEXT-RECOVERY/handoff.md"
+}

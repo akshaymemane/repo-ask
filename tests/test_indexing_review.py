@@ -239,7 +239,7 @@ class ReviewRegressions(TestCase):
         with self.assertRaises(IndexError) as raised:
             f.service.set_local_selection(demo,True)
         self.assertEqual(raised.exception.code,'demo_registration_required')
-        f.service.register_demo(snapshot)
+        f.service.register_demo(snapshot, restore=True)
         f.service.set_local_selection(demo,True)
         target = f.service.request_index(demo)
         while self.worker().run_once():

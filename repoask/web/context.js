@@ -119,13 +119,19 @@ export function createContextPanel({request, isVisible}) {
             input.addEventListener('input', () => { drafts.set(repo.repository_id, input.value); output.textContent = 'Unsaved exclusions.'; });
             form.addEventListener('submit', event => {
               event.preventDefault();
+              if (pending) return;
+              const submitted = input.value;
               change(save, output, async () => {
-                await request(`/api/repositories/${encodeURIComponent(repo.repository_id)}/exclusions`, 'PATCH',
-                  {exclusions: input.value.split('\n').map(line => line.trim()).filter(Boolean)});
-                drafts.delete(repo.repository_id);
+                input.disabled = true; discard.disabled = true;
+                try {
+                  await request(`/api/repositories/${encodeURIComponent(repo.repository_id)}/exclusions`, 'PATCH',
+                    {exclusions: submitted.split('\n').map(line => line.trim()).filter(Boolean)});
+                  if (input.value === submitted) drafts.delete(repo.repository_id);
+                } finally { input.disabled = false; discard.disabled = false; }
               });
             });
-            form.append(button('Discard local exclusion edits', () => { drafts.delete(repo.repository_id); form.remove(); configure.disabled = false; output.textContent = 'Local edits discarded.'; poll(); }));
+            const discard = button('Discard local exclusion edits', () => { if (pending) return; drafts.delete(repo.repository_id); form.remove(); configure.disabled = false; output.textContent = 'Local edits discarded.'; poll(); });
+            form.append(discard);
             box.append(form); input.focus();
           } catch (error) { output.textContent = error.message; configure.disabled = false; }
         });

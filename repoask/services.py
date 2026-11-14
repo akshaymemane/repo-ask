@@ -1,5 +1,5 @@
 """Application-owned services and a bounded, observable background job lifecycle."""
-from threading import Event, Thread
+from threading import Event, Thread, RLock
 import time
 
 from .api import FeatureAPI
@@ -37,6 +37,9 @@ class ApplicationServices:
         self.scheduler = None
         self.legacy_index = None
         self.legacy_sources = {}
+        self.context_sources = {}
+        self.context_lock = RLock()
+        self.demo_loader = self._bundled_demos
         self.api = FeatureAPI(platform, self.github, self.providers)
         self.stop_event = Event()
         self.thread = None
@@ -50,7 +53,7 @@ class ApplicationServices:
     def _rebuild_api(self):
         self.api = FeatureAPI(self.platform, self.github, self.providers,
                               indexing=self.indexing, routing=self.routing, plans=self.plans,
-                              conversations=self.conversations, purge_context=self.purge_context)
+                              conversations=self.conversations, purge_context=self.purge_context, select_context=self.select_context)
 
     def enable_context(self, indexing):
         self._before_start()
@@ -69,26 +72,92 @@ class ApplicationServices:
         self.github.register_purge_hook('ask', conversations.purge_repository)
         self._rebuild_api()
 
-    def bootstrap_context(self, snapshots, local_roots):
+    @staticmethod
+    def _bundled_demos():
+        from pathlib import Path
+        from .index import load_demos
+        return load_demos(Path(__file__).resolve().parent.parent / 'examples')
+
+    def bootstrap_context(self, snapshots, local_roots, *, demo_loader=None):
         self._before_start()
         if self.indexing is None:
             raise RuntimeError('Configure context before bootstrap.')
         from .scheduling import IndexScheduler
+        if demo_loader is not None:
+            self.demo_loader = demo_loader  # Trusted application factory, never an HTTP input.
         self.scheduler = IndexScheduler(self.platform, self.indexing, self.github, self.providers)
-        for snapshot in snapshots:
-            try:
-                if snapshot.demo:
-                    state = self.indexing.register_demo(snapshot)
+        with self.context_lock:
+            for snapshot in snapshots:
+                try:
+                    if snapshot.demo:
+                        state = self.indexing.register_demo(snapshot)
+                    else:
+                        state = self.indexing.register_local(snapshot.name, local_roots[snapshot.name])
+                except PlatformError as error:
+                    if error.code != 'purge_pending' or not snapshot.demo:
+                        raise
+                    state = self.indexing.get_state('demo:' + snapshot.name)
+                repository_id = state['repository_id']
+                self.legacy_sources[snapshot.name] = repository_id
+                # Retain identities/configuration only. Purged source is reread only
+                # after an explicit Enable; no snapshot is retained as a restore cache.
+                self.context_sources[repository_id] = {
+                    'name': snapshot.name, 'kind': state['kind'],
+                    'path': None if snapshot.demo else local_roots[snapshot.name],
+                }
+                if state.get('purged') or state.get('purging'):
+                    if self.legacy_index is not None:
+                        self.legacy_index.purge([snapshot.name])
+                    continue
+                self.scheduler.register(repository_id, snapshot.revision)
+                if self.legacy_index is not None and state['eligible']:
+                    self._restore_mirror(repository_id, snapshot)
+
+    def _restore_mirror(self, repository_id, snapshot):
+        with self.platform.store.read() as conn:
+            row = conn.execute('SELECT exclusions_json FROM index_sources WHERE id=?', (repository_id,)).fetchone()
+        import json
+        self.legacy_index.restore(snapshot, exclusions=json.loads(row[0]))
+
+    def select_context(self, repository_id, index_enabled, exclusions=None):
+        if type(index_enabled) is not bool:
+            raise ValueError('Invalid selection.')
+        if self.indexing is None:
+            raise RuntimeError('Context service unavailable.')
+        from .indexing.service import IndexError
+        from .indexing.safety import exclusions as validate_exclusions
+        if exclusions is not None:
+            exclusions = validate_exclusions(exclusions)
+        with self.context_lock:
+            state = self.indexing.get_state(repository_id)
+            if state.get('purging'):
+                raise IndexError('purge_pending')
+            snapshot = None
+            configured = self.context_sources.get(repository_id)
+            missing_mirror = (configured is not None and self.legacy_index is not None
+                              and configured['name'] not in self.legacy_index.snapshots)
+            if index_enabled and (state.get('purged') or missing_mirror):
+                if configured is None:
+                    raise IndexError('source_not_configured')
+                if configured['kind'] == 'demo':
+                    snapshot = next((item for item in self.demo_loader()
+                                     if item.demo and item.name == configured['name']), None)
+                    if snapshot is None:
+                        raise IndexError('source_not_configured')
+                    self.indexing.register_demo(snapshot, restore=True)
                 else:
-                    state = self.indexing.register_local(snapshot.name, local_roots[snapshot.name])
-            except PlatformError as error:
-                if error.code != 'purge_pending':
-                    raise
+                    from .index import load_git
+                    from pathlib import Path
+                    snapshot = load_git(configured['name'], Path(configured['path']))
+            result = self.indexing.set_local_selection(repository_id, index_enabled, exclusions)
+            if snapshot is not None:
                 if self.legacy_index is not None:
-                    self.legacy_index.purge([snapshot.name])
-                continue  # Other sources and cleanup controls remain available.
-            self.scheduler.register(state['repository_id'], snapshot.revision)
-            self.legacy_sources[snapshot.name] = state['repository_id']
+                    self._restore_mirror(repository_id, snapshot)
+                if self.scheduler is not None:
+                    self.scheduler.register(repository_id, snapshot.revision)
+                    with self.platform.store.transaction() as conn:
+                        conn.execute('DELETE FROM index_schedule_state WHERE repository_id=?', (repository_id,))
+            return result
 
     def legacy_source_allowed(self, name, path=None):
         if self.indexing is None:
@@ -114,13 +183,20 @@ class ApplicationServices:
             return False
 
     def purge_context(self, repository_id):
+        with self.context_lock:
+            return self._purge_context(repository_id)
+
+    def _purge_context(self, repository_id):
         if self.indexing is None:
             raise RuntimeError('Context service unavailable.')
         state = self.indexing.get_state(repository_id)
         if state['kind'] == 'github':
             raise ValueError('Use the GitHub purge operation.')
         # Hide retrieval before removing duplicated answers and physical context.
-        self.indexing.set_local_selection(repository_id, False)
+        if not state.get('purging'):
+            self.indexing.set_local_selection(repository_id, False)
+        if self.scheduler is not None:
+            self.scheduler.local_markers.pop(repository_id, None)
         if self.legacy_index is not None:
             self.legacy_index.purge([name for name, ident in self.legacy_sources.items() if ident == repository_id])
         with self.platform.store.transaction() as conn:

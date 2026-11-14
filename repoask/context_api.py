@@ -6,8 +6,9 @@ from .api import APIResponse, fields, page_limit, query_fields
 
 
 class ContextAPI:
-    def __init__(self, platform, index, *, purge_context=None):
+    def __init__(self, platform, index, *, purge_context=None, select_context=None):
         self.platform, self.index, self.purge_context = platform, index, purge_context
+        self.select_context = select_context
 
     def dispatch(self, method, path, raw_query='', body=None):
         if method != 'GET' and raw_query:
@@ -60,7 +61,7 @@ class ContextAPI:
                 return APIResponse(202,self.index.request_index(repository_id,**data))
             if method == 'PATCH' and operation == 'context':
                 data = fields(body,{'index_enabled','exclusions'},{'index_enabled'})
-                return APIResponse(200,self.index.set_local_selection(repository_id,**data))
+                return APIResponse(200,(self.select_context or self.index.set_local_selection)(repository_id,**data))
         match = re.fullmatch(r'/api/index-jobs/([^/]+)(/(pause|resume|retry))?', path)
         if match:
             run_id = unquote(match[1])

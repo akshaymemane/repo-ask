@@ -158,7 +158,7 @@ def load_demos(root):
 
 class CodeIndex:
     def __init__(self, snapshots):
-        self.snapshots = {snapshot.name: snapshot for snapshot in snapshots}
+        self.snapshots = {snapshot.name: self._filtered(snapshot) for snapshot in snapshots}
         self.indexed_at = datetime.now(timezone.utc).isoformat()
         self.lock = Lock()
         self.db = sqlite3.connect(":memory:", check_same_thread=False)
@@ -171,8 +171,15 @@ class CodeIndex:
         with self.db:
             self.db.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?)", self.chunks())
 
-    def chunks(self):
-        for snapshot in self.snapshots.values():
+    @staticmethod
+    def _filtered(snapshot, exclusions=()):
+        from .indexing.safety import excluded, decode
+        files = {path: lines for path, lines in snapshot.files.items()
+                 if not excluded(path, exclusions) and decode('\n'.join(lines).encode()) is not None}
+        return Snapshot(snapshot.name, snapshot.revision, files, snapshot.demo, snapshot.limited)
+
+    def chunks(self, snapshots=None):
+        for snapshot in self.snapshots.values() if snapshots is None else snapshots:
             for path, lines in snapshot.files.items():
                 path_terms = " ".join(terms(path))
                 for start in range(0, len(lines), 9):
@@ -202,6 +209,15 @@ class CodeIndex:
                 for repo in repos:
                     self.db.execute("DELETE FROM chunks WHERE repo=?", (repo,))
                     self.snapshots.pop(repo, None)
+
+    def restore(self, snapshot, *, exclusions=()):
+        """Rebuild one explicitly enabled mirror from a trusted, filtered snapshot."""
+        snapshot = self._filtered(snapshot, exclusions)
+        with self.lock:
+            with self.db:
+                self.db.execute("DELETE FROM chunks WHERE repo=?", (snapshot.name,))
+                self.db.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?)", self.chunks([snapshot]))
+            self.snapshots[snapshot.name] = snapshot
 
     def search(self, repos, question, previous="", *, allowed_path=None):
         query_terms = [term for term in terms(question) if term not in STOP_WORDS]

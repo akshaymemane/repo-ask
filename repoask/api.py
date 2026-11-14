@@ -59,7 +59,7 @@ def error_status(code):
 
 
 class FeatureAPI:
-    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None):
+    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None, select_context=None):
         self.platform, self.github, self.providers = platform, github, providers
         self.ask = None
         if all(service is not None for service in (conversations, plans, routing)):
@@ -68,7 +68,7 @@ class FeatureAPI:
         self.context = None
         if indexing is not None:
             from .context_api import ContextAPI
-            self.context = ContextAPI(platform, indexing, purge_context=purge_context)
+            self.context = ContextAPI(platform, indexing, purge_context=purge_context, select_context=select_context)
 
     def _active_version(self, profile_id):
         for profile in self.providers.list_profiles():
