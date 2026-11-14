@@ -1,7 +1,9 @@
-Status: R1 corrections verified; preparing scoped commit attempt / independent re-review.
+Status: R1 corrections committed; ready for independent exact-commit re-review.
 
 Reviewed base 3918ebddfaaff7745a0ef495176eaba04a8088e4. All four majors, listed package minors and requested safe public provenance implemented. Accepted export(limit,cursor)/list_runs pagination shapes documented in updated handoff and integration notes. No shared/platform/schema/HTTP or outside-scope source edits, spawning, install, configured credential access, live account/model checks or downloads.
 
 Final focused service suite: 27 passed, zero remaining Ask renewal threads. Final full suite: 169 tests, 162 passed, zero assertion failures, seven sandbox-denied loopback-bind errors in existing HTTP tests. Expanded labeled evaluation: original 50-task top3 recall 100% vs 98% lexical baseline, five multi tasks 100% coverage; 12 new path tasks 100% exact scope/top3 coverage. Both path absent cases no_match; path-only uncertain cases do not auto-select. Durable focused/full/result JSON evidence saved. Earlier false-positive iteration and two corrected fixture owner labels disclosed; original earlier metrics preserved unchanged.
 
 Previous pre-quota exec session IDs were no longer addressable; ps was sandbox-denied. No unrelated process was killed. Fresh bounded test/evaluation processes returned. No persistent service or agent was intentionally started. Final dependency approval, independent exact-commit re-review and root HTTP wiring/checks remain outside this submission.
+
+Commit succeeded: 78f488e0b20a2fe8107f400bf32024dca6b47eb6 (`fix(ask): enforce source policy and recover durable answer jobs`). Normal scoped git add/commit worked in this resumed session; no permission bypass or outside-scope source edits were used. A following docs-only commit records this outcome. Review against the final branch HEAD (same tested product code as 78f488e), with base 3918ebddfaaff7745a0ef495176eaba04a8088e4. No push/merge/publication occurred. The pre-existing untracked review-claude-r1.md and old review.patch were preserved without staging or modifying them.
