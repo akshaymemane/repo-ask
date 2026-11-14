@@ -6,9 +6,9 @@
 - Branch/worktree: task/m1-ask, /Users/apple/workspace/vibe-coding/opendevin-m1-ask.
 - Reviewed base: 3918ebddfaaff7745a0ef495176eaba04a8088e4. Original implementation base c0e15ea59620346a912d986441aa644b77e4bcdb.
 - Review addressed: review-claude-r1.md, independent Claude changes-requested review. Author makes no approval claim.
-- New submitted commit: see status.md for actual commit attempt outcome. If sandbox rejects worktree Git metadata writes, root must commit the scoped patch/files before exact-commit review.
+- Submitted code/evidence commit: **78f488e0b20a2fe8107f400bf32024dca6b47eb6**. Scoped git add/commit succeeded without bypass. A following docs-only commit records the outcome; final branch HEAD carries identical tested product code. Review final HEAD against base 3918ebddfaaff7745a0ef495176eaba04a8088e4.
 - Requirements: F03 RT-01–RT-10, backend F04 ASK-01–ASK-10, F12 durability/fencing/deletion slice. Accepted schema6 and m1-ask-plans.md/m1-indexing.md remain unchanged.
-- Status: implemented and verified; resubmission for independent re-review. Index candidate is still a development dependency, not approved/integrated here. No board, schema, migration, HTTP, provider, index or legacy/shared source edits.
+- Status: implemented, verified and committed; submitted for independent re-review. Index candidate is still a development dependency, not approved/integrated here. No board, schema, migration, HTTP, provider, index or legacy/shared source edits.
 
 ## Review resolution
 
@@ -42,12 +42,12 @@ Interpreter: /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python (APSW 
 - Expanded routing evaluate: original 50 tasks **100%** top-three recall versus **98%** metadata lexical baseline; five multi tasks **100%** label/complete coverage; 12 new path tasks **100%** exact selected scope/top-three coverage; original ambiguous/absent, path-only/absent, collision/qualified/missing/revoked cases behaved as labeled. Raw final result routing-results-r1.json. Original metrics unchanged. Initial R1 failures/corrected labels/tuning disclosed in evaluation-r1.md and retained initial result file.
 - Final full unittest discovery: **169 run, 162 passed, no assertion failures, seven errors**. All seven errors are pre-existing HTTP tests denied loopback socket binding by the sandbox. verification-r1-full.json lists exact IDs, no source/terminal captures. Root must run them in a permitted environment.
 - Earlier iterative full run exposed one new absent-query action-word false positive plus the same seven socket errors; it was corrected before the final run. Do not treat the intermediate run as a pass.
-- `git diff --check` passed before packaging. New scoped staging/commit attempt and hashed-patch details recorded in status.md.
+- `git diff --check` passed before packaging. Scoped staging/commit succeeded; outcome recorded in status.md. No replacement patch was needed.
 
 ## Files and next action
 
 Changed product files: repoask/ask/common.py, conversations.py, routing.py. PlanService schema/version implementation unchanged. Tests: tests/test_ask_services.py, test_ask_routing_evaluation.py, fixtures/routing/expanded-r1.json. Evidence/docs remain exclusively docs/agents/runs/M1-ASK-BACKEND. Original evaluation.md/routing-results.json and reviewer-owned review-claude-r1.md are preserved.
 
-Root should create an exact commit if Git writes are denied here, then send it to the independent Claude reviewer for R1 re-review/corrections. Root owns UI/HTTP additions, permitted HTTP checks and later execution preflight. Final index review/corrections/integration remain a completion gate; public signatures are unchanged, and no dependency edits were made.
+Root should send final branch HEAD (same tested product source as 78f488e) to the independent Claude reviewer for R1 re-review/corrections. Root owns UI/HTTP additions, permitted HTTP checks and later execution preflight. Final index review/corrections/integration remain a completion gate; public signatures are unchanged, and no dependency edits were made.
 
 Previous pre-quota exec session handles were unavailable and OS process listing is sandbox-denied; no unrelated kill/restart was attempted and no inference about orphan absence is claimed. Fresh bounded evaluation/full/focused commands all returned, and the focused test runner found zero Ask renewal threads. No persistent provider/service/agent process was intentionally launched.
