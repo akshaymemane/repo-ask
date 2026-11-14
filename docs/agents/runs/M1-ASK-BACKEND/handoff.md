@@ -1,3 +1,26 @@
+# Latest handoff — R2 owned followups
+
+- Base: dd2931fff0ec4fba334cfe14ba7b5c3cd20b5dcd. Submitted source/test commit: **92f84de16d4bd85d1c3daf2247f365277837fd8b**. A following docs-only commit records this handoff.
+- Read root artifact `/Users/apple/workspace/vibe-coding/repo-ask/docs/agents/runs/M1-ASK-BACKEND/review-claude-r2.md`. Its conditional approval binds to the previous commit; no approval is claimed for these followup changes. Root must run socket-enabled full regressions, including the new tests, before integration.
+- Unknown owner-qualified tokens whose last component matches an accessible repository now yield needs_selection / explicit_repository_unavailable and a clarification instead of falling back to another owner's short name. Candidate alternatives remain visible. Confirmed pins/conversation scope still win; common source paths, file suffixes and read/write/client-server/I-O expressions retain their path treatment. Known owner-qualified names continue to resolve.
+- Lease renewal retries StorageBusy once after a short interruptible delay (at most 100ms). Both attempts fence expiry, owner/token, cancellation and scope under the same lock before heartbeat. Exhaustion cancels the provider and reports storage_busy; a provider cancellation exception cannot mask the actual renewal error. Lost/expired leases are never renewed. No shared queue/platform helper was changed.
+- Literal markup export regression now asserts `<script>`, quotes, underscores, Markdown and backticks survive verbatim in both plan and conversation exports. This relies on the accepted UI textContent/plain-text presentation; no UI change was made.
+
+Checks actually run with `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`:
+
+| Command/scenario | Result |
+| --- | --- |
+| `-m unittest discover -s tests -p 'test_ask_services.py'` | 32 passed in 5.592s. Five new tests cover unknown owners (including exact acme/billing versus owner/billing example), successful transient renewal retry, retry-time expiry/owner/cancel fences, bounded retry exhaustion, and literal markup exports. |
+| `-m unittest discover -s tests -p 'test_ask_routing_evaluation.py'` | 1 passed in 69.129s; existing catalog/path evaluation regression. No metric artifacts or fixture labels were changed. Earlier measurements remain historical evidence, not newly measured claims. |
+| `git diff --check` | Passed before source/test commit. |
+| Scoped `git add` / `git commit` | Succeeded normally; no bypass, push, merge or publication. |
+
+Exclusive changes: repoask/ask/conversations.py, repoask/ask/routing.py, tests/test_ask_services.py and these task-local handoff/status documents. No Index/schema/API/UI/main/source scheduler/embedding scheduler changes. No agents, installs, downloads, live model invocation or account calls. Injected transports only in tests. Both bounded test processes returned. Root's permitted full-suite run and integration remain root-owned; not rerun here for this focused followup.
+
+The prior R1 handoff below is retained for historical context; current submission identity and evidence are above.
+
+---
+
 # Builder handoff — M1-ASK-BACKEND R1 corrections
 
 ## Identity and scope
