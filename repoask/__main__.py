@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 from .answer import Ollama, respond
 from .index import CodeIndex, MAX_REPOS, load_demos, load_git
 from .indexing import IndexService
+from .ask import RoutingService, PlanService, ConversationService
 from .platform import Platform
 from .platform.clock import now_ms
 from .platform.errors import PlatformError
@@ -27,6 +28,7 @@ ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/context.js": ("context.js", "text/javascript; charset=utf-8"),
+    "/ask.js": ("ask.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
@@ -239,7 +241,7 @@ def main():
     parser = ArgumentParser(description="Explore local Git repositories with clickable source citations.")
     parser.add_argument("--repo", metavar="NAME=PATH", action="append", default=[],
                         help="Index HEAD of a local Git checkout. Repeat to add repositories.")
-    parser.add_argument("--model", metavar="NAME", help="Generate answers with this local Ollama model.")
+    parser.add_argument("--model", metavar="NAME", help="Seed unassigned Ask/planning roles with this local Ollama model.")
     parser.add_argument("--ollama-port", type=int, default=11434, help="Loopback port for Ollama.")
     parser.add_argument("--data-dir", type=Path, help="Persist workspace metadata in this directory; omitted uses memory.")
     parser.add_argument("--port", type=int, default=8765, help="Loopback port for the web app.")
@@ -288,8 +290,22 @@ def main():
         with server:
             indexing = IndexService(platform.store, platform.jobs, services.github, services.providers)
             services.enable_context(indexing)
+            if args.model:
+                roles = services.providers.roles()
+                missing_roles = [role for role in ('ask','planning') if not roles.get(role,{}).get('profile_id')]
+                if missing_roles:
+                    profile = services.providers.create_profile({
+                        'name': 'CLI local Ollama', 'adapter': 'ollama',
+                        'endpoint': f'http://127.0.0.1:{args.ollama_port}', 'model': args.model,
+                        'config': {'capabilities': ['chat','structured_output'], 'timeout_seconds': 600}})
+                    for role in missing_roles:
+                        services.providers.assign_role(role, profile['id'])
             services.legacy_index = index
             services.bootstrap_context(snapshots, local_roots)
+            routing = RoutingService(platform.store, indexing)
+            plans = PlanService(platform.store, indexing, services.providers)
+            conversations = ConversationService(platform.store, platform.jobs, indexing, services.providers, routing, plans)
+            services.enable_ask(routing, plans, conversations)
             server.index = index
             server.platform = platform
             server.model = model

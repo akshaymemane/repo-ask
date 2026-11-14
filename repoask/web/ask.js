@@ -1,6 +1,9 @@
 // Persistent Ask consumes the frozen AskAPI; source and model output are always text.
 const el = (tag, text) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; return n; };
 const enc = encodeURIComponent;
+const destinationText = d => d && typeof d === 'object' ? `${d.kind || 'unknown'}${d.host ? ` · ${d.host}` : ''}` : 'unknown';
+const coverageText = c => c && typeof c === 'object' ? [Number.isFinite(c.files) ? `${c.files} files` : null, Number.isFinite(c.chunks) ? `${c.chunks} chunks` : null, c.mode ? c.mode.replaceAll('_',' ') : null, c.partial === true ? 'partial coverage' : null].filter(Boolean).join(' · ') || 'unknown' : 'unknown';
+
 export async function createAskPanel({host, request = http, onMount = () => {}}) {
   let listing, initialHistoryError;
   try {
@@ -89,10 +92,10 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     Promise.allSettled((c.repository_ids || []).map(r=>request(`/api/repositories/${enc(r)}/context`))).then(results=>{
       if(token!==epoch)return;
       results.forEach((result,i)=>{if(result.status==='fulfilled'){
-        const r=result.value;details.append(el('p',`${r.name} · ${r.repository_id} · ${r.status} · Base ${r.active_snapshot?.revision || 'not indexed'} · Coverage ${JSON.stringify(r.active_snapshot?.coverage || 'unknown')} · Implementation ${r.implementation_enabled?'enabled':'disabled'}`));
+        const r=result.value;details.append(el('p',`${r.name} · ${r.repository_id} · ${r.status} · Base ${r.active_snapshot?.revision || 'not indexed'} · Coverage ${coverageText(r.active_snapshot?.coverage)} · Implementation ${r.implementation_enabled?'enabled':'disabled'}`));
       }else details.append(el('p',`${c.repository_ids[i]} · repository context unavailable. Scope is retained; reload or adjust scope explicitly.`));});
     });
-    request('/api/settings/model-roles').then(settings=>{if(token!==epoch)return;details.append(el('p',`Local-only policy: ${settings.settings?.local_only===true?'enabled':settings.settings?.local_only===false?'disabled':'unknown'}`));for(const role of ['ask','planning']){const r=settings.roles?.[role] || {};details.append(el('p',`${role} model: ${r.model || 'unknown'} · ${r.status || 'unknown'} · Destination: ${r.destination ? JSON.stringify(r.destination):'unknown'} · Usage and cost: unknown until returned`));}}).catch(()=>{if(token===epoch)details.append(el('p','Model configuration unavailable · destination, usage and cost unknown. See Settings.'));});
+    request('/api/settings/model-roles').then(settings=>{if(token!==epoch)return;details.append(el('p',`Local-only policy: ${settings.settings?.local_only===true?'enabled':settings.settings?.local_only===false?'disabled':'unknown'}`));for(const role of ['ask','planning']){const r=settings.roles?.[role] || {};details.append(el('p',`${role} model: ${r.model || 'unknown'} · ${r.status || 'unknown'} · Destination: ${destinationText(r.destination)} · Usage and cost: unknown until returned`));}}).catch(()=>{if(token===epoch)details.append(el('p','Model configuration unavailable · destination, usage and cost unknown. See Settings.'));});
     const scope = field(body, 'Repository IDs (one per line; explicit manual scope)', scopeDrafts.get(id) ?? (c.repository_ids || []).join('\n'));
     scope.addEventListener('input',()=>scopeDrafts.set(id,scope.value));
     if(scopeDrafts.has(id))draft=true;
@@ -124,7 +127,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
       const usage=m.usage || generation.usage;
       const knownUsage=usage && Object.values(usage).some(value=>value!==null && value!==undefined);
       const cost=typeof usage?.estimated_cost==='number' ? `${usage.cost_status || 'estimated'} ${usage.estimated_cost} USD` : 'unknown';
-      box.append(el('p', `Model: ${m.model || generation.model || 'unknown'} · Destination: ${JSON.stringify(m.destination || generation.destination || 'unknown')} · Usage: ${knownUsage ? JSON.stringify(usage) : 'unknown'} · Cost: ${cost}`));
+      box.append(el('p', `Model: ${m.model || generation.model || 'unknown'} · Destination: ${destinationText(m.destination || generation.destination)} · Usage: ${knownUsage ? JSON.stringify(usage) : 'unknown'} · Cost: ${cost}`));
       citations(box,m.citations,token);transcript.append(box);
     } };
     showMessages(c.messages);
@@ -145,7 +148,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     button(body, 'Find repository candidates', async () => {
       const r = await request('/api/route','POST',{prompt:prompt.value,conversation_id:id,pinned_repository_ids:[...new Set([...(c.repository_ids || []),...scope.value.split('\n').map(x=>x.trim()).filter(Boolean)])]}); if(token!==epoch)return;
       const results = el('section'); results.append(el('h4', `Routing: ${r.status}`),el('p',r.question || r.next_action || ''),el('p',r.degradation_code || ''));
-      for(const candidate of r.candidates) { results.append(el('p',`${candidate.name}: ${candidate.reason} · Coverage ${JSON.stringify(candidate.coverage)} · Freshness ${JSON.stringify(candidate.freshness)} · Implementation ${candidate.implementation_enabled ? 'enabled' : 'disabled'}`)); citations(results,candidate.citations,token); button(results,`Use ${candidate.name}`,()=>{const pins=new Set([...(c.repository_ids || []),...scope.value.split('\n').map(x=>x.trim()).filter(Boolean),candidate.repository_id]);scope.value=[...pins].join('\n');scopeDrafts.set(id,scope.value);draft=true;say('Candidate added to scope draft; existing pins and edits retained. Save repository scope to confirm.');scope.focus();}); } body.append(results);
+      for(const candidate of r.candidates) { results.append(el('p',`${candidate.name}: ${candidate.reason} · Coverage ${coverageText(candidate.coverage)} · Freshness ${candidate.freshness || 'unknown'} · Implementation ${candidate.implementation_enabled ? 'enabled' : 'disabled'}`)); citations(results,candidate.citations,token); button(results,`Use ${candidate.name}`,()=>{const pins=new Set([...(c.repository_ids || []),...scope.value.split('\n').map(x=>x.trim()).filter(Boolean),candidate.repository_id]);scope.value=[...pins].join('\n');scopeDrafts.set(id,scope.value);draft=true;say('Candidate added to scope draft; existing pins and edits retained. Save repository scope to confirm.');scope.focus();}); } body.append(results);
     });
     async function send(intent) {
       if(pending || !prompt.value.trim())return;
@@ -173,7 +176,13 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
         if(token!==epoch)return;
         for(const r of runs)runLabels.get(r.id).textContent=`Request ${r.id}: ${r.state}${r.error_code ? ` · ${r.error_code}`:''}`;
         if(runs.some(r=>['queued','running'].includes(r.state)))timer=setTimeout(poll,1500);
-        else {let focused=false;for(let n=document.activeElement;n;n=n.parentNode)if(n===body)focused=true;if(!draft && !focused)await load();else say('Generation finished. Reload saved conversation to see the result; your edits are preserved.');}
+        else {
+          const focused=document.activeElement;
+          const editing=['INPUT','TEXTAREA','SELECT'].includes(focused?.tagName) || focused?.isContentEditable;
+          const within=inside(body,focused);
+          if(!draft && !editing){await load();if(within && token+1===epoch){const heading=body.querySelector('h3');if(heading){heading.setAttribute('tabindex','-1');heading.focus();}}}
+          else say('Generation finished. Reload saved conversation to see the result; your edits are preserved.');
+        }
       } catch(e){if(token===epoch)say(`Status unavailable: ${e.message}. Reload saved conversation to reconnect.`);}
     }
     if(active) timer=setTimeout(poll,1500);
@@ -181,7 +190,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
   async function plan(id, versionId, token) {
     const p = await request(`/api/plans/${enc(id)}${versionId ? `?version_id=${enc(versionId)}` : ''}`); if(token!==epoch)return;
     const v=p.version, c=v.content; body.replaceChildren(el('h3',`${p.title} · version ${v.version}`),el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));
-    const generation=v.generation || {};body.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${JSON.stringify(generation.destination || 'unknown')} · Usage: ${generation.usage ? JSON.stringify(generation.usage):'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
+    const generation=v.generation || {};body.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${destinationText(generation.destination)} · Usage: ${generation.usage ? JSON.stringify(generation.usage):'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
     if(p.conversation_id)link(body,'Conversation',`#/ask/${enc(p.conversation_id)}`);
     if(v.parent_version_id)link(body,'Previous version',`#/plans/${enc(id)}/${enc(v.parent_version_id)}`);
     link(body,'Latest version',`#/plans/${enc(id)}/${enc(p.latest_version_id)}`);

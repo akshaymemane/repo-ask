@@ -195,3 +195,31 @@ test('persistent Ask route focuses visible H1 instead of retired legacy title',a
  b.window.location.hash='#/settings';await settle();b.window.location.hash='#/ask';await settle();
  const title=b.panel.querySelector('h1');assert.equal(b.panel.tagName,'MAIN');assert.equal(b.document.activeElement,title);assert.equal(title.inHiddenSubtree,false);
 });
+
+
+test('completed generation loads automatically for heading/button focus and preserves editable focus',async()=>{
+ for(const editing of [false,true]){
+  let completed=false,reads=0;
+  const b=await boot((m,u)=>{
+   if(u==='/api/conversations')return {items:[conversation()]};
+   if(u==='/api/conversations/a'){reads++;return conversation('a',{runs:completed?[]:[{id:'r',state:'running'}],messages:completed?[{role:'assistant',state:'complete',content:'Automatically loaded answer',citations:[]}]:[]});}
+   if(u==='/api/answer-runs/r'){completed=true;return {id:'r',state:'completed'};}
+   return missing;
+  });
+  if(editing)b.field('Question').focus();else b.button('Reload saved conversation').focus();
+  await new Promise(resolve=>setTimeout(resolve,1600));await settle();
+  if(editing){assert.equal(reads,1);assert.match(b.text(),/Generation finished/);assert.equal(b.document.activeElement,b.field('Question'));}
+  else {assert.equal(reads,2);assert.match(b.text(),/Automatically loaded answer/);assert.equal(b.document.activeElement.tagName,'H3');}
+ }
+});
+
+test('coverage and destination expose useful summaries without internal JSON',async()=>{
+ const c=conversation('a',{repository_ids:['r']});
+ const b=await boot((m,u)=>{
+  if(u==='/api/conversations')return {items:[c]};if(u==='/api/conversations/a')return c;
+  if(u==='/api/repositories/r/context')return {name:'App',repository_id:'r',status:'ready',active_snapshot:{revision:'base',coverage:{files:4,chunks:12,selection_hash:'private-internal-hash',partial:true}},implementation_enabled:false};
+  if(u==='/api/settings/model-roles')return {settings:{local_only:true},roles:{ask:{model:'local-model',status:'ready',destination:{kind:'local',host:'localhost'}}}};
+  return missing;
+ });
+ await settle();assert.match(b.text(),/4 files · 12 chunks · partial coverage/);assert.match(b.text(),/local · localhost/);assert.doesNotMatch(b.text(),/selection_hash|private-internal-hash/);
+});

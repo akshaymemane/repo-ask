@@ -1216,6 +1216,9 @@ if (state.route === "repositories") renderRepositories();
 persistentAsk = await createAskPanel({host: byId("view-ask"), onMount: handle => {
   // Retire legacy content before the first saved-page/history read can wait or fail.
   persistentAsk = handle;
+  byId("mode-label").textContent = "Ask & plans";
+  byId("mode").title = "Model providers and destinations are configured in Settings";
+  byId("mode").classList.remove("model-ready");
   for (const child of [...byId("view-ask").children]) if (child !== handle.panel) child.hidden = true;
   byId("show-repos").hidden = true;
   byId("history-toggle").hidden = true;
