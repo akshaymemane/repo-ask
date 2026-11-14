@@ -1,0 +1,40 @@
+{
+  "id": "M1-ASK-BACKEND",
+  "base_sha": "c0e15ea59620346a912d986441aa644b77e4bcdb",
+  "integration_base_sha": "edb9a9d852feeff0b9a418fb1fb0ae5f5ce1a927",
+  "candidate_dependency": "M1-INDEX exactd8f1005 is submitted, not approved. This branch carries candidate only for implementation; completion gates on final reviewed indexing integration. Root forwards any corrections.",
+  "persona": "retrieval",
+  "requirements": [
+    "F03 RT-01 through RT-10",
+    "F04 ASK-01 through ASK-10 backend",
+    "F12 persistence/fencing/deletion slice"
+  ],
+  "depends_on": [
+    "M1-ASK-FOUNDATION",
+    "M1-GITHUB",
+    "M1-PROVIDERS"
+  ],
+  "completion_depends_on": [
+    "M1-INDEX"
+  ],
+  "write_scope": [
+    "repoask/ask/**",
+    "tests/test_ask_*.py",
+    "tests/fixtures/routing/**",
+    "docs/agents/runs/M1-ASK-BACKEND/**"
+  ],
+  "inputs": [
+    "docs/contracts/m1-ask-plans.md",
+    "docs/contracts/m1-indexing.md",
+    "actual submitted IndexService public APIs",
+    "repoask/platform/ask_schema.py schema6"
+  ],
+  "acceptance": [
+    "Persisted routing/conversations and server-validated immutable plans per accepted contract",
+    "250repo50task routing evaluation with ambiguous/absent/revoked cases",
+    "Cancellation/retry/scope fencing, citation validation, readiness, export and deletion tests",
+    "Full regressions and honest real versus injected model evidence"
+  ],
+  "reviewer": "independent Claude quality/security reviewer",
+  "handoff": "docs/agents/runs/M1-ASK-BACKEND/handoff.md"
+}
