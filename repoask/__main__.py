@@ -271,7 +271,7 @@ def main():
     if not snapshots:
         snapshots = load_demos(ROOT / "examples")
 
-    index = CodeIndex(snapshots)
+    index = CodeIndex([])
     model = Ollama(args.model, args.ollama_port) if args.model else None
     try:
         platform = Platform.open(args.data_dir.expanduser() if args.data_dir else None,
@@ -302,6 +302,8 @@ def main():
                         services.providers.assign_role(role, profile['id'])
             services.legacy_index = index
             services.bootstrap_context(snapshots, local_roots)
+            snapshots.clear()
+            snapshot = None  # Do not retain a purged startup source as an in-memory restore cache.
             routing = RoutingService(platform.store, indexing)
             plans = PlanService(platform.store, indexing, services.providers)
             conversations = ConversationService(platform.store, platform.jobs, indexing, services.providers, routing, plans)
@@ -312,7 +314,7 @@ def main():
             server.services = services
             server.features = services.api
             services.start()
-            print(f"Indexed {len(snapshots)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
+            print(f"Registered {len(services.legacy_sources)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
             def stop_server(_signum, _frame):
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
                 signal.signal(signal.SIGINT, signal.SIG_IGN)

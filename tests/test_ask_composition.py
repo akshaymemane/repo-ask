@@ -57,6 +57,16 @@ class AskCompositionTests(TestCase):
                     self.assertEqual(roles['ask']['model'],'first-cli-model')
                     self.assertEqual(roles['planning']['model'],'first-cli-model')
                     self.assertEqual(roles['ask']['profile_id'],roles['planning']['profile_id'])
+                    base=f'http://127.0.0.1:{port}'
+                    if model=='first-cli-model':
+                        request=urllib.request.Request(base+'/api/repositories/demo:orders-api/purge',b'{}',{'Content-Type':'application/json','Origin':base})
+                        with opener.open(request,timeout=5) as response:response.read()
+                    else:
+                        with opener.open(base+'/api/repositories/demo:orders-api/context',timeout=1) as response:
+                            context=json.load(response)
+                        self.assertTrue(context['purged']);self.assertFalse(context['eligible'])
+                        with opener.open(base+'/api/repos',timeout=1) as response:
+                            self.assertNotIn('orders-api',[r['name'] for r in json.load(response)['repos']])
                     with opener.open(f'http://127.0.0.1:{port}/ask.js',timeout=1) as response:
                         self.assertIn(b'createAskPanel',response.read())
                 finally:
