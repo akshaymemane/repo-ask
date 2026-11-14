@@ -27,6 +27,10 @@ MIGRATIONS += (Migration(7, "index_reconciliation_markers", SCHEDULING_SQL),)
 MIGRATIONS += (Migration(8, "index_scheduling_intent", (
     "ALTER TABLE index_runs ADD COLUMN scheduling_intent TEXT",
 )),)
+from .execution_schema import EXECUTION_SQL
+from .session_schema import SESSION_SQL
+MIGRATIONS += (Migration(9, "execution_profiles", EXECUTION_SQL),
+               Migration(10, "implementation_sessions", SESSION_SQL))
 LATEST_VERSION = MIGRATIONS[-1].version
 
 
