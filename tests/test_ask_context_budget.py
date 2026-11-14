@@ -22,6 +22,7 @@ class AskContextBudgetTests(TestCase):
         f.work()
         self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
         body=json.loads(f.transport.requests[0].body)
+        self.assertNotIn('format',body)  # Chat-only profiles retain server validation.
         size=sum(len(m['content'].encode()) for m in body['messages'])
         self.assertLessEqual(size,(512-128)*4-256)
         payload=json.loads(body['messages'][1]['content'])
@@ -77,3 +78,24 @@ class AskContextBudgetTests(TestCase):
         self.assertEqual(schema['required'],['answer','citation_ids'])
         self.assertIn('e1',schema['properties']['citation_ids']['items']['enum'])
         self.assertFalse(schema['additionalProperties'])
+
+
+    def test_no_evidence_native_schema_allows_only_empty_citation_ids(self):
+        self.profile(context=2048,structured=True);f=self.f
+        f.transport.output={'answer':'Source behavior is unknown: no evidence.','citation_ids':[]}
+        conversation=f.service.create()['id']
+        run=f.service.send(conversation,'xylophonic nonexistent zebra','no-evidence');f.work()
+        self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
+        body=json.loads(f.transport.requests[0].body)
+        self.assertEqual(body['format']['properties']['citation_ids']['maxItems'],0)
+        self.assertNotIn('enum',body['format']['properties']['citation_ids']['items'])
+
+    def test_plan_intent_keeps_server_validation_and_obeys_configured_prompt_budget(self):
+        self.profile(context=2048,output=512,structured=True);f=self.f
+        f.transport.output=f.content
+        run=f.service.send(f.conv,'Add bounded retries to send_confirmation.','bounded-plan',intent='plan');f.work()
+        self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
+        body=json.loads(f.transport.requests[0].body)
+        self.assertNotIn('format',body)
+        self.assertLessEqual(sum(len(m['content'].encode()) for m in body['messages']),(2048-512)*4-256)
+        self.assertEqual(len(f.service.get(f.conv)['plans']),1)
