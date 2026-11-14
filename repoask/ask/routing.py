@@ -34,9 +34,14 @@ class RoutingService:
         query=(catalog_prompt+' '+' '.join(variants))[:4000]
         raw=self.index.catalog_candidates(query,pinned_repository_ids=pins,limit=max(30,len(pins)))
         generic=set('a an the to for of in on at by and or with without our their from when after before should never add update fix change improve generate design build show keep allow require explain trace track investigate reject prevent preserve during through into that this is are be as it first small'.split())
+        path_prefixes={'src','lib','app','apps','test','tests','docs','config','scripts','read','client','i'}
+        file_suffixes=('.py','.js','.ts','.tsx','.jsx','.md','.json','.yaml','.yml','.css','.html')
+        def owner_qualified(token):
+            parts=token.split('/')
+            return len(parts)==2 and parts[0] not in path_prefixes and not parts[1].endswith(file_suffixes)
         for mention in sorted(slash_tokens)[:10]:
             for item in self.index.catalog_candidates(mention,limit=10):
-                if item['name'].lower()==mention and not any(c['repository_id']==item['repository_id'] for c in raw):
+                if (item['name'].lower()==mention or owner_qualified(mention) and item['name'].lower().split('/')[-1]==mention.split('/')[-1]) and not any(c['repository_id']==item['repository_id'] for c in raw):
                     raw.append(item)
         # A slash token is explicit only when it names a current catalog entry.
         qualified={item['name'].lower() for item in raw if item['name'].lower() in slash_tokens}
@@ -74,6 +79,14 @@ class RoutingService:
         if not selected and len(short)==1:
             selected=[short[0]['repository_id']]
         status='resolved' if selected else 'needs_selection' if candidates or missing else 'no_match'
+        unavailable={token for token in slash_tokens if owner_qualified(token) and token not in qualified and any(c['name'].lower().split('/')[-1]==token.split('/')[-1] for c in candidates)}
+        if unavailable and not pins:
+            selected=[]
+            status='needs_selection'
+            degradation='explicit_repository_unavailable'
+            for c in candidates:
+                if any(c['name'].lower().split('/')[-1]==token.split('/')[-1] for token in unavailable):
+                    c['reason']='Same repository short name; requested owner/repository is unavailable'
         if missing:
             selected=[]
             status='needs_selection'
@@ -103,5 +116,7 @@ class RoutingService:
         if set(row['selected_repository_ids'])-allowed or set(row['pinned_repository_ids'])-allowed:
             row.update(status='needs_selection',degradation_code='scope_unavailable',selected_repository_ids=[],prompt='[Scope unavailable]')
         row['question']='Which repositories should provide context?' if row['status']=='needs_selection' else None
+        if row['degradation_code']=='explicit_repository_unavailable':
+            row['question']='The requested owner/repository is unavailable. Which accessible repository should provide context?'
         row['next_action']='ask' if row['selected_repository_ids'] else 'select_repositories'
         return row

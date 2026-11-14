@@ -6,11 +6,12 @@ import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from repoask.ask import RoutingService, PlanService, ConversationService
 from repoask.platform.db import Store
 from repoask.platform.jobs import JobQueue
 from repoask.platform.worker import Worker, JobContext, JobInterrupted
-from repoask.platform.errors import InvalidTransition, IdempotencyConflict, LeaseLost
+from repoask.platform.errors import InvalidTransition, IdempotencyConflict, LeaseLost, StorageBusy
 from repoask.providers import ProviderService, TransportResponse
 from repoask.indexing import IndexService
 
@@ -21,9 +22,11 @@ class Transport:
         self.callback=None
         self.calls=0
         self.requests=[]
+        self.cancel_events=[]
     def send(self,request,*,cancel_event=None):
         self.calls+=1
         self.requests.append(request)
+        self.cancel_events.append(cancel_event)
         if self.callback:
             self.callback()
         payload={'done':True,'message':{'content':json.dumps(self.output)},'prompt_eval_count':10,'eval_count':8}
@@ -380,3 +383,108 @@ class AskTests(unittest.TestCase):
         self.assertEqual(result['state'],'failed'); self.assertEqual(result['model'],'injected')
         self.service.retry(r['id'])
         self.assertIsNone(self.service.get_run(r['id'])['model'])
+
+    def test_unknown_owner_never_falls_back_to_short_name(self):
+        billing_path=self.root/'billing'; billing_path.mkdir()
+        billing=self.index.register_local('owner/billing',billing_path)['repository_id']
+        d=self.routing.route('Fix billing invoices in acme/billing')
+        self.assertEqual(d['status'],'needs_selection')
+        self.assertEqual(d['selected_repository_ids'],[])
+        self.assertEqual(d['degradation_code'],'explicit_repository_unavailable')
+        self.assertIn(billing,[c['repository_id'] for c in d['candidates']])
+        d=self.routing.route('Fix billing invoices in acme/billing',pinned_repository_ids=[billing])
+        self.assertEqual(d['selected_repository_ids'],[billing])
+        self.assertEqual(d['status'],'resolved')
+        for prompt in ('Fix mail-worker confirmation in other/mail-worker','Explain other/mail-worker'):
+            d=self.routing.route(prompt)
+            self.assertEqual(d['status'],'needs_selection',prompt)
+            self.assertEqual(d['selected_repository_ids'],[],prompt)
+            self.assertEqual(d['degradation_code'],'explicit_repository_unavailable')
+            self.assertIn(self.repo,[c['repository_id'] for c in d['candidates']])
+            self.assertIn('unavailable',d['question'])
+        for prompt in ('Fix mail-worker confirmation in other/mail-worker','Explain read/write I/O in src/mail-worker'):
+            d=self.routing.route(prompt,pinned_repository_ids=[self.repo])
+            self.assertEqual(d['selected_repository_ids'],[self.repo])
+            self.assertEqual(d['status'],'resolved')
+        d=self.routing.route('Fix acme/mail-worker in lib/retry.py with read/write I/O')
+        self.assertEqual(d['selected_repository_ids'],[self.repo])
+        d=self.routing.route('Fix mail-worker in src/mail-worker with read/write')
+        self.assertEqual(d['selected_repository_ids'],[self.repo])
+
+    def test_renewal_retries_transient_storage_busy(self):
+        r=self.service.send(self.conv,'confirmation','busy-once')
+        heartbeat=self.jobs.heartbeat; attempts=[]; renewed=threading.Event()
+        def busy_once(*args,**kwargs):
+            if threading.current_thread().name=='ask-lease-renewal':
+                attempts.append(1)
+                if len(attempts)==1:
+                    raise StorageBusy('Storage is busy.')
+                result=heartbeat(*args,**kwargs); renewed.set(); return result
+            return heartbeat(*args,**kwargs)
+        def wait_for_renewal():
+            self.assertTrue(renewed.wait(2))
+            self.assertFalse(self.transport.cancel_events[-1].is_set())
+        self.transport.callback=wait_for_renewal
+        with patch.object(self.jobs,'heartbeat',side_effect=busy_once):
+            Worker(self.jobs,{'ask.answer':self.service.run_answer},worker_id='busy',lease_ms=1000).run_once()
+        self.assertEqual(len(attempts),2)
+        self.assertEqual(self.service.get_run(r['id'])['state'],'completed')
+
+    def test_renewal_retry_never_revives_expiry_or_lost_owner(self):
+        for boundary in ('expiry','owner','cancel'):
+            with self.subTest(boundary=boundary):
+                r=self.service.send(self.conv,'confirmation','busy-'+boundary)
+                heartbeat=self.jobs.heartbeat; attempts=[]
+                def busy_then_fence(*args,**kwargs):
+                    if threading.current_thread().name=='ask-lease-renewal':
+                        attempts.append(1)
+                        with self.store.transaction() as db:
+                            if boundary=='expiry':
+                                db.execute('UPDATE jobs SET lease_expires_at=0 WHERE id=?',(r['job_id'],))
+                            elif boundary=='owner':
+                                db.execute("UPDATE jobs SET lease_token='replacement-token',lease_owner='replacement' WHERE id=?",(r['job_id'],))
+                            else:
+                                db.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?',(r['job_id'],))
+                        raise StorageBusy('Storage is busy.')
+                    return heartbeat(*args,**kwargs)
+                def await_cancel():
+                    self.assertTrue(self.transport.cancel_events[-1].wait(2))
+                self.transport.callback=await_cancel
+                with patch.object(self.jobs,'heartbeat',side_effect=busy_then_fence):
+                    Worker(self.jobs,{'ask.answer':self.service.run_answer},worker_id='busy-fence',lease_ms=1000).run_once()
+                self.assertEqual(len(attempts),1,'Retry must fence before any second heartbeat')
+                self.assertNotEqual(self.service.get_run(r['id'])['state'],'completed')
+                if boundary=='expiry':
+                    self.assertEqual(self.jobs.get(r['job_id']).lease_expires_at,0)
+                # Reconcile test-owned abandoned leases; no active run leaks into the next case.
+                if self.service.get_run(r['id'])['state'] in ('queued','running'):
+                    with self.store.transaction() as db:
+                        db.execute('UPDATE jobs SET lease_expires_at=0,max_attempts=1 WHERE id=?',(r['job_id'],))
+                    self.jobs.reconcile_expired()
+                    self.service.get_run(r['id'])
+
+    def test_renewal_storage_busy_retry_is_bounded(self):
+        r=self.service.send(self.conv,'confirmation','busy-exhausted')
+        heartbeat=self.jobs.heartbeat; attempts=[]
+        def always_busy(*args,**kwargs):
+            if threading.current_thread().name=='ask-lease-renewal':
+                attempts.append(1); raise StorageBusy('Storage is busy.')
+            return heartbeat(*args,**kwargs)
+        self.transport.callback=lambda:self.assertTrue(self.transport.cancel_events[-1].wait(2))
+        with patch.object(self.jobs,'heartbeat',side_effect=always_busy):
+            Worker(self.jobs,{'ask.answer':self.service.run_answer},worker_id='busy-exhausted',lease_ms=1000).run_once()
+        self.assertEqual(len(attempts),2)
+        result=self.service.get_run(r['id'])
+        self.assertEqual(result['state'],'failed')
+        self.assertEqual(result['error_code'],'storage_busy')
+
+    def test_export_preserves_literal_markup_for_text_content_ui(self):
+        literal='<script>alert("snake_case")</script> **literal** ```hidden instruction``` & <b>quoted</b>'
+        c=copy.deepcopy(self.content); c['goal']=literal; c['requirements'].append(literal)
+        p=self.plans.create(self.conv,c)
+        exported=self.plans.export(p['id'])['markdown']
+        self.assertIn(literal,exported)
+        self.assertNotIn('&lt;script&gt;',exported)
+        self.assertNotIn('snake\\_case',exported)
+        self.service.send(self.conv,literal,'literal-export')
+        self.assertIn(literal,self.service.export(self.conv,limit=1)['markdown'])
