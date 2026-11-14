@@ -906,9 +906,18 @@ function submitButton(form, label) { const button = node("button", label, "butto
 function notice(parent) { const out = node("p", "", "page-status"); out.setAttribute("role", "status"); parent.append(out); return out; }
 async function perform(button, output, operation) {
   if (button.disabled) return;
+  const focused = document.activeElement;
+  const restore = focused === button || inside(button.closest("form"), focused);
+  const panel = button.closest(".connected-panel");
   button.disabled = true; output.textContent = "Working…";
   try { await operation(); } catch (error) { output.textContent = error.message; }
-  finally { button.disabled = false; }
+  finally {
+    button.disabled = false;
+    if (restore && (document.activeElement === document.body || !document.activeElement?.isConnected)) {
+      if (button.isConnected) button.focus();
+      else if (panel) restorePanelFocus(panel, true);
+    }
+  }
 }
 function timeLabel(value) { return value ? new Date(value).toLocaleString() : "Never"; }
 
@@ -919,7 +928,8 @@ function inside(root, element) {
   return false;
 }
 function restorePanelFocus(panel, restore) {
-  if (restore && state.route === "settings" &&
+  const visible = panel === catalogPanel ? state.route === "repositories" : state.route === "settings";
+  if (restore && visible &&
       (document.activeElement === document.body || !document.activeElement?.isConnected)) {
     const heading = panel.querySelector("h2"); heading?.setAttribute("tabindex", "-1"); heading?.focus();
   }

@@ -202,7 +202,12 @@ class FakeElement extends FakeNode {
   get hidden() { return this.hasAttribute("hidden"); }
   set hidden(value) { if (value) this.setAttribute("hidden", ""); else this.removeAttribute("hidden"); }
   get disabled() { return this.hasAttribute("disabled"); }
-  set disabled(value) { if (value) this.setAttribute("disabled", ""); else this.removeAttribute("disabled"); }
+  set disabled(value) {
+    if (value) {
+      this.setAttribute("disabled", "");
+      if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body;
+    } else this.removeAttribute("disabled");
+  }
   get open() { return this.hasAttribute("open"); }
   get value() {
     if (this._value !== null) return this._value;
