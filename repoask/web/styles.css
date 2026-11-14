@@ -595,3 +595,14 @@ dialog::backdrop { background: #070810be; }
 .connected-panel .button { margin: .2rem; white-space: normal; }
 .connected-panel :focus-visible { outline: 3px solid #4c70e8; outline-offset: 3px; }
 @media (max-width: 600px) { .setting-field { flex-basis: 100%; } .setting-box { padding: .75rem; } }
+
+.persistent-ask { grid-column: 1 / -1; width: min(100%, 1100px); margin: 0 auto; padding: 24px; overflow: auto; }
+.persistent-ask nav { display: flex; flex-wrap: wrap; gap: 12px; padding-block: 12px; }
+.persistent-ask label { display: block; margin-block: 16px; font-weight: 600; }
+.persistent-ask textarea { display: block; width: 100%; min-height: 80px; margin-top: 8px; padding: 12px; color: inherit; background: #161b22; border: 1px solid #596579; border-radius: 6px; }
+.persistent-ask button, .persistent-ask a { margin: 6px; padding: 8px; }
+.persistent-ask p, .persistent-ask pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.persistent-ask pre { max-width: 100%; overflow: auto; padding: 12px; background: #161b22; }
+.persistent-ask article { border-bottom: 1px solid #596579; padding-block: 12px; }
+.persistent-ask :focus-visible { outline: 2px solid #87baff; outline-offset: 3px; }
+@media (max-width: 640px) { .persistent-ask { padding: 12px; } }
