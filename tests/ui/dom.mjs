@@ -392,7 +392,8 @@ export function visibleText(element) {
 }
 
 // Build a fake browser around `html`. `respond(method, url, options)` returns
-// {status, body}, a body object (status 200) or throws to simulate a network error.
+// {status, body}, a body object (status 200), a promise of either, or throws
+// to simulate a network error. Promises allow controlled out-of-order responses.
 export function createBrowser(html, { hash = "", respond }) {
   const doc = parseHTML(html);
   doc.activeElement = doc.body;
@@ -414,7 +415,7 @@ export function createBrowser(html, { hash = "", respond }) {
     requests.push({ method, url: String(url), body: options.body });
     if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const result = respond(method, String(url), options);
+    const result = await respond(method, String(url), options);
     const { status, body } = result && "status" in result && "body" in result ? result : { status: 200, body: result };
     return {
       ok: status >= 200 && status < 300,
