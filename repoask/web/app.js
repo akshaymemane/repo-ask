@@ -1,3 +1,4 @@
+import { createAskPanel } from "./ask.js";
 import { createContextPanel } from "./context.js";
 const byId = (id) => document.getElementById(id);
 
@@ -390,11 +391,14 @@ function announce(text) {
 function routeFromHash() {
   const hash = location.hash;
   if (hash === "" || hash === "#" || hash === "#/") return "ask";
+  if (/^#\/(ask|plans)\/[^/]+(?:\/[^/]+)?$/.test(hash)) return "ask";
   const match = /^#\/([a-z]+)(?:\?github=[a-z_]{1,64})?$/.exec(hash);
   return match && Object.hasOwn(ROUTES, match[1]) ? match[1] : null;
 }
 
+let persistentAsk = null;
 function showRoute(moveFocus) {
+  if (persistentAsk && !persistentAsk.canNavigate()) return;
   let route = routeFromHash();
   if (route === null) {
     route = "ask";
@@ -410,8 +414,8 @@ function showRoute(moveFocus) {
   }
   // Ask-only controls act on the current conversation.
   const onAsk = route === "ask";
-  byId("show-repos").hidden = !onAsk;
-  byId("history-toggle").hidden = !onAsk;
+  byId("show-repos").hidden = !onAsk || Boolean(persistentAsk);
+  byId("history-toggle").hidden = !onAsk || Boolean(persistentAsk);
   if (!onAsk) {
     toggleHistory(false);
     if (dialog.open) dialog.close();
@@ -1205,3 +1209,10 @@ function renderProviderEditor(profile = null) {
 await Promise.all([loadGitHub(), loadProviders(), loadCatalog(), contextUI.refresh()]);
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
+
+persistentAsk = await createAskPanel({host: byId("view-ask")});
+if (persistentAsk) {
+  for (const child of [...byId("view-ask").children]) if (child !== persistentAsk.panel) child.hidden = true;
+  byId("show-repos").hidden = true;
+  byId("history-toggle").hidden = true;
+}

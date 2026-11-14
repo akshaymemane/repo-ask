@@ -1,0 +1,44 @@
+{
+  "id": "M1-ASK-UI",
+  "base_sha": "7fe71b85e57e4feea4beab7fbca267611fab950d",
+  "integration_base_sha": "afbfd83254d56c904e26f9336f3e56896f3f68a8",
+  "persona": "experience",
+  "depends_on": [
+    "M1-CATALOG-UI",
+    "M1-ASK-FOUNDATION"
+  ],
+  "completion_depends_on": [
+    "M1-INDEX",
+    "M1-ASK-BACKEND"
+  ],
+  "candidate_dependencies": {
+    "index": "469954f9a6bedc003d7de1e61c3074f2b5a711b7",
+    "ask": "3918ebddfaaff7745a0ef495176eaba04a8088e4"
+  },
+  "requirements": [
+    "F04 Ask/plans UI",
+    "F11 UX-03,04,05,07,08,09,10,11"
+  ],
+  "write_scope": [
+    "repoask/web/ask.js",
+    "repoask/web/app.js",
+    "repoask/web/index.html",
+    "repoask/web/styles.css",
+    "tests/ui/ask*.mjs",
+    "tests/ui/ask-service-bridge.py",
+    "tests/ui/dom.mjs",
+    "docs/agents/runs/M1-ASK-UI/**"
+  ],
+  "read_only_neighbor": [
+    "repoask/web/context.js",
+    "tests/ui/context.test.mjs"
+  ],
+  "acceptance": [
+    "Real saved conversation/routing/plans against frozenAPI and submittedservices",
+    "Durable URLs, source pane, manual scope, editable versioned plan/export/readiness",
+    "Legacydemo fallback and38existingUIchecks preserved",
+    "Keyboard/narrow layout, unsaved draft protection and truthful failures"
+  ],
+  "reviewer": "independent Claude quality/security reviewer",
+  "handoff": "docs/agents/runs/M1-ASK-UI/handoff.md"
+}
