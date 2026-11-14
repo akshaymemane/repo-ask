@@ -22,6 +22,8 @@ MIGRATIONS += (Migration(4, "repository_context", INDEX_SQL),
                Migration(5, "versioned_embedding_namespaces", INDEX_NAMESPACE_V5_SQL))
 from .ask_schema import ASK_SQL
 MIGRATIONS += (Migration(6, "conversations_and_plans", ASK_SQL),)
+from .scheduling_schema import SCHEDULING_SQL
+MIGRATIONS += (Migration(7, "index_reconciliation_markers", SCHEDULING_SQL),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 

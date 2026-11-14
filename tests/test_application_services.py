@@ -94,3 +94,42 @@ class ApplicationServiceTests(TestCase):
             raise JobInterrupted()
         Worker(platform.jobs, {'test.external': interrupted}, worker_id='owner').run_once()
         self.assertEqual(platform.jobs.get(job.id).state, 'needs_reconciliation')
+
+    def test_local_purge_hides_source_and_redacts_answers_before_physical_cleanup(self):
+        from types import SimpleNamespace
+        events=[]
+        class Context:
+            vectors=SimpleNamespace(close=lambda:events.append('close-vectors'))
+            def get_state(self,ident):return {'kind':'local','repository_id':ident}
+            def set_local_selection(self,ident,enabled):events.append(('retrieval',enabled))
+            def purge_repository(self,ident):events.append('physical-purge');return {'state':'completed'}
+            def run_index(self,job,context):return {}
+        class Conversations:
+            def purge_repository(self,ident):events.append('redact-answers')
+            def run_answer(self,job,context):return {}
+        platform=Platform.open(None);self.addCleanup(platform.close)
+        services=ApplicationServices(platform)
+        services.enable_context(Context())
+        services.enable_ask(object(),object(),Conversations())
+        response=services.api.dispatch('POST','/api/repositories/local:fixture/purge',body={})
+        self.assertEqual(response.body,{'state':'completed'})
+        self.assertEqual(events,[('retrieval',False),'redact-answers','physical-purge'])
+        services.start()
+        try:
+            with self.assertRaises(RuntimeError):services.enable_context(Context())
+        finally:services.close()
+        self.assertEqual(events[-1],'close-vectors')
+
+    def test_local_purge_failure_keeps_retrieval_disabled(self):
+        from types import SimpleNamespace
+        class Context:
+            enabled=True;vectors=SimpleNamespace(close=lambda:None)
+            def get_state(self,ident):return {'kind':'local','repository_id':ident}
+            def set_local_selection(self,ident,enabled):self.enabled=enabled
+            def purge_repository(self,ident):raise RuntimeError('synthetic cleanup failure')
+            def run_index(self,job,context):return {}
+        platform=Platform.open(None);self.addCleanup(platform.close)
+        services=ApplicationServices(platform);index=Context();services.enable_context(index)
+        with self.assertRaises(RuntimeError):services.purge_context('local:fixture')
+        self.assertFalse(index.enabled)
+        services.close()

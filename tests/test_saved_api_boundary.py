@@ -17,6 +17,8 @@ class Conversations:
     def __init__(self):self.calls=[]
     def send(self,conversation_id,**kwargs):self.calls.append((conversation_id,kwargs));return {'run_id':'r','state':'queued'}
     def list_messages(self,conversation_id,**kwargs):self.calls.append((conversation_id,kwargs));return {'items':[],'next_cursor':None}
+    def list_runs(self,conversation_id,**kwargs):return self.list_messages(conversation_id,**kwargs)
+    def export(self,conversation_id,**kwargs):self.calls.append((conversation_id,kwargs));return {'conversation_id':conversation_id,'markdown':'page','next_cursor':'more'}
 
 
 class AskAPIBoundaryTests(TestCase):
@@ -53,3 +55,10 @@ class AskAPIBoundaryTests(TestCase):
         self.assertEqual(self.conversations.calls[-1],('c',{'limit':25,'cursor':'next'}))
         with self.assertRaises(ValueError):
             self.api.dispatch('GET','/api/conversations/c/messages','limit=10000')
+
+    def test_history_and_export_pagination_are_callable_without_truncation(self):
+        response=self.api.dispatch('GET','/api/conversations/c/runs','limit=25&cursor=older')
+        self.assertEqual(self.conversations.calls[-1],('c',{'limit':25,'cursor':'older'}))
+        response=self.api.dispatch('GET','/api/conversations/c/export','cursor=page2')
+        self.assertEqual(response.body['next_cursor'],'more')
+        self.assertEqual(self.conversations.calls[-1],('c',{'limit':100,'cursor':'page2'}))

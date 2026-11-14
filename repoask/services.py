@@ -33,11 +33,66 @@ class ApplicationServices:
         self.platform = platform
         self.github = GitHubService(platform.store, platform.jobs, platform.secrets, transport=github_transport)
         self.providers = ProviderService(platform.store, platform.secrets, transport=provider_transport)
+        self.indexing = self.routing = self.plans = self.conversations = None
+        self.scheduler = None
         self.api = FeatureAPI(platform, self.github, self.providers)
         self.stop_event = Event()
         self.thread = None
         self.error_code = None
         self.handlers = {'github.refresh': self.github.run_refresh, 'github.purge': self.github.run_purge}
+
+    def _before_start(self):
+        if self.thread is not None:
+            raise RuntimeError('Service composition must finish before workers start.')
+
+    def _rebuild_api(self):
+        self.api = FeatureAPI(self.platform, self.github, self.providers,
+                              indexing=self.indexing, routing=self.routing, plans=self.plans,
+                              conversations=self.conversations, purge_context=self.purge_context)
+
+    def enable_context(self, indexing):
+        self._before_start()
+        if self.indexing is not None:
+            raise RuntimeError('Context service already configured.')
+        self.indexing = indexing
+        self.handlers['index.run'] = indexing.run_index
+        self._rebuild_api()
+
+    def enable_ask(self, routing, plans, conversations):
+        self._before_start()
+        if self.indexing is None or self.conversations is not None:
+            raise RuntimeError('Configure context once before Ask.')
+        self.routing, self.plans, self.conversations = routing, plans, conversations
+        self.handlers['ask.answer'] = conversations.run_answer
+        self.github.register_purge_hook('ask', conversations.purge_repository)
+        self._rebuild_api()
+
+    def bootstrap_context(self, snapshots, local_roots):
+        self._before_start()
+        if self.indexing is None:
+            raise RuntimeError('Configure context before bootstrap.')
+        from .scheduling import IndexScheduler
+        self.scheduler = IndexScheduler(self.platform, self.indexing, self.github, self.providers)
+        for snapshot in snapshots:
+            if snapshot.demo:
+                state = self.indexing.register_demo(snapshot)
+            else:
+                state = self.indexing.register_local(snapshot.name, local_roots[snapshot.name])
+            self.scheduler.register(state['repository_id'], snapshot.revision)
+
+    def purge_context(self, repository_id):
+        if self.indexing is None:
+            raise RuntimeError('Context service unavailable.')
+        state = self.indexing.get_state(repository_id)
+        if state['kind'] == 'github':
+            raise ValueError('Use the GitHub purge operation.')
+        # Hide retrieval before removing duplicated answers and physical context.
+        self.indexing.set_local_selection(repository_id, False)
+        with self.platform.store.transaction() as conn:
+            conn.execute('DELETE FROM index_schedule_state WHERE repository_id=?',(repository_id,))
+        if self.conversations is not None:
+            self.conversations.purge_repository(repository_id)
+        return self.indexing.purge_repository(repository_id)
 
     def _maintained(self, handler):
         def execute(job, context):
@@ -72,8 +127,10 @@ class ApplicationServices:
         while not self.stop_event.is_set():
             try:
                 if time.monotonic() >= next_poll:
-                    self.github.schedule_due()
                     next_poll = time.monotonic() + 5
+                    self.github.schedule_due()
+                    if self.scheduler is not None:
+                        self.scheduler.run_once()
                 worked = self.worker.run_once()
                 self.error_code = None
             except Exception:
@@ -93,3 +150,5 @@ class ApplicationServices:
             # Current bounded handler settles before its Store is closed. Interrupted
             # processes recover their durable lease on the next application start.
             self.thread.join()
+        if self.indexing is not None:
+            self.indexing.vectors.close()
