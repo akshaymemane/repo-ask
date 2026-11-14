@@ -1,0 +1,23 @@
+{
+  "id": "M1-TRANSPORT-CANCEL",
+  "base_sha": "797009ba899740e477db3b88eacdb90fb80cb3e7",
+  "owner": "Codex provider integration engineer",
+  "exclusive_paths": [
+    "repoask/providers/transport.py",
+    "tests/test_provider_transport_cancel.py",
+    "docs/agents/runs/M1-TRANSPORT-CANCEL/**"
+  ],
+  "requirements": [
+    "F07 AI04 cancellation",
+    "F12 boundedgracefulshutdown"
+  ],
+  "acceptance": [
+    "Actual localTCP nonstream responseheaderwait cancels under2s, closesownedconnection",
+    "Actualbodyread cancellation andoverallrequestdeadline bounded",
+    "Preserveproxyignore, TLSverification, noredirect,nohiddenretry, bytecaps, redactederrors",
+    "No orphanrequestthreads/sockets afterreturn",
+    "Existingprovider69checks pass plusmeaningfulnewnetworkchecks"
+  ],
+  "reviewer": "independent Claude boundary reviewer",
+  "handoff": "docs/agents/runs/M1-TRANSPORT-CANCEL/handoff.md"
+}
