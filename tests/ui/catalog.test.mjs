@@ -200,3 +200,71 @@ test('permission submission freezes both controls and reconciles saved response 
  implementation.checked = false; implementation.dispatchEvent({type:'change'});
  assert.match(visibleText(form), /Unsaved selection/); assert.doesNotMatch(visibleText(form), /Selection saved/);
 });
+
+test('newest GitHub load wins and callback guidance survives reloads', async () => {
+ let delay = false; const reads = [];
+ const app = await boot((method,url) => {
+  if (delay && method==='GET' && url==='/api/github/connections') {
+   const gate=delayed(); reads.push(gate); return gate.promise;
+  }
+ }, '#/settings?github=setup_failed');
+ const root=app.document.getElementById('settings-content');
+ assert.match(visibleText(root),/GitHub setup returned/);
+ delay=true;
+ button(root,'Reload GitHub status').click(); await settle();
+ button(root,'Reload GitHub status').click(); await settle();
+ assert.equal(reads.length,2);
+ const response=slug=>({connections:[{id:'c1',slug,app_id:'1',status:'configured'}],summary:{status:'configured',installations:0,repository_count:1}});
+ reads[1].resolve(response('newest-app'));await settle();
+ reads[0].resolve(response('obsolete-app'));await settle();
+ assert.match(visibleText(root),/newest-app/);assert.doesNotMatch(visibleText(root),/obsolete-app/);
+ assert.equal(root.querySelectorAll('button').filter(x=>x.textContent==='Save App configuration').length,1);
+ assert.equal(root.querySelectorAll('p').filter(x=>x.textContent.startsWith('GitHub setup returned')).length,1);
+});
+
+test('GitHub configure blocks stale reloads until its outcome settles', async () => {
+ const gate=delayed();let pending=false;let reads=0;
+ const app=await boot((method,url)=>{
+  if(method==='POST'&&url==='/api/github/configure'){pending=true;return gate.promise;}
+  if(pending&&method==='GET'&&url==='/api/github/connections')reads++;
+ });
+ const root=app.document.getElementById('settings-content');const form=formFor(root,'Save App configuration');
+ input(form,'App ID').value='1';input(form,'App slug').value='test';input(form,'RSA private key').value='synthetic';
+ form.requestSubmit();await settle();button(root,'Reload GitHub status').click();await settle();
+ assert.equal(reads,0);assert.match(app.document.getElementById('app-status').textContent,/update is pending/);
+ pending=false;gate.resolve({id:'c1'});await settle();
+ assert.equal(root.querySelectorAll('button').filter(x=>x.textContent==='Save App configuration').length,1);
+});
+
+test('catalog reloads and access mutations wait for a pending permission save', async () => {
+ const gate=delayed();let saved=false;
+ const app=await boot((method,url)=>{
+  if(method==='PATCH')return gate.promise;
+  if(url.startsWith('/api/repositories?')&&saved)return {items:[{...repo,index_enabled:true}],total:1,next_cursor:null};
+ },'#/repositories');
+ const root=app.document.getElementById('repositories-content');const form=formFor(root,'Save repository selection');
+ input(form,'Index team/widget').checked=true;form.requestSubmit();await settle();
+ const count=app.requests.filter(x=>x.url.startsWith('/api/repositories?')).length;
+ button(root,'Reload catalog').click();formFor(root,'Apply catalog filters').requestSubmit();
+ app.window.location.hash='#/settings';await settle();
+ button(app.document.getElementById('settings-content'),'Refresh catalog').click();await settle();
+ assert.equal(app.requests.filter(x=>x.url.startsWith('/api/repositories?')).length,count);
+ assert.equal(app.requests.filter(x=>x.url==='/api/github/refresh').length,0);
+ assert.match(visibleText(form),/Working/);
+ saved=true;gate.resolve({...repo,index_enabled:true});await settle();
+ button(root,'Reload catalog').click();await settle();
+ assert.equal(input(formFor(root,'Save repository selection'),'Index team/widget').checked,true);
+});
+
+test('invalid GitHub installation URLs are sanitized and saved settings retain keyboard focus', async () => {
+ const app=await boot((method,url)=>{
+  if(url==='/api/github/connect')return {install_url:'https://[private-callback-state',expires_at:1};
+  if(method==='POST'&&url==='/api/provider-profiles')return {};
+ });
+ const root=app.document.getElementById('settings-content');button(root,'Create connect link').click();await settle();
+ assert.match(visibleText(root),/Invalid installation destination/);assert.doesNotMatch(visibleText(root),/private-callback-state/);
+ const form=formFor(root,'Create profile');input(form,'Profile name').value='Name';input(form,'Model identifier').value='model';
+ button(form,'Create profile').focus();form.requestSubmit();await settle();
+ assert.equal(app.document.activeElement.tagName,'H2');
+ assert.equal(app.document.activeElement.textContent,'Model providers and roles');
+});
