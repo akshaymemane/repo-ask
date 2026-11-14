@@ -180,3 +180,7 @@ pinned version. Success returns {session_id,state} and navigates to
 #/sessions/{session_id}. Start stays disabled until server readiness is ready.
 M1 does not claim a live session endpoint. M2 will add preflight and session UI
 before enabling that path; clients must not infer readiness from model text.
+
+## Generation context packing
+
+Ask now reserves the configured output allowance and a bounded repair allowance before packing history and sources. Full latest user input remains intact; an input that cannot fit fails as context_overflow before transport. Retrieval text and citation identities share the same measured serialized prompt budget. Internal ranking/chunk metadata is not sent to generation. Answer generation uses native structured JSON only when the configured profile advertises structured_output; chat-only profiles retain validated JSON/repair. Plans retain server validation/repair. Budget estimates use UTF-8 bytes/4 and do not claim provider-exact tokenization.
