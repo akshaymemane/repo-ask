@@ -16,6 +16,7 @@ class Plans:
 class Conversations:
     def __init__(self):self.calls=[]
     def send(self,conversation_id,**kwargs):self.calls.append((conversation_id,kwargs));return {'run_id':'r','state':'queued'}
+    def list_messages(self,conversation_id,**kwargs):self.calls.append((conversation_id,kwargs));return {'items':[],'next_cursor':None}
 
 
 class AskAPIBoundaryTests(TestCase):
@@ -45,3 +46,10 @@ class AskAPIBoundaryTests(TestCase):
         self.assertEqual(response.body['plan_version_id'],'v1')
         with self.assertRaises(ValueError):
             self.api.dispatch('GET','/api/plans/p/export','version_id=v1&version_id=v2')
+
+    def test_message_continuation_preserves_cursor_and_bounded_limit(self):
+        response=self.api.dispatch('GET','/api/conversations/c/messages','limit=25&cursor=next')
+        self.assertEqual(response.body,{'items':[],'next_cursor':None})
+        self.assertEqual(self.conversations.calls[-1],('c',{'limit':25,'cursor':'next'}))
+        with self.assertRaises(ValueError):
+            self.api.dispatch('GET','/api/conversations/c/messages','limit=10000')

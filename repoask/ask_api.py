@@ -28,6 +28,9 @@ class AskAPI:
             if method=='GET' and operation=='export':
                 query_fields(raw_query,set())
                 return APIResponse(200,self.conversations.export(conversation_id))
+            if method=='GET' and operation=='messages':
+                q=query_fields(raw_query,{'limit','cursor'})
+                return APIResponse(200,self.conversations.list_messages(conversation_id,limit=page_limit(q.get('limit',50)),cursor=q.get('cursor')))
             if method=='POST' and operation=='messages':
                 data=fields(body,{'content','client_request_id','intent'},{'content','client_request_id'})
                 return APIResponse(202,self.conversations.send(conversation_id,**data))

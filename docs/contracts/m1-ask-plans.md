@@ -164,3 +164,19 @@ revocation; generation/cancel/retry/scope-change fences; real immutable version 
 parent conflicts and exports; inventedcitation rejection; preserved failed-model draft;
 unsupportedmultiwrite blocked; unansweredblockingquestions blocked; readiness notselfset;
 repositorypurge andconversation deletion remove duplicatedcontent. Full regressions.
+
+
+## Additive UI handoff
+
+GET /api/conversations/{id}/messages?limit=50&cursor=... maps the additive
+list_messages(id,limit,cursor), returning {items,next_cursor}. Conversation.get
+provides messages_next_cursor and plans_next_cursor. Plan get returns plan
+metadata plus version; version contains content/hash/readiness and parent_version_id.
+Use parent IDs and latest_version_id to browse immutable history.
+
+The reserved M2 launch body is {plan_version_id,content_hash,idempotency_key}; the
+server derives the execution profile, limits and publication intent from that
+pinned version. Success returns {session_id,state} and navigates to
+#/sessions/{session_id}. Start stays disabled until server readiness is ready.
+M1 does not claim a live session endpoint. M2 will add preflight and session UI
+before enabling that path; clients must not infer readiness from model text.
