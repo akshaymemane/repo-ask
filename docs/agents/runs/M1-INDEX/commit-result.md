@@ -1,24 +1,23 @@
-# M1-INDEX commit provenance and R1 revision attempt
+# M1-INDEX commit provenance — R2
 
-Original assignment base: db85564688f25ab7345cdcd689fe18fd160c6d7a.
-Coordinator schema5 prerequisite: e7c4a5e328b69207804cbbbbf3fdcae7deb0f4bd.
-Actual reviewed submission: d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d.
-Local log and merge-base checks confirm this linear ancestry. The original worker's
-sandbox commit failure was subsequently resolved by the coordinator, who created
-d8f1005. The original handoff's "no submitted commit" text is therefore superseded.
+Original assignment: db85564688f25ab7345cdcd689fe18fd160c6d7a.
+Coordinator schema5: e7c4a5e328b69207804cbbbbf3fdcae7deb0f4bd.
+Actual original submission: d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d.
+Actual R1 fix submission / current R2 review and revision base:
+469954f9a6bedc003d7de1e61c3074f2b5a711b7.
+The coordinator created both submitted commits after the earlier worker Git lock
+failures. Those historic failures do not mean the reviewed commits are absent.
 
-Current R1 revision starts at d8f1005 on task/m1-index. Author addressed both blocking
-and all three major findings plus requested minor fixes and the approved setter.
-R1 staging attempt (exit128):
+R2 staging attempt failed with exit128:
 
 ```
-git add repoask/indexing tests/test_indexing_service.py tests/test_indexing_github.py tests/test_indexing_review.py docs/agents/runs/M1-INDEX
+git add repoask/indexing/service.py tests/test_indexing_retry_limits.py docs/agents/runs/M1-INDEX
 fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-index/index.lock': Operation not permitted
 ```
 
-No R1 commit was created; HEAD remains d8f1005. Linked worktree Git administration
-is outside the worker's writable sandbox. No bypass, alternate Git directory, lock
-removal, reset or remote mutation was attempted. Coordinator must stage/commit the
-preserved exclusive-scope files in an authorized environment, then request independent
-exact-commit review. files.sha256 identifies current files, excluding itself.
-No remote action is authorized.
+No R2 commit was created. HEAD remains the reviewed469954f. The linked worktree Git
+administration directory is outside the worker's writable sandbox. No bypass,
+alternate Git directory, lock removal, reset or remote mutation was attempted.
+Coordinator must stage/commit the preserved exclusive-scope changes from an authorized
+environment before the required new exact-commit independent review. files.sha256
+identifies the current packet, excluding itself. No remote publication is authorized.
