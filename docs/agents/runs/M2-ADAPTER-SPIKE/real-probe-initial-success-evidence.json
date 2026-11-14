@@ -1,0 +1,162 @@
+{
+  "preflight": {
+    "available": true,
+    "version": "2.1.311 (Claude Code)",
+    "authentication_verified": false,
+    "authentication_reported": {
+      "method": "claude.ai",
+      "personal_profile": true
+    },
+    "capabilities": {
+      "headless": true,
+      "streaming": true,
+      "cancellation": true,
+      "resume": false,
+      "checkpoint": false,
+      "follow_up": false,
+      "ask_user": false
+    }
+  },
+  "synthetic_only": true,
+  "attempts": [
+    {
+      "name": "coding",
+      "tools": [
+        {
+          "tool": "read_file",
+          "path": "calc.py"
+        },
+        {
+          "tool": "read_file",
+          "path": "test_calc.py"
+        },
+        {
+          "tool": "write_file",
+          "path": "calc.py"
+        },
+        {
+          "tool": "run_command",
+          "program": "python",
+          "argc": 4
+        }
+      ],
+      "checkpoints": 3,
+      "pid": 25481,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": false,
+        "plugins": [],
+        "commands_present": false
+      },
+      "inventory_verified": true,
+      "result": {
+        "status": "completed",
+        "code": "success",
+        "exit_code": 0,
+        "stop_confirmed": true,
+        "usage": {
+          "input_tokens": 6,
+          "output_tokens": 475,
+          "cache_creation_input_tokens": 3954,
+          "cache_read_input_tokens": 6824
+        },
+        "reported_cost_usd": 0.042520800000000004,
+        "capabilities": {
+          "headless": true,
+          "streaming": true,
+          "cancellation": true,
+          "resume": false,
+          "checkpoint": false,
+          "follow_up": false,
+          "ask_user": false
+        }
+      },
+      "elapsed_seconds": 11.445,
+      "validation": {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "test_add (test_calc.TestCalc.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n",
+        "timed_out": false,
+        "truncated": false
+      },
+      "diff": "--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    },
+    {
+      "name": "cancellation",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 25727,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": false,
+        "plugins": [],
+        "commands_present": false
+      },
+      "inventory_verified": true,
+      "result": {
+        "status": "cancelled",
+        "code": "cancelled",
+        "exit_code": 143,
+        "stop_confirmed": true,
+        "usage": null,
+        "reported_cost_usd": null,
+        "capabilities": {
+          "headless": true,
+          "streaming": true,
+          "cancellation": true,
+          "resume": false,
+          "checkpoint": false,
+          "follow_up": false,
+          "ask_user": false
+        }
+      },
+      "elapsed_seconds": 1.266,
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    }
+  ],
+  "canary_hook_executed": false,
+  "owned_after_cleanup": 0
+}

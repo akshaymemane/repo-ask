@@ -1,0 +1,26 @@
+{
+  "id": "M2-ADAPTER-SPIKE",
+  "base_sha": "4f068baa1677579718f2d9c22acffc75cee88137",
+  "owner": "Codex integration engineer",
+  "exclusive_paths": [
+    "repoask/execution/claude.py",
+    "repoask/execution/adapter_process.py",
+    "tests/test_execution_adapter.py",
+    "docs/agents/runs/M2-ADAPTER-SPIKE/**"
+  ],
+  "requirements": [
+    "F07 AI10,11",
+    "F05 SE04,05,08,09,11"
+  ],
+  "inputs": [
+    "docs/contracts/m2-execution-spike.md"
+  ],
+  "acceptance": [
+    "Installed CLI/version detection, strict builtinempty/trustedMCPinventory",
+    "No untrusted cwd/hooks/skills/plugins/transcripts or credentialcopies",
+    "Boundedprocess/output/stop/classification; discard reasoning",
+    "Real coding via runtimebroker and validation, cancellation; actualproof needscoordinatorprobeslot"
+  ],
+  "reviewer": "Claude independent boundary reviewer",
+  "handoff": "docs/agents/runs/M2-ADAPTER-SPIKE/handoff.md"
+}

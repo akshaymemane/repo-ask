@@ -1,0 +1,50 @@
+{
+  "preflight": {
+    "available": true,
+    "version": "2.1.311 (Claude Code)",
+    "authentication_verified": false,
+    "capabilities": {
+      "headless": true,
+      "streaming": true,
+      "cancellation": true,
+      "resume": false,
+      "checkpoint": false,
+      "follow_up": false,
+      "ask_user": false
+    }
+  },
+  "synthetic_only": true,
+  "attempts": [
+    {
+      "name": "coding",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 14543,
+      "adapter_error": "unexpected_tool_inventory",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    },
+    {
+      "name": "cancellation",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 14573,
+      "adapter_error": "unexpected_tool_inventory",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    }
+  ],
+  "owned_after_cleanup": 0
+}

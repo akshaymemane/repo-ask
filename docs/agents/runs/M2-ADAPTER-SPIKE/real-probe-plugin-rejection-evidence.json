@@ -1,0 +1,93 @@
+{
+  "preflight": {
+    "available": true,
+    "version": "2.1.311 (Claude Code)",
+    "authentication_verified": false,
+    "authentication_reported": {
+      "method": "claude.ai",
+      "personal_profile": true
+    },
+    "capabilities": {
+      "headless": true,
+      "streaming": true,
+      "cancellation": true,
+      "resume": false,
+      "checkpoint": false,
+      "follow_up": false,
+      "ask_user": false
+    }
+  },
+  "synthetic_only": true,
+  "attempts": [
+    {
+      "name": "coding",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 22708,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": true,
+        "commands_present": false
+      },
+      "adapter_error": "unexpected_customization",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    },
+    {
+      "name": "cancellation",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 22740,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": true,
+        "commands_present": false
+      },
+      "adapter_error": "unexpected_customization",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    }
+  ],
+  "canary_hook_executed": false,
+  "owned_after_cleanup": 0
+}

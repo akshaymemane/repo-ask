@@ -1,0 +1,241 @@
+{
+  "preflight": {
+    "available": true,
+    "version": "2.1.311 (Claude Code)",
+    "authentication_verified": false,
+    "authentication_reported": {
+      "method": "claude.ai",
+      "personal_profile": true
+    },
+    "customization_metadata_checked": true,
+    "capabilities": {
+      "headless": true,
+      "streaming": true,
+      "cancellation": true,
+      "resume": false,
+      "checkpoint": false,
+      "follow_up": false,
+      "ask_user": false
+    }
+  },
+  "synthetic_only": true,
+  "attempts": [
+    {
+      "name": "coding",
+      "tools": [
+        {
+          "tool": "read_file",
+          "path": "calc.py"
+        },
+        {
+          "tool": "read_file",
+          "path": "test_calc.py"
+        },
+        {
+          "tool": "write_file",
+          "path": "calc.py"
+        },
+        {
+          "tool": "run_command",
+          "program": "python",
+          "argc": 4
+        }
+      ],
+      "checkpoints": 3,
+      "pid": 33050,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": false,
+        "plugins": [],
+        "commands_present": false
+      },
+      "inventory_verified": true,
+      "model": "claude-opus-5-5",
+      "summary": "I fixed `add` in `calc.py`. It was returning `a - b` and now returns `a + b`. I didn't change `test_calc.py`.\n\nI ran `python -m unittest -v` in the container and the test passes:\n\n```\ntest_add (test_calc.TestCalc.test_add) ... ok\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nOK\n```",
+      "result": {
+        "status": "completed",
+        "code": "success",
+        "exit_code": 0,
+        "stop_confirmed": true,
+        "usage": {
+          "input_tokens": 6,
+          "output_tokens": 411,
+          "cache_creation_input_tokens": 1141,
+          "cache_read_input_tokens": 9652
+        },
+        "reported_cost_usd": 0.0193024,
+        "capabilities": {
+          "headless": true,
+          "streaming": true,
+          "cancellation": true,
+          "resume": false,
+          "checkpoint": false,
+          "follow_up": false,
+          "ask_user": false
+        }
+      },
+      "elapsed_seconds": 15.342,
+      "validation": {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "test_add (test_calc.TestCalc.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n",
+        "timed_out": false,
+        "truncated": false
+      },
+      "diff": "--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n",
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    },
+    {
+      "name": "cancellation",
+      "tools": [],
+      "checkpoints": 1,
+      "pid": 33374,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": false,
+        "plugins": [],
+        "commands_present": false
+      },
+      "inventory_verified": true,
+      "model": "claude-opus-5-5",
+      "summary": "",
+      "result": {
+        "status": "cancelled",
+        "code": "cancelled",
+        "exit_code": 143,
+        "stop_confirmed": true,
+        "usage": null,
+        "reported_cost_usd": null,
+        "capabilities": {
+          "headless": true,
+          "streaming": true,
+          "cancellation": true,
+          "resume": false,
+          "checkpoint": false,
+          "follow_up": false,
+          "ask_user": false
+        }
+      },
+      "elapsed_seconds": 4.071,
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    },
+    {
+      "name": "ask_user",
+      "tools": [
+        {
+          "tool": "ask_user",
+          "question_chars": 28
+        }
+      ],
+      "checkpoints": 1,
+      "pid": 33441,
+      "inventory": {
+        "tools": [
+          "mcp__opendevin__ask_user",
+          "mcp__opendevin__delete_file",
+          "mcp__opendevin__list_files",
+          "mcp__opendevin__read_file",
+          "mcp__opendevin__run_command",
+          "mcp__opendevin__search_text",
+          "mcp__opendevin__write_file"
+        ],
+        "servers": [
+          {
+            "name": "opendevin",
+            "status": "connected"
+          }
+        ],
+        "plugins_present": false,
+        "plugins": [],
+        "commands_present": false
+      },
+      "inventory_verified": true,
+      "model": "claude-opus-5-5",
+      "question": "What is the acceptance word?",
+      "summary": "ACK: MARIGOLD_4821",
+      "result": {
+        "status": "completed",
+        "code": "success",
+        "exit_code": 0,
+        "stop_confirmed": true,
+        "usage": {
+          "input_tokens": 4,
+          "output_tokens": 81,
+          "cache_creation_input_tokens": 852,
+          "cache_read_input_tokens": 5693
+        },
+        "reported_cost_usd": 0.009590600000000001,
+        "capabilities": {
+          "headless": true,
+          "streaming": true,
+          "cancellation": true,
+          "resume": false,
+          "checkpoint": false,
+          "follow_up": false,
+          "ask_user": false
+        }
+      },
+      "elapsed_seconds": 9.142,
+      "broker_close": {
+        "closed": true,
+        "revoked": true
+      },
+      "container_stop": {
+        "confirmed": true,
+        "code": "stopped"
+      }
+    }
+  ],
+  "canary_hook_executed": false,
+  "owned_after_cleanup": 0,
+  "verified_capabilities_after_probe": {
+    "ask_user": true,
+    "ask_user_requires_callback": true,
+    "follow_up": false,
+    "resume": false,
+    "checkpoint": false
+  },
+  "capability_promotion_basis": "Actual ask_user tool callback returned a hidden synthetic marker and the model acknowledged that exact marker; attempt capability snapshots predate promotion."
+}
