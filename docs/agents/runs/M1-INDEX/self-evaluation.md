@@ -1,15 +1,15 @@
-# Author self-evaluation — R1 revision
+# Author self-evaluation — R2 revision
 
 ECC agent-self-evaluation reflection, not independent approval. Overall4.0/5.
 
-| Axis | Score | Concrete evidence and remaining improvement |
+| Axis | Score | Evidence / remaining improvement |
 | --- | --- | --- |
-| Accuracy | 4 | 34 focused real SQLite/APSW checks cover each R1 finding, real ProviderService transport errors and >500KB source. Five HTTP checks require an environment permitting socket binds. |
-| Completeness | 4 | B1/B2/M1/M2/M3 and requested minor fixes/setter implemented. Independent exact-commit re-review remains required. |
-| Clarity | 4 | Separate review-response maps findings to exact scenarios and clarifies assignment/prerequisite/submission ancestry. Service orchestration remains sizable; avoid expanding this revision into a broad refactor. |
-| Actionability | 4 | Stable existing signatures, one approved additive setter, repeatable commands and a hashed handoff. Coordinator must commit if sandbox prevents Git administration writes, then request independent review. |
-| Conciseness | 4 | Findings-focused fixes share scheduling and cleanup helpers; detailed evidence is in task artifacts. Future unrelated features should not grow the indexing orchestrator. |
+| Accuracy |4|41 focused real SQLite/APSW checks, persistent real ProviderService errors and restart verify exact ceilings. Five HTTP checks still need socket permissions. |
+| Completeness |4|N1 and small-context/churn follow-ups addressed; all34 prior checks pass. New independent exact-commit review remains mandatory. |
+| Clarity |4|Retry ceilings, success/manual reset semantics, stable terminal codes and delay units are explicit in review-response-r2.md. They remain estimates/behavior claims scoped to actual checks. |
+| Actionability |4|Public signatures unchanged; reproducible commands and hash packet support coordinator commit/review if sandbox blocks staging. |
+| Conciseness |4|One existing service module plus focused regression file changed; no broad refactor or new persistence API. Detailed evidence remains task-local. |
 
-Top improvements: independent re-review; coordinator HTTP rerun; F03 real-model corpus.
-Self-check: claims are bounded by actual storage/transport evidence and do not imply
-independent approval, integrated HTTP behavior or production semantic answerability.
+Next improvements: independent exact review and coordinator HTTP integration/rerun.
+Self-check: no terminal exhaustion path is claimed as successful indexing, and no
+local injected transport evidence is presented as live model-quality evidence.

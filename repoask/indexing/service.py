@@ -26,6 +26,13 @@ class StopRun(Exception):
     pass
 
 
+# Automatic retry ceilings are independent of ordinary continuation job IDs.
+MAX_TRANSIENT_FAILURES = 3
+MAX_RATE_LIMIT_RETRIES = 10
+WORKER_WAIT_MS = 30000
+TIME_SLICE_WAIT_MS = 5000
+
+
 class IndexService:
     def __init__(self, store, jobs, github, providers, *, data_dir=None, vector_store=None,
                  snapshot_reader=None, clock=now_ms):
@@ -182,6 +189,11 @@ class IndexService:
                 if run['error_code'] == 'selection_changed' or snapshot['chunker_version'] != CHUNKER or (policy is not None and policy != current):
                     self._discard_staging(db,run['snapshot_id'])
                     db.execute("UPDATE index_runs SET snapshot_id=NULL,phase='queued',checkpoint_json='{}',progress_json='{}',requested_revision=? WHERE id=?",(snapshot['revision'],run_id))
+            if run['state'] in ('failed','cancelled'):
+                current = self._one(db,'index_runs',run_id)
+                checkpoint = json.loads(current['checkpoint_json'])
+                checkpoint.pop('retry',None)
+                db.execute('UPDATE index_runs SET checkpoint_json=? WHERE id=?',(encoded(checkpoint),run_id))
             continuation = run['continuation'] + 1
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': run_id}, idempotency_key=f'{run_id}:{continuation}')
             db.execute("UPDATE index_runs SET state='queued',job_id=?,continuation=?,error_code=NULL,retry_at=NULL,updated_at=? WHERE id=?", (job.id,continuation,self.clock(),run_id))
@@ -230,11 +242,25 @@ class IndexService:
 
     def _schedule(self, db, run, code, retry_at=None):
         continuation = run['continuation'] + 1
-        when = max(self.clock()+1000,retry_at or 0)
+        delay = {'worker_limit':WORKER_WAIT_MS,'elapsed_limit':TIME_SLICE_WAIT_MS}.get(code,1000)
+        when = max(self.clock()+delay,retry_at or 0)
         job = self.jobs.enqueue_in_transaction(db,'index.run',{'run_id':run['id']},
             idempotency_key=f"{run['id']}:{continuation}",run_after=when)
         db.execute("UPDATE index_runs SET state='waiting',job_id=?,continuation=?,error_code=?,retry_at=?,updated_at=? WHERE id=?",
                    (job.id,continuation,code,when,self.clock(),run['id']))
+
+    def _checkpoint_with_retry(self, db, run_id, checkpoint, *, progressed=False):
+        """Keep retry accounting across cursors, phase changes and scheduling slices.
+
+        Only persisted source/vector progress resets consecutive transient failures.
+        Rate-limit retries are a lifetime automatic ceiling for this explicit attempt.
+        Callers already own the fenced Store transaction.
+        """
+        current = self._one(db,'index_runs',run_id)
+        retry = json.loads(current['checkpoint_json']).get('retry',{})
+        if progressed:
+            retry['transient_failures'] = 0
+        return dict(checkpoint,retry=retry)
 
     def get_state(self, repository_id):
         self._ensure_source(repository_id)
@@ -355,11 +381,27 @@ class IndexService:
                     policy = json.loads(self._one(db,'repository_snapshots',run['snapshot_id'])['coverage_json']).get('selection_hash')
                     if policy is not None and policy != digest(encoded(source['exclusions'])):
                         code = 'selection_changed'
-                state = 'waiting' if code in {'rate_limited','timeout','upstream_unavailable'} else 'failed'
-                retry_at = getattr(exc,'retry_at',None)
+                checkpoint = json.loads(run['checkpoint_json'])
+                retry = checkpoint.setdefault('retry',{})
+                state, delay = 'failed', 0
+                if code in {'timeout','upstream_unavailable'}:
+                    failures = retry.get('transient_failures',0) + 1
+                    retry['transient_failures'] = failures
+                    if failures < MAX_TRANSIENT_FAILURES:
+                        state, delay = 'waiting', 2000*2**(failures-1)
+                elif code == 'rate_limited':
+                    waits = retry.get('rate_limit_retries',0)
+                    if waits < MAX_RATE_LIMIT_RETRIES:
+                        retry['rate_limit_retries'] = waits+1
+                        state, delay = 'waiting', min(300000,2000*2**min(waits,7))
+                progress = json.loads(run['progress_json'])
+                progress['retry'] = retry
+                db.execute('UPDATE index_runs SET checkpoint_json=?,progress_json=? WHERE id=?',
+                           (encoded(checkpoint),encoded(progress),run['id']))
+                retry_at = getattr(exc,'retry_at',None) if state == 'waiting' else None
                 db.execute('UPDATE index_runs SET state=?,error_code=?,retry_at=?,updated_at=? WHERE id=?', (state,code,retry_at,self.clock(),run['id']))
                 if state == 'waiting':
-                    self._schedule(db,run,code,retry_at or self.clock()+min(300000,2000*2**min(run['continuation'],7)))
+                    self._schedule(db,run,code,max(retry_at or 0,self.clock()+delay))
             return {'run_id':job.payload['run_id'],'state':state,'error_code':code}
 
     def _fence_for_error(self, db, job, context):
@@ -424,11 +466,12 @@ class IndexService:
             skips = Counter(checkpoint.get('skipped',{}))
             total, count, chunk_count = (checkpoint.get(k,0) for k in ('source_bytes','files','chunks'))
             seen = set()
-            def save_ingest(db, position):
+            def save_ingest(db, position, *, progressed=False):
                 self._fence(db,job,context)
                 progress = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps)
+                saved = self._checkpoint_with_retry(db,run['id'],dict(progress,ingest_cursor=position),progressed=progressed)
                 db.execute("UPDATE index_runs SET phase='ingesting',progress_json=?,checkpoint_json=?,updated_at=? WHERE id=?",
-                    (encoded(progress),encoded(dict(progress,ingest_cursor=position)),self.clock(),run['id']))
+                    (encoded(progress),encoded(saved),self.clock(),run['id']))
             for position,entry in enumerate(data['files']):
                 path = entry.get('path')
                 if position < cursor:
@@ -456,7 +499,7 @@ class IndexService:
                 if reason:
                     skips[reason if reason in {'unsafe_path','generated','sensitive','configured','symlink','submodule','file_bytes','tree_limit','unsupported','duplicate','binary_or_sensitive'} else 'unsupported'] += 1
                     with self.store.transaction() as db:
-                        save_ingest(db,position+1)
+                        save_ingest(db,position+1,progressed=True)
                     continue
                 if count >= caps['files'] or total+len(raw)>caps['source_bytes']:
                     skips['source_limit'] += 1
@@ -481,7 +524,7 @@ class IndexService:
                     count += 1
                     total += len(raw)
                     chunk_count += len(parts)
-                    save_ingest(db,position+1)
+                    save_ingest(db,position+1,progressed=True)
             resource_skips = {'file_bytes','tree_limit','source_limit','chunk_limit'}
             coverage = dict(files=count,source_bytes=total,chunks=chunk_count,skipped=dict(skips),limits=caps,
                             partial=bool(resource_skips & skips.keys()) or bool(data.get('limited')))
@@ -492,7 +535,8 @@ class IndexService:
             with self.store.transaction() as db:
                 run,_ = self._fence(db,job,context)
                 db.execute('UPDATE repository_snapshots SET coverage_json=? WHERE id=?',(encoded(coverage),sid))
-                db.execute("UPDATE index_runs SET phase='embedding',progress_json=?,checkpoint_json='{}' WHERE id=?",(encoded(coverage),run['id']))
+                saved = self._checkpoint_with_retry(db,run['id'],{},progressed=True)
+                db.execute("UPDATE index_runs SET phase='embedding',progress_json=?,checkpoint_json=? WHERE id=?",(encoded(coverage),encoded(saved),run['id']))
         run,source = self._boundary(job,context)
         sid = run['snapshot_id']
         # Embedding receives its own time slice after the ingestion checkpoint.
@@ -514,6 +558,7 @@ class IndexService:
             cursor = checkpoint.get('embedded',0)
             tokens = checkpoint.get('tokens',0)
             semantic_skipped = checkpoint.get('semantic_skipped',0)
+            context_skipped = checkpoint.get('context_skipped',0)
             config = self.providers.get_version(run['profile_version_id'])['config']
             price = config.get('input_price_per_million')
             offset = cursor
@@ -524,7 +569,7 @@ class IndexService:
                         self._fence(db,job,context)
                         self._schedule(db,run,'elapsed_limit')
                     return {'state':'waiting'}
-                batch, values, estimate, skipped = [], [], 0, 0
+                batch, values, estimate, skipped, context_skips = [], [], 0, 0, 0
                 # Budget/cache decisions are per chunk. One large or unaffordable
                 # chunk must not disable vectors already staged for other chunks.
                 end = offset
@@ -533,6 +578,11 @@ class IndexService:
                     charge = estimated_tokens(row['text']) if value is None else 0
                     if value is None and (charge > caps['batch_tokens'] or tokens+charge > caps['embedding_tokens']):
                         skipped += 1
+                        end += 1
+                        continue
+                    if value is None and charge > config.get('context_limit',8192):
+                        skipped += 1
+                        context_skips += 1
                         end += 1
                         continue
                     if estimate+charge > caps['batch_tokens'] or tokens+estimate+charge > caps['embedding_tokens']:
@@ -577,15 +627,19 @@ class IndexService:
                         self.vectors.put(namespace_id,spec['dimensions'],source['id'],sid,row['id'],row['content_hash'],vector)
                     tokens += charged
                     semantic_skipped += skipped
+                    context_skipped += context_skips
+                    saved = self._checkpoint_with_retry(db,run['id'],
+                        {'embedded':end,'tokens':tokens,'semantic_skipped':semantic_skipped,'context_skipped':context_skipped},
+                        progressed=bool(batch))
                     db.execute('UPDATE index_runs SET checkpoint_json=?,updated_at=? WHERE id=?',
-                        (encoded({'embedded':end,'tokens':tokens,'semantic_skipped':semantic_skipped}),self.clock(),run['id']))
+                        (encoded(saved),self.clock(),run['id']))
                 offset = end
             semantic_count = self.vectors.count(namespace_id,sid)
             if semantic_count + semantic_skipped != len(rows):
                 raise IndexError('vector_incomplete')
             if not semantic_count:
                 namespace_id = None
-            degradation = 'embedding_token_limit' if semantic_skipped else None
+            degradation = 'embedding_context_limit' if context_skipped else 'embedding_token_limit' if semantic_skipped else None
         elif run['profile_version_id']:
             degradation = 'vector_unavailable'
         with self.store.transaction() as db:
@@ -612,9 +666,13 @@ class IndexService:
             summary += ' Architecture, runtime behavior and validation commands have not been inferred.'
             db.execute('INSERT OR REPLACE INTO repository_summaries(snapshot_id,text,evidence_json,generation_json,created_at) VALUES(?,?,?,?,?)',(sid,summary,encoded(evidence),encoded({'method':'deterministic-v1','gaps':['architecture','validation_commands']}),self.clock()))
             coverage = json.loads(snapshot['coverage_json'])
-            if degradation == 'embedding_token_limit':
+            if degradation in ('embedding_token_limit','embedding_context_limit'):
                 coverage['partial'] = True
-                coverage.setdefault('skipped',{})['embedding_token_limit'] = semantic_skipped
+                skips = coverage.setdefault('skipped',{})
+                if semantic_skipped > context_skipped:
+                    skips['embedding_token_limit'] = semantic_skipped-context_skipped
+                if context_skipped:
+                    skips['embedding_context_limit'] = context_skipped
             coverage.update(mode='hybrid' if namespace_id else 'lexical_only',degradation_code=degradation,embedding_tokens=tokens if run['profile_version_id'] and self.vectors.available else 0,
                             token_accounting='provider_reported_or_utf8_div4_estimate',
                             semantic_chunks=semantic_count if run['profile_version_id'] and self.vectors.available else 0)

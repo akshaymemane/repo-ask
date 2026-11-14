@@ -1,19 +1,19 @@
-# M1-INDEX status — R1 fixes
+# M1-INDEX status — R2 resubmission
 
-Phase: implementation and verification complete; Git staging sandbox-blocked; awaiting coordinator commit and independent re-review.
-Original task base db85564688f25ab7345cdcd689fe18fd160c6d7a; coordinator schema5
-prerequisite e7c4a5e328b69207804cbbbbf3fdcae7deb0f4bd; reviewed submission/revision
-base d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d. Confirmed sequential ancestry.
+Phase: R2 implementation verified; Git staging sandbox-blocked; awaiting coordinator commit and new exact review.
+Original db85564 -> schema5 e7c4a5e -> original d8f1005 -> R1 fix / R2 review base
+469954f9a6bedc003d7de1e61c3074f2b5a711b7. Current HEAD is that reviewed commit.
 
-B1/B2/M1/M2/M3 fixed; no scope acceptance. Stale retry conflict, purged demo,
-abandoned staging cleanup and approved set_exclusions are addressed. Public
-signatures preserved; only the approved setter is additive. No schema change needed.
+N1 fixed: three consecutive transient failures terminal; ten rate-limit automatic
+retries maximum, honoring retry_at; separate durable counters; progress may reset
+transient streaks. Worker/time waits30s/5s do not inflate network backoff. Small
+profile contexts skip only oversized vectors before calls with honest coverage.
 
-34 focused tests pass with real SQLite/APSW. Full dependency-enabled suite:140 tests,
-only five sandbox socket-bind errors;135 socket-independent tests pass. Standard
-Python full suite also attempted (139 at that stage), only same five socket errors
-and optional vector dependency skips. Compileall and diff whitespace checks pass.
+41 focused checks pass (all original34 preserved);142 socket-independent regressions
+pass. Both full147-test suites attempted; only the five sandbox socket-bind errors.
+Default Python additionally skips optional dependency checks; dependency interpreter
+has no skips/assertion failures. Compileall and diff whitespace checks passed.
 
-No shared platform/WAL, board, manifest, web/API/Ask worker changes; no packages,
-accounts, live model/source transmission or spawned agents. No background services.
-Review response/handoff and commit-result record the resubmission packet.
+Public signatures stable. No shared platform/WAL/Ask/API/web/board edits; root's
+898eaae is separate. No agents, packages, accounts or live source/model calls.
+Awaiting coordinator commit if Git remains sandbox-blocked, then new exact review.
