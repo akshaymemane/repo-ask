@@ -1,0 +1,27 @@
+{
+  "id": "M1-INDEX-UI",
+  "base_sha": "81347ef",
+  "author": "coordinator",
+  "requirements": [
+    "F02 context progress/controls",
+    "F11 UX-08,09,10"
+  ],
+  "scope": [
+    "repoask/web/context.js",
+    "repoask/web/app.js",
+    "repoask/__main__.py asset registration",
+    "repoask/context_api.py",
+    "repoask/api.py optional purge callback",
+    "tests/ui/context.test.mjs",
+    "tests/test_context_api.py"
+  ],
+  "completion_depends_on": [
+    "M1-INDEX"
+  ],
+  "acceptance": [
+    "38Nodechecks incl snapshot/progress/pinned embedding/pause/resume/exclusions/purge/stale loads",
+    "Actual services/browser integration after indexing gate"
+  ],
+  "reviewer": "independent Codex reviewer",
+  "handoff": "docs/agents/runs/M1-INDEX-UI/handoff.md"
+}

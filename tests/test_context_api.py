@@ -15,6 +15,8 @@ class IndexStub:
         return {'id':'run-1','repository_id':repository_id,'state':'queued'}
     def pause(self,run_id):
         return {'id':run_id,'state':'paused'}
+    def set_exclusions(self,repository_id,exclusions):
+        self.calls.append((repository_id,exclusions));return {'repository_id':repository_id,'status':'stale'}
     def get_state(self,repository_id):
         return {'repository_id':repository_id,'kind':'demo','name':'sample','status':'ready'}
 
@@ -56,3 +58,17 @@ class ContextAPITests(TestCase):
         self.assertEqual(len(second['items']),1)
         self.assertFalse({v['repository_id'] for v in first['items']}&{v['repository_id'] for v in second['items']})
         self.assertNotIn('/private',str(first))
+
+    def test_exclusions_return_only_explicit_patterns_and_purge_uses_composed_callback(self):
+        with self.platform.store.transaction() as c:
+            c.execute("INSERT INTO index_sources(id,kind,name,local_path,exclusions_json,metadata_json,created_at,updated_at) VALUES('local:x','local','sample','/private/root','[\"vendor/**\"]','{\"private_source\":\"secret\"}',1,1)")
+        response=self.api.dispatch('GET','/api/repositories/local%3Ax/exclusions')
+        self.assertEqual(response.body,{'exclusions':['vendor/**']})
+        response=self.api.dispatch('PATCH','/api/repositories/local%3Ax/exclusions',body={'exclusions':['new/**']})
+        self.assertEqual(self.index.calls[-1],('local:x',['new/**']))
+        with self.assertRaises(ValueError):
+            self.api.dispatch('PATCH','/api/repositories/local:x/exclusions',body={'exclusions':[],'local_path':'/etc'})
+        called=[]
+        api=FeatureAPI(self.platform,None,None,indexing=self.index,purge_context=lambda ident:called.append(ident) or {'state':'completed'})
+        self.assertEqual(api.dispatch('POST','/api/repositories/local:x/purge',body={}).body['state'],'completed')
+        self.assertEqual(called,['local:x'])

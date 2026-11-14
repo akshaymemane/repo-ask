@@ -1,12 +1,13 @@
 """HTTP adapters for bounded source context; never accepts arbitrary host paths."""
+import json
 import re
 from urllib.parse import unquote
 from .api import APIResponse, fields, page_limit, query_fields
 
 
 class ContextAPI:
-    def __init__(self, platform, index):
-        self.platform, self.index = platform, index
+    def __init__(self, platform, index, *, purge_context=None):
+        self.platform, self.index, self.purge_context = platform, index, purge_context
 
     def dispatch(self, method, path, raw_query='', body=None):
         if method != 'GET' and raw_query:
@@ -25,6 +26,29 @@ class ContextAPI:
                                     (cursor,query,limit+1)).fetchall()
             items = [self.index.get_state(row[0]) for row in rows[:limit]]
             return APIResponse(200, {'items':items,'next_cursor':rows[limit-1][0] if len(rows)>limit else None})
+        match = re.fullmatch(r'/api/repositories/([^/]+)/(exclusions|purge)', path)
+        if match:
+            repository_id, operation = unquote(match[1]), match[2]
+            if operation == 'exclusions':
+                if method == 'GET':
+                    query_fields(raw_query,set())
+                    self.index.get_state(repository_id)
+                    with self.platform.store.read() as conn:
+                        row = conn.execute('SELECT exclusions_json FROM index_sources WHERE id=?',(repository_id,)).fetchone()
+                    if row is None:
+                        from .platform.errors import NotFound
+                        raise NotFound('Context settings unavailable.')
+                    return APIResponse(200,{'exclusions':json.loads(row[0])})
+                if method == 'PATCH':
+                    data = fields(body,{'exclusions'},{'exclusions'})
+                    return APIResponse(200,self.index.set_exclusions(repository_id,**data))
+            if operation == 'purge' and method == 'POST' and not repository_id.startswith('gh:'):
+                fields(body,set())
+                self.index.get_state(repository_id)
+                if self.purge_context is None:
+                    from .platform.errors import InvalidTransition
+                    raise InvalidTransition('Local context purge is not configured.')
+                return APIResponse(200,self.purge_context(repository_id))
         match = re.fullmatch(r'/api/repositories/([^/]+)/(index|context)', path)
         if match:
             repository_id, operation = unquote(match[1]), match[2]

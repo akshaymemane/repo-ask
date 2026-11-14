@@ -1,3 +1,4 @@
+import { createContextPanel } from "./context.js";
 const byId = (id) => document.getElementById(id);
 
 function node(tag, text, className) {
@@ -819,6 +820,8 @@ const connectedUI = { githubReady: false, providersReady: false };
 const githubPanel = node("section", undefined, "connected-panel");
 const providerPanel = node("section", undefined, "connected-panel");
 const catalogPanel = node("section", undefined, "connected-panel");
+const contextUI = createContextPanel({request: featureRequest, isVisible: () => state.route === "repositories"});
+window.addEventListener("hashchange", () => { if (state.route === "repositories") contextUI.refresh(); });
 function renderSettings() {
   const focused = document.activeElement;
   const restore = inside(githubPanel, focused) || inside(providerPanel, focused);
@@ -828,7 +831,7 @@ function renderSettings() {
 }
 function renderRepositories() {
   renderLegacyRepositories();
-  byId("repositories-content").append(catalogPanel);
+  byId("repositories-content").append(catalogPanel, contextUI.element);
 }
 
 showRoute(false);
@@ -1199,6 +1202,6 @@ function renderProviderEditor(profile = null) {
   }); providerEditor.append(form);
 }
 
-await Promise.all([loadGitHub(), loadProviders(), loadCatalog()]);
+await Promise.all([loadGitHub(), loadProviders(), loadCatalog(), contextUI.refresh()]);
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
