@@ -99,7 +99,8 @@ class IndexingTests(unittest.TestCase):
         for hidden in ('SECRET','private','hidden','a\0b','vendored','custom','BEGIN PRIVATE'):
             self.assertNotIn(hidden,transmitted)
         state = self.service.get_state(self.repo)
-        self.assertEqual(state['status'],'partial')
+        self.assertEqual(state['status'],'ready')
+        self.assertFalse(state['active_snapshot']['coverage']['partial'])
         self.assertGreater(sum(state['active_snapshot']['coverage']['skipped'].values()),5)
         self.service.set_local_selection(self.repo,True,['worker.py'])
         self.assertEqual(self.service.search('send_order',[self.repo],semantic=False)['hits'],[])

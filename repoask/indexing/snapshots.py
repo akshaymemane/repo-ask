@@ -68,6 +68,9 @@ def local_snapshot(source, revision, caps):
             if reason:
                 yield {'path': path, 'kind': reason}
                 continue
+            if path in source.get('_ingested_paths',()):
+                yield {'path':path,'kind':'resumed'}
+                continue
             size = int(git(root, 'cat-file', '-s', oid, max_bytes=32))
             if size > caps['file_bytes']:
                 yield {'path': path, 'kind': 'file_bytes'}
@@ -106,6 +109,9 @@ def github_snapshot(github, source, revision, caps):
                 elif entry.get('type') == 'tree':
                     pending.append((path + '/', entry['sha']))
                 elif entry.get('type') == 'blob':
+                    if path in source.get('_ingested_paths',()):
+                        yield {'path':path,'kind':'resumed'}
+                        continue
                     if type(entry.get('size')) is not int or not 0 <= entry['size'] <= caps['file_bytes']:
                         yield {'path': path, 'kind': 'file_bytes'}
                     else:
