@@ -4,7 +4,7 @@ import threading
 from contextlib import contextmanager
 from repoask.platform.clock import now_ms, new_id
 from repoask.platform.errors import InvalidTransition, IdempotencyConflict, LeaseLost, NotFound, StorageBusy
-from repoask.platform.worker import CancelledError
+from repoask.platform.worker import CancelledError, JobInterrupted
 from .common import encode, text, ids, one, page, eligible, citation, export_text, retrieval_query
 
 
@@ -169,6 +169,8 @@ class ConversationService:
             while not stop.wait(interval):
                 for attempt in range(2):
                     try:
+                        if getattr(context,'shutdown_requested',False):
+                            raise JobInterrupted()
                         # Every attempt rechecks ownership/expiry, including after contention.
                         with self.store.read() as db:
                             self._fence(db,job,context)
@@ -176,6 +178,8 @@ class ConversationService:
                             if result.cancel_requested:
                                 raise CancelledError()
                         break
+                    except JobInterrupted as exc:
+                        errors.append(exc); event.set(); return
                     except StorageBusy as exc:
                         if attempt==0:
                             if stop.wait(min(.1,interval/4)):

@@ -22,6 +22,10 @@ class ShutdownContext:
             raise JobInterrupted()
 
     @property
+    def shutdown_requested(self):
+        return self.stop_event.is_set()
+
+    @property
     def cancel_requested(self):
         if self.stop_event.is_set():
             raise JobInterrupted()
