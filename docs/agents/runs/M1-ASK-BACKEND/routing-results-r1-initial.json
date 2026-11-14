@@ -1,0 +1,58 @@
+{
+  "tasks": {
+    "count": 50,
+    "top3_label_recall": 1.0,
+    "catalog_lexical_baseline_recall": 0.98,
+    "all_expected_top3": 1.0
+  },
+  "multi_tasks": {
+    "count": 5,
+    "top3_label_recall": 1.0,
+    "catalog_lexical_baseline_recall": 1.0,
+    "all_expected_top3": 1.0
+  },
+  "path_tasks": {
+    "count": 12,
+    "all_expected_top3": 1.0,
+    "correct_scope": 0.8333333333333334,
+    "failures": [
+      {
+        "prompt": "Fix team/search query suggestions in src/query.py and preserve product facets",
+        "expected": [
+          "gh:5"
+        ],
+        "selected": [],
+        "status": "needs_selection"
+      },
+      {
+        "prompt": "Explain team/monitoring health checks in lib/probe.py and client/server alerts",
+        "expected": [
+          "gh:25"
+        ],
+        "selected": [],
+        "status": "needs_selection"
+      }
+    ]
+  },
+  "path_ambiguous": [
+    "needs_selection",
+    "no_match"
+  ],
+  "path_absent": [
+    "no_match",
+    "needs_selection"
+  ],
+  "ambiguous": [
+    "needs_selection",
+    "needs_selection"
+  ],
+  "absent": [
+    "no_match",
+    "no_match"
+  ],
+  "collision": "needs_selection",
+  "qualified_correct": true,
+  "revoked_visible": 0,
+  "missing_pin": "needs_selection",
+  "failures": []
+}

@@ -52,6 +52,21 @@ def evaluate():
                 if not expected<=found:
                     failures.append({'group':group,'prompt':task['prompt'],'expected':sorted(expected),'actual':sorted(found)})
             results[group]={'count':len(data[group]),'top3_label_recall':recalled/labels,'catalog_lexical_baseline_recall':baseline/labels,'all_expected_top3':all_covered/len(data[group])}
+        expanded=json.loads((Path(__file__).parent/'fixtures/routing/expanded-r1.json').read_text())
+        path_recall=path_resolved=0; path_failures=[]
+        for task in expanded['path_tasks']:
+            expected={mapping[r] for r in task['expected']}
+            pins=[mapping[r] for r in task.get('pins',[])]
+            decision=routing.route(task['prompt'],pinned_repository_ids=pins)
+            found={c['repository_id'] for c in decision['candidates'][:3]}
+            path_recall+=expected<=found
+            correct=set(decision['selected_repository_ids'])==expected and decision['status']=='resolved'
+            path_resolved+=correct
+            if not correct or not expected<=found:
+                path_failures.append({'prompt':task['prompt'],'expected':sorted(expected),'selected':decision['selected_repository_ids'],'status':decision['status']})
+        results['path_tasks']={'count':len(expanded['path_tasks']),'all_expected_top3':path_recall/len(expanded['path_tasks']),'correct_scope':path_resolved/len(expanded['path_tasks']),'failures':path_failures}
+        results['path_ambiguous']=[routing.route(p)['status'] for p in expanded['path_ambiguous']]
+        results['path_absent']=[routing.route(p)['status'] for p in expanded['path_absent']]
         results['ambiguous']=[routing.route(p)['status'] for p in data['ambiguous']]
         results['absent']=[routing.route(p)['status'] for p in data['absent']]
         # Exact short-name collision and qualified selection with two current owners.
@@ -78,6 +93,10 @@ class RoutingEvaluation(unittest.TestCase):
         self.assertGreaterEqual(result['tasks']['top3_label_recall'],.9,result)
         self.assertTrue(all(s=='needs_selection' for s in result['ambiguous']),result)
         self.assertTrue(all(s=='no_match' for s in result['absent']),result)
+        self.assertEqual(result['path_tasks']['all_expected_top3'],1.0,result)
+        self.assertEqual(result['path_tasks']['correct_scope'],1.0,result)
+        self.assertTrue(all(s!='resolved' for s in result['path_ambiguous']),result)
+        self.assertTrue(all(s=='no_match' for s in result['path_absent']),result)
         self.assertEqual(result['collision'],'needs_selection')
         self.assertTrue(result['qualified_correct'])
         self.assertEqual(result['revoked_visible'],0)

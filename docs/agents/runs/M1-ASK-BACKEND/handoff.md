@@ -1,39 +1,53 @@
-# Builder handoff — M1-ASK-BACKEND
+# Builder handoff — M1-ASK-BACKEND R1 corrections
 
-## Identity
+## Identity and scope
 
-- Author/harness: Codex retrieval/backend engineer; no subagents/other harness launched.
+- Author/harness: Codex retrieval/backend engineer; no subagents or other harness launched.
 - Branch/worktree: task/m1-ask, /Users/apple/workspace/vibe-coding/opendevin-m1-ask.
-- Base SHA: c0e15ea59620346a912d986441aa644b77e4bcdb. Integration baseline per assigned card: edb9a9d852feeff0b9a418fb1fb0ae5f5ce1a927.
-- Submitted commit: **none**. `git add` and `git commit` both failed before mutation because worktree Git metadata index.lock is outside writable sandbox roots. Approval policy is never; no bypass attempted. Coordinator must create a scoped commit before independent exact-commit review.
-- Assigned task: task.json; F03 RT-01–RT-10, F04 ASK-01–ASK-10 backend, F12 persistence/fencing/deletion slice.
-- Status: implementation submitted as files/hashed patch; commit and independent review pending, index completion gate pending. Not approved or integrated.
+- Reviewed base: 3918ebddfaaff7745a0ef495176eaba04a8088e4. Original implementation base c0e15ea59620346a912d986441aa644b77e4bcdb.
+- Review addressed: review-claude-r1.md, independent Claude changes-requested review. Author makes no approval claim.
+- New submitted commit: see status.md for actual commit attempt outcome. If sandbox rejects worktree Git metadata writes, root must commit the scoped patch/files before exact-commit review.
+- Requirements: F03 RT-01–RT-10, backend F04 ASK-01–ASK-10, F12 durability/fencing/deletion slice. Accepted schema6 and m1-ask-plans.md/m1-indexing.md remain unchanged.
+- Status: implemented and verified; resubmission for independent re-review. Index candidate is still a development dependency, not approved/integrated here. No board, schema, migration, HTTP, provider, index or legacy/shared source edits.
 
-## Outcome
+## Review resolution
 
-Exports RoutingService, ConversationService and PlanService from repoask.ask. Routing persists evidence/explanations, handles explicit names/pins/collisions, bounded source retrieval, selection ambiguity and live access checks. Conversation requests atomically create user/assistant/run/job records; retries preserve user identity, durable handlers fence job IDs/live leases/scope revisions/cancellation, and completed domain commits replay without duplicate generations or plans. Generation uses actual ProviderService with validated JSON/evidence, one repair, current evidence rechecks and bounded same-scope history. Failures retain user drafts and content-free codes. Shutdown yields via JobInterrupted.
-
-Plans have strict normalization/citation/scope validation, immutable canonical SHA256 versions, optimistic parents, current readiness checks, preserved multi-repository requirements and safe readable Markdown exports. No model field can self-declare readiness or permissions. Readiness requires coordinator preflight, one write target, current permission, a usable pinned snapshot, deliberate retained-base choice and answered blocking questions. Scope revisions pin every conversation-backed version. Deletion/purge conservatively remove duplicated content while preserving minimal identity/hash tombstones.
-
-Changed scope: repoask/ask/{__init__,common,routing,conversations,plans}.py; tests/test_ask_services.py; tests/test_ask_routing_evaluation.py; tests/fixtures/routing/catalog.json; this task's status/evaluation/results/integration notes/self-evaluation/handoff/review-patch artifacts. No shared source, migrations/schema, legacy files, manifests, HTTP, UI, or board edits. Consumed accepted m1-ask-plans.md, m1-indexing.md and schema6 including scope_revision. Candidate IndexService d8f1005 is development dependency only, not approval/integration.
-
-## Verification evidence
-
-| Requirement | Command / scenario actually run | Result |
+| Finding | Concrete change | Focused evidence |
 | --- | --- | --- |
-| F03 routing | `PYTHONPATH=. /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python tests/test_ask_routing_evaluation.py` | 250 synthetic GitHub metadata repositories, 25 source-indexed; 50 tasks top3 recall 100%, basic metadata lexical baseline 98%; 5 multi tasks label/complete coverage 100%. 2 ambiguous, 2 absent, collision/qualified/missing/revoked cases passed. Development-set tuning disclosed in evaluation.md. |
-| F04/F12 | Root venv `-m unittest discover -s tests -p 'test_ask_*.py'` | 17 passed (routing evaluation plus 16 service checks). Most recent focused service rerun: 16 passed after cursor bound. |
-| Durability and safety | Actual SQLite/IndexService/ProviderService; injected source and HTTP/model transports | Reopen persisted DB/jobs, idempotent requests, repair/retry, late owner, cancel/scope/revocation/lease fences, shutdown yield, commit-before-queue-ack replay, immutable hashes/parents, export markup/recognizable secret filtering, multiwrite, pagination, role_unassigned, plan/conversation purge all exercised. |
-| Existing regressions | Root venv `-m unittest discover -s tests` | 157 run: 150 passed; 7 HTTP tests errored at loopback socket bind with sandbox PermissionError. No product assertion failure. Follow-up non-HTTP run recorded in status.md after completion. |
-| Scope/format | `git diff --check`; attempted scoped staging/commit | Whitespace check passed; Git writes rejected at worktree index.lock outside writable roots. No commit or staging succeeded. |
+| Major 1: source-derived history bypassed remote policy | Scoped generation always applies source-sharing policy; cited history also contributes to the flag. History citations/current scope revalidate immediately before transmission. | Real ProviderService first produces a local cited turn, then a zero-hit follow-up with a remote no-source profile is blocked before injected transport; opt-in remote follow-up succeeds and retains actual provenance. |
+| Major 2: long generation expiry and stuck terminal domain runs | Ask owns a joined renewal thread during generation, fencing expiry/token/owner/scope/cancel before public JobQueue.heartbeat under the same Store lock. It does not rely on root's wrapper or revive expired leases. get_run/list_runs/get/send/retry reconcile active domain runs backed by terminal jobs. | Real ProviderService transport sleeps 1.5 seconds against a one-second lease; rival cannot reclaim. Forced old-owner reclamation rejects late output. Exhausted final attempt becomes failed/lease_expired without manual cancel. Queue cancelled/succeeded-without-output cases reconcile and permit new sends/retry. |
+| Major 3: accepted 4–16KB messages deterministically failed retrieval | Full request remains accepted up to 16000 UTF-8 bytes and is persisted/sent intact. Separate UTF-8-safe retrieval query is at most 3000 bytes. Oversized input is rejected before persistence. | >4000-byte request generates successfully; injected transport receives the entire request and final snake_case/quoted requirement; multibyte query bound and over-limit non-persistence tested. |
+| Major 4: path/slash tokens overrode pins/scope | Only slash tokens equal to known current catalog names are explicit identities. Path components are excluded from short-name selection/catalog feature terms. Valid pins and conversation scope remain selected. | Unit paths/read-write/I/O/client-server/conflicting-unknown cases; expanded 12-task labeled path evaluation has exact scope 12/12. |
+| Minor: cancellation finished_at | Queued cancellation sets finished_at and clears stale queue errors atomically; leased jobs retain ownership until acknowledgement. | Queued cancelled job timestamp/state/flag tested through public queue get. |
+| Minor: misleading revocation code | Revocation/exclusion/source unavailability maps to scope_unavailable, not invalid_output. | Revocation during real ProviderService injected call checks the stored domain code. |
+| Minor: mangled exported identifiers | Plain-text exports preserve underscores, quotes, backticks and markup; recognizable credentials/private host paths are still suppressed. Root confirmed UI renders plain text. | Raw snake_case("quoted") export is exact; existing recognizable credential/host path suppression tests pass. |
+| Minor: export pagination unusable | export(id,limit=100,cursor=None) pages via list_messages and returns callable next_cursor. | Two sequential exported pages with limit=1 include user then assistant and terminate with null cursor. |
+| Minor: unbounded runs | list_runs(id,limit=50,cursor=None) returns bounded items/next_cursor. get caps runs at 100 with runs_next_cursor/runs_truncated. Message provenance lookup is bounded to returned message IDs. | 102 saved runs return 100 plus two via cursor; no silent truncation or duplicate IDs. |
+| Additional requested public provenance | Public assistant messages and runs expose only stored profile_version_id, model and destination {kind,host}. Failed validated generations retain actual provenance; retries clear stale provenance. | Local and opted-in remote real ProviderService calls report their actual immutable profile/model/destination. No secretrefs/raw prompts/headers/full queue metadata in public run/diagnostic payloads. |
 
-No live account, live Ollama/model, credential access, package install, download, external write or repository command execution by product Ask occurred. Existing synthetic GitHub test fixture generates its own test key/vault. Model quality evidence is injected, not real inference. The 30-plan semantic entailment/pilot benchmark was not run; identity validation is not factual entailment proof.
+No shared queue helper was needed. Source/permission failures remain fail-closed and late results remain lease/scope fenced. Immutable plan behavior is retained; no execution/preflight privileges were added.
 
-## Risks and next action
+## Accepted HTTP additions for root
 
-- Coordinator: create scoped commit from these files/patch; independent Claude quality/security reviewer must review that exact commit and send corrections. Author cannot approve it.
-- Index owner/coordinator: final review/corrections/integration of d8f1005 remain completion gates. Candidate catalog profiles expose filenames rather than README body, so initial README-only local/demo evaluation scored 24% single-task recall (details/evidence retained in evaluation.md). GitHub metadata fixture success does not remove this limitation. No out-of-scope dependency fix attempted.
-- Coordinator: wire HTTP and Worker handler, register purge hook and later execution preflight per integration-notes.md; re-run socket-dependent regression checks in a permitted environment. No new migration/package required.
-- Exports conservatively suppress recognizable credentials/private host paths and escape active markup. Arbitrary user-written secret strings are not universally detectable; no credential storage is read into output. Root must render Markdown safely.
-- Natural-language claim entailment and requirement preservation under real models need independent semantic/pilot review. Synthetic routing labels are a development benchmark, not held-out real-catalog accuracy.
-- Background processes: no persistent services/agents/providers launched; bounded test commands only. Final test outcome/process completion is recorded in status.md.
+- `ConversationService.export(id, limit=100, cursor=None)` -> `{conversation_id, markdown, next_cursor}`; limit 1..100. Pass next_cursor back as cursor to continue.
+- `ConversationService.list_runs(id, limit=50, cursor=None)` -> `{items, next_cursor}`; stable created_at/id ordering and validated cursor.
+- `get(id)` includes bounded `runs`, `runs_next_cursor`, boolean `runs_truncated`; existing messages_next_cursor/plans_next_cursor remain.
+- Assistant messages and runs include `profile_version_id`, `model`, `destination:{kind,host}|null`, from actual stored generation results. No fallback to the currently assigned profile. Root accepted these additive shapes and owns HTTP wiring.
+
+## Checks actually run
+
+Interpreter: /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python (APSW available). Actual SQLite, IndexService, ProviderService and JobQueue/Worker run with synthetic source and model/discovery transports. No live model/account/credential access, downloads or installs.
+
+- Focused service discovery: **27 passed** in 3.297s; durable summary verification-r1-focused.json records zero remaining Ask renewal threads.
+- Expanded routing evaluate: original 50 tasks **100%** top-three recall versus **98%** metadata lexical baseline; five multi tasks **100%** label/complete coverage; 12 new path tasks **100%** exact selected scope/top-three coverage; original ambiguous/absent, path-only/absent, collision/qualified/missing/revoked cases behaved as labeled. Raw final result routing-results-r1.json. Original metrics unchanged. Initial R1 failures/corrected labels/tuning disclosed in evaluation-r1.md and retained initial result file.
+- Final full unittest discovery: **169 run, 162 passed, no assertion failures, seven errors**. All seven errors are pre-existing HTTP tests denied loopback socket binding by the sandbox. verification-r1-full.json lists exact IDs, no source/terminal captures. Root must run them in a permitted environment.
+- Earlier iterative full run exposed one new absent-query action-word false positive plus the same seven socket errors; it was corrected before the final run. Do not treat the intermediate run as a pass.
+- `git diff --check` passed before packaging. New scoped staging/commit attempt and hashed-patch details recorded in status.md.
+
+## Files and next action
+
+Changed product files: repoask/ask/common.py, conversations.py, routing.py. PlanService schema/version implementation unchanged. Tests: tests/test_ask_services.py, test_ask_routing_evaluation.py, fixtures/routing/expanded-r1.json. Evidence/docs remain exclusively docs/agents/runs/M1-ASK-BACKEND. Original evaluation.md/routing-results.json and reviewer-owned review-claude-r1.md are preserved.
+
+Root should create an exact commit if Git writes are denied here, then send it to the independent Claude reviewer for R1 re-review/corrections. Root owns UI/HTTP additions, permitted HTTP checks and later execution preflight. Final index review/corrections/integration remain a completion gate; public signatures are unchanged, and no dependency edits were made.
+
+Previous pre-quota exec session handles were unavailable and OS process listing is sandbox-denied; no unrelated kill/restart was attempted and no inference about orphan absence is claimed. Fresh bounded evaluation/full/focused commands all returned, and the focused test runner found zero Ask renewal threads. No persistent provider/service/agent process was intentionally launched.
