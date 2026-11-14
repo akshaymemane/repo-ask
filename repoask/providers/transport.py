@@ -9,9 +9,10 @@ from dataclasses import dataclass, field
 import http.client
 import socket
 import ssl
+import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import (HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request,
+from urllib.request import (HTTPHandler, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request,
                             build_opener)
 
 
@@ -61,6 +62,112 @@ class _NoRedirect(HTTPRedirectHandler):
 _CHUNK = 64 * 1024
 
 
+class _RequestControl:
+    """Interrupt owned socket I/O without moving the request into a worker thread.
+
+    urllib can close its socket handle while a response's makefile still owns the
+    connection. A duplicate keeps shutdown available until all response I/O ends.
+    The watcher only calls shutdown; the sending thread closes every handle and
+    joins the watcher before returning, including on error.
+    """
+
+    def __init__(self, deadline, cancel_event):
+        self.deadline = deadline
+        self.cancel_event = cancel_event
+        self._done = threading.Event()
+        self._lock = threading.Lock()
+        self._socket = None
+        self._failure = None
+        self._watcher = threading.Thread(target=self._watch, name='provider-transport-watch',
+                                         daemon=False)
+
+    def start(self):
+        self.check()
+        self._watcher.start()
+
+    def _outcome_locked(self):
+        if self._failure is None:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                self._failure = TransportCancelled
+            elif time.monotonic() >= self.deadline:
+                self._failure = TransportTimeout
+        return self._failure
+
+    def outcome(self):
+        with self._lock:
+            return self._outcome_locked()
+
+    def check(self):
+        outcome = self.outcome()
+        if outcome is not None:
+            raise outcome('transport failure')
+
+    def attach(self, sock):
+        with self._lock:
+            outcome = self._outcome_locked()
+            if outcome is not None:
+                raise outcome('transport failure')
+            self._socket = sock.dup()
+            sock.settimeout(max(0.001, self.deadline - time.monotonic()))
+
+    def _watch(self):
+        while not self._done.is_set():
+            with self._lock:
+                if self._outcome_locked() is not None:
+                    if self._socket is not None:
+                        try:
+                            self._socket.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass  # The peer or response may already have closed it.
+                    return
+            self._done.wait(min(0.05, max(0, self.deadline - time.monotonic())))
+
+    def close(self):
+        self._done.set()
+        if self._watcher.ident is not None:
+            self._watcher.join()
+        if self._socket is not None:
+            self._socket.close()
+
+
+class _OwnedConnection:
+    def __init__(self, *args, control, **kwargs):
+        super().__init__(*args, **kwargs)
+        create_connection = self._create_connection
+
+        def connect_socket(*args, **kwargs):
+            # getaddrinfo and TCP connect remain synchronous stdlib operations.
+            # Once connected, ownership begins before request writes/TLS handshake.
+            sock = create_connection(*args, **kwargs)
+            try:
+                control.attach(sock)
+            except BaseException:
+                sock.close()
+                raise
+            return sock
+
+        self._create_connection = connect_socket
+
+
+class _HTTPConnection(_OwnedConnection, http.client.HTTPConnection):
+    pass
+
+
+class _HTTPSConnection(_OwnedConnection, http.client.HTTPSConnection):
+    pass
+
+
+class _HTTPHandler(HTTPHandler):
+    def http_open(self, request):
+        return self.do_open(_HTTPConnection, request, control=request._transport_control)
+
+
+class _HTTPSHandler(HTTPSHandler):
+    def https_open(self, request):
+        return self.do_open(_HTTPSConnection, request, control=request._transport_control,
+                            context=self._context)
+
+
 def _read_bounded(stream, limit, deadline, cancel_event):
     parts, total = [], 0
     while True:
@@ -87,18 +194,30 @@ def _read_bounded(stream, limit, deadline, cancel_event):
 
 
 class UrllibTransport:
-    """Production transport. Never reads proxy settings and never follows redirects."""
+    """No proxies/redirects; cancellation and overall deadline interrupt socket I/O.
+
+    System DNS resolution cannot be interrupted. TCP connect uses the configured
+    socket timeout (potentially per resolved address); cancellation during either
+    phase is observed immediately after connect returns, before sending source.
+    Header/body waits and TLS handshake are actively interrupted by the watcher.
+    """
 
     def __init__(self, *, ssl_context=None):
         self._opener = build_opener(ProxyHandler({}), _NoRedirect(),
-                                    HTTPSHandler(context=ssl_context or ssl.create_default_context()))
+                                    _HTTPSHandler(context=ssl_context or ssl.create_default_context()),
+                                    _HTTPHandler())
 
     def send(self, request, *, cancel_event=None):
         deadline = time.monotonic() + request.timeout
+        control = _RequestControl(deadline, cancel_event)
         outcome = None
         try:
+            control.start()
             prepared = Request(request.url, data=request.body, method=request.method,
                                headers=dict(request.headers))
+            if prepared.type not in ('http', 'https'):
+                raise TransportUnavailable('transport failure')
+            prepared._transport_control = control
             try:
                 response = self._opener.open(prepared, timeout=request.timeout)
             except HTTPError as error:
@@ -107,6 +226,7 @@ class UrllibTransport:
                 status = response.status if hasattr(response, 'status') and response.status else response.code
                 headers = {k.lower(): v for k, v in response.headers.items()} if response.headers else {}
                 body = _read_bounded(response, request.max_response_bytes, deadline, cancel_event)
+                control.check()
             finally:
                 response.close()
             return TransportResponse(int(status), headers, body)
@@ -118,5 +238,8 @@ class UrllibTransport:
             outcome = TransportTimeout if isinstance(error.reason, (socket.timeout, TimeoutError)) else TransportUnavailable
         except (OSError, http.client.HTTPException, ValueError):
             outcome = TransportUnavailable
+        finally:
+            control.close()
+        outcome = control.outcome() or outcome
         # Raised outside the except suites so no request/response detail is chained.
         raise outcome('transport failure')
