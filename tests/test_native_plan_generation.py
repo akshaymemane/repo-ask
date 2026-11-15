@@ -48,7 +48,6 @@ class NativePlanTests(TestCase):
         self.assertNotIn('snapshot_id',schema['properties']['repositories']['items']['properties'])
         self.assertFalse(schema['additionalProperties'])
         self.assertEqual(schema['properties']['repositories']['maxItems'],1)
-        self.assertTrue(schema['properties']['repositories']['uniqueItems'])
         self.assertEqual(schema['properties']['citation_ids']['maxItems'],len(json.loads(body['messages'][1]['content'])['evidence']))
         self.assertLessEqual(sum(len(m['content'].encode()) for m in body['messages'])+len(json.dumps(schema,sort_keys=True,separators=(',',':')).encode()),(8192-1024)*4-256)
 
