@@ -756,3 +756,16 @@ dialog.modal::backdrop { background: #05060899; }
 .modal-title { font-size: 16px; font-weight: 600; }
 .modal-body { padding: 0 var(--space-4) var(--space-3); max-height: 60dvh; overflow: auto; }
 .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
+
+/* ---- Repository picker ---- */
+.modal-body input[type="search"] { width: 100%; padding: 8px 10px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--page); color: var(--text); }
+.picker-list { margin-top: var(--space-2); display: grid; gap: 2px; }
+.picker-group { margin: var(--space-3) 0 var(--space-1); font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.picker-row { display: flex; align-items: center; gap: var(--space-3); padding: 7px 8px; border-radius: 7px; cursor: pointer; }
+.picker-row:hover, .picker-row:focus-within { background: var(--raised); }
+.picker-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+.picker-name { flex: 1; min-width: 0; display: grid; }
+.picker-name strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.picker-name small { color: var(--muted); font-size: 12px; }
+.picker-empty, .picker-status { color: var(--muted); font-size: 13px; padding: var(--space-2) 0; }
+.picker-count { margin-right: auto; color: var(--muted); font-size: 12px; }
