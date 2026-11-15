@@ -33,6 +33,7 @@ ASSETS = {
     "/shell.js": ("shell.js", "text/javascript; charset=utf-8"),
     "/panel.js": ("panel.js", "text/javascript; charset=utf-8"),
     "/ui.js": ("ui.js", "text/javascript; charset=utf-8"),
+    "/repo-source.js": ("repo-source.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
