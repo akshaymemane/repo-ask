@@ -1,7 +1,6 @@
 // Repositories page: one list of GitHub catalog entries merged with index state.
 import { badge, button, createModal, el, relativeTime, toggleSwitch } from "./ui.js";
 import { repoStatus, readRepositoryPages } from "./repo-source.js";
-import { createContextPanel } from "./context.js";
 
 const enc = encodeURIComponent;
 const FILTERS = ["All", "In Ask", "Can change", "Problems"];
@@ -59,6 +58,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   let filter = "All";
   let rows = [];
   let pendingSaves = 0;
+  let embeddingVersionId = null;
   let timer = null;
   let sequence = 0;
 
@@ -111,7 +111,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     }
   }
 
-  function openDetails(row) {
+  function openDetails(row, message = "") {
     panel.openTab({ id: `repo:${row.id}`, title: row.name, render: (body) => {
       const c = row.context;
       const snapshot = c?.active_snapshot;
@@ -133,11 +133,93 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
         items.push(link);
       }
       body.replaceChildren(...items);
-      const context = createContextPanel({ request, isVisible: () => body.isConnected, repositoryId: row.id });
-      context.element.classList.add("detail-context");
-      body.append(context.element);
-      context.refresh();
+      detailControls(body, row, message);
     } });
+  }
+
+  // Index, ignored paths and local-index deletion for one repository. One change runs at a time.
+  function detailControls(body, row, message) {
+    const c = row.context, id = enc(row.id), output = el("p", message, "page-status");
+    output.setAttribute("role", "status");
+    let busy = false;
+    async function change(control, operation, done) {
+      if (busy) { output.textContent = "Another change for this repository is still saving."; return; }
+      busy = true; control.disabled = true; output.textContent = "Saving…";
+      try {
+        await operation();
+        const fresh = await request(`/api/repositories/${id}/context`);
+        if (fresh?.repository_id === row.id) { row.context = fresh; row.status = repoStatus(fresh, row.meta); }
+        if (body.isConnected) openDetails(row, done); else output.textContent = done;
+        refresh();
+      } catch (error) {
+        output.textContent = error.status === undefined ? `${error.message} The outcome is unknown; the saved state is reloading.` : error.message;
+        if (error.status === undefined) refresh();
+      } finally { busy = false; if (control.isConnected) control.disabled = false; }
+    }
+    if (!c) { body.append(el("p", "Turn on Use in Ask to index this repository.", "detail-muted")); return; }
+
+    const index = el("section", undefined, "detail-section");
+    index.append(el("h4", "Index"));
+    const run = c.active_run;
+    if (run) index.append(el("p", `Indexing · ${String(run.phase ?? run.state).replaceAll("_", " ")} · ${run.progress?.files ?? 0} files${run.retry_at ? ` · retry ${relativeTime(run.retry_at)}` : ""}${run.error_code ? ` · ${run.error_code.replaceAll("_", " ")}` : ""}`));
+    const actions = el("div", undefined, "detail-actions"); index.append(actions);
+    const reindex = button(actions, c.active_snapshot ? "Reindex now" : "Index now", (event, control) => change(control,
+      () => request(`/api/repositories/${id}/index`, "POST", embeddingVersionId ? { embedding_version_id: embeddingVersionId } : {}), "Indexing started. The current snapshot stays usable until the new one is ready."));
+    reindex.disabled = !c.eligible || Boolean(run);
+    if (!c.eligible) index.append(el("p", "Turn on Use in Ask to index this repository.", "detail-muted"));
+    if (run) {
+      const resume = run.state === "paused";
+      button(actions, resume ? "Resume" : "Pause", (event, control) => change(control,
+        () => request(`/api/index-jobs/${enc(run.id)}/${resume ? "resume" : "pause"}`, "POST", {}), resume ? "Indexing resumed." : "Indexing paused."));
+    }
+
+    const ignored = el("section", undefined, "detail-section");
+    ignored.append(el("h4", "Ignored paths"), el("p", "Ignored paths are left out of search and also hide earlier citations from them.", "detail-muted"));
+    const chips = el("div", undefined, "chip-row"), adder = el("div"); ignored.append(chips, adder);
+    chips.append(el("span", "Loading…", "detail-muted"));
+    const save = (control, next, done) => change(control, () => request(`/api/repositories/${id}/exclusions`, "PATCH", { exclusions: next }), done);
+    request(`/api/repositories/${id}/exclusions`).then((settings) => {
+      if (!body.isConnected) return;
+      if (!Array.isArray(settings?.exclusions)) throw new Error("Ignored paths are unavailable.");
+      const list = settings.exclusions;
+      chips.replaceChildren();
+      for (const pattern of list) {
+        const chip = el("span", undefined, "chip");
+        chip.append(el("span", pattern, "chip-label"));
+        const remove = button(chip, "×", (event, control) => save(control, list.filter((p) => p !== pattern), `Stopped ignoring ${pattern}.`), { variant: "ghost" });
+        remove.setAttribute("aria-label", `Stop ignoring ${pattern}`);
+        chips.append(chip);
+      }
+      if (!list.length) chips.append(el("span", "Nothing ignored.", "detail-muted"));
+      const add = button(chips, "＋ Add", () => {
+        const form = el("form", undefined, "detail-add");
+        const label = el("label", "Path or glob to ignore");
+        const field = el("input"); field.placeholder = "dist/**"; label.append(field);
+        const submit = el("button", "Ignore", "btn btn-primary"); submit.type = "submit";
+        form.append(label, submit);
+        button(form, "Cancel", () => { adder.replaceChildren(); add.hidden = false; add.focus(); }, { variant: "ghost" });
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          const value = field.value.trim();
+          if (!value) { output.textContent = "Enter a path or glob."; return; }
+          if (list.includes(value)) { output.textContent = `${value} is already ignored.`; return; }
+          save(submit, [...list, value], `Now ignoring ${value}.`);
+        });
+        add.hidden = true; adder.replaceChildren(form); field.focus();
+      }, { variant: "ghost" });
+    }).catch((error) => { if (body.isConnected) chips.replaceChildren(el("span", `Ignored paths unavailable: ${error.message}`, "detail-muted")); });
+
+    const danger = el("section", undefined, "detail-section danger-zone");
+    danger.append(el("h4", "Danger zone"));
+    button(danger, "Delete local index…", async (event, control) => {
+      const modal = createModal({ title: "Delete local index?" });
+      modal.body.append(el("p", `This deletes the cached source, summaries and search vectors for ${row.fullName} on this computer. Earlier citations to it become unavailable. GitHub is not changed.`));
+      button(modal.footer, "Cancel", () => modal.close(false));
+      button(modal.footer, "Delete local index", () => modal.close(true), { variant: "danger" });
+      modal.open(control);
+      if (await modal.closed) change(control, () => request(`/api/repositories/${id}/purge`, "POST", {}), "Local index deleted.");
+    });
+    body.append(index, ignored, danger, output);
   }
 
   function draw() {
@@ -209,6 +291,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       rows = [...github, ...others];
       more.textContent = `Loaded ${rows.length} repositories across ${catalog.pages || context.pages || 1} pages. Filters apply to these loaded results.`;
       const embedding = roles.roles?.embedding;
+      embeddingVersionId = embedding?.version_id ?? null;
       const keywordOnly = rows.some((row) => row.context?.active_snapshot && (row.context.active_snapshot.mode ?? row.context.active_snapshot.coverage?.mode) === "lexical_only");
       banner.replaceChildren();
       if (keywordOnly && !embedding?.version_id) {
