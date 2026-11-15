@@ -420,6 +420,8 @@ function showRoute(moveFocus) {
   for (const [id, info] of Object.entries(ROUTES)) byId(info.view).hidden = id !== route;
   shell.setRoute(route);
   if (route !== "ask") shell.setHeader({ title: ROUTES[route].label });
+  // Recent is scoped to the area: sessions replace conversations while in Sessions.
+  if (route === "ask" && previous === "sessions") persistentAsk?.refreshHistory();
   // Ask-only controls act on the current conversation.
   const onAsk = route === "ask";
   byId("show-repos").hidden = !onAsk || Boolean(persistentAsk);
@@ -848,7 +850,7 @@ function renderLegacyRepositories() {
 const connectedUI = { githubReady: false, providersReady: false, sessionsReady: false, executionReady: false, savedAskReady: false };
 const githubPanel = node("section", undefined, "connected-panel");
 const providerPanel = node("section", undefined, "connected-panel");
-const sessionsUI = createSessionPanel({host: byId("sessions-content"), onAvailable: () => {
+const sessionsUI = createSessionPanel({host: byId("sessions-content"), shell, onAvailable: () => {
   if (!connectedUI.sessionsReady) { exposeSessions(); if (state.route === "settings") renderSettings(); }
 }});
 const executionUI = createExecutionSettings({isVisible: () => state.route === "settings", onAvailable: () => { connectedUI.executionReady = true; }});

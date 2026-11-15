@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createBrowser, install, settle, input, visibleText} from './dom.mjs';
+import {createBrowser, install, settle, input, keydown, visibleText} from './dom.mjs';
 import {createSessionPanel, createExecutionSettings} from '../../repoask/web/sessions.js';
 import {createAskPanel} from '../../repoask/web/ask.js';
 const html = readFileSync(new URL('../../repoask/web/index.html', import.meta.url), 'utf8');
@@ -37,8 +37,10 @@ test('source loss clears old diff, questions, logs, messages and replays redacte
   if(u.includes('/messages?'))return {items:[{id:'m',created_at:1,delivery:'queued',content:allowed?'PRIVATE_MESSAGE':null}],next_cursor:null};
   return session('s',{source_available:allowed,pending_question:allowed?{id:'q',prompt:'PRIVATE_QUESTION'}:{id:'q',prompt:null,redacted:true}});
  });const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
- assert.match(visibleText(ui.panel),/PRIVATE_DIFF/);allowed=false;await ui.refresh();await settle();
- assert.doesNotMatch(visibleText(ui.panel),/PRIVATE_/);assert.match(visibleText(ui.panel),/redacted/);assert.equal(field(ui.panel,'Follow-up').disabled,true);assert.ok(b.requests.filter(r=>r.url.includes('events?after=0')).length>=2);ui.close();
+ const tab=name=>ui.panel.querySelectorAll('[role="tab"]').find(t=>t.textContent===name).click();
+ tab('Diff');assert.match(visibleText(ui.panel),/PRIVATE_DIFF/);tab('Checks');assert.match(visibleText(ui.panel),/PRIVATE_LOG/);allowed=false;await ui.refresh();await settle();
+ // Hidden tabs count too: revoked source must be gone from the DOM, not just out of view.
+ assert.doesNotMatch(ui.panel.textContent,/PRIVATE_/);assert.match(visibleText(ui.panel),/redacted/);assert.equal(field(ui.panel,'Follow-up').disabled,true);assert.ok(b.requests.filter(r=>r.url.includes('events?after=0')).length>=2);ui.close();
 });
 
 test('late responses and detached actions cannot repaint or mutate another session',async()=>{
@@ -124,7 +126,7 @@ test('message history pagination deduplicates and source revocation in a feed fe
   if(u.endsWith('/validations'))return {items:[{ordinal:1,status:'failed',command:['test'],output:'OLD_OUTPUT'}],fully_validated:false};
   return basic(m,u);
  });const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();button(ui.panel,'More messages').click();await settle();assert.equal(ui.panel.querySelectorAll('.session-message').length,1);
- deny=true;await ui.refresh();await settle();assert.doesNotMatch(visibleText(ui.panel),/OLD_/);assert.equal(field(ui.panel,'Follow-up').disabled,true);ui.close();
+ deny=true;await ui.refresh();await settle();assert.doesNotMatch(ui.panel.textContent,/OLD_/);assert.equal(field(ui.panel,'Follow-up').disabled,true);ui.close();
 });
 
 test('terminal refresh preserves focused message draft as read-only and no duplicate send starts while pending',async()=>{
@@ -154,11 +156,63 @@ test('missing sessions API shows one honest unavailable state with no dead contr
  assert.ok(host.querySelectorAll('a').find(a=>a.getAttribute('href')==='#/ask'));
 });
 
-test('session detail puts diff and checks in the right-hand column',async()=>{
- const b=createBrowser('<!doctype html><html><body><main id=host></main></body></html>',{hash:'#/sessions/s',respond(){}});install(b);
- const host=b.document.getElementById('host');
- const ui=createSessionPanel({host,request:async()=>new Promise(()=>{}),pollMs:5});ui.open();await settle();
- const panel=host.querySelector('.sessions-panel')??host.firstElementChild??host.children[0];
- assert.ok(panel.classList.contains('session-detail'));
- assert.deepEqual(panel.querySelectorAll('.session-side').map(n=>n.querySelector('h2').textContent),['Diff','Validation checks']);
+test('session detail has a center thread and a page-owned pane with Progress, Diff, Checks and PR tabs',async()=>{
+ const plan={id:'p',title:'Retry plan',latest_version_id:'v',version:{id:'v',version:3,content:{steps:[{title:'Bound retries'},{title:'Add test'}]}}};
+ const b=setup((m,u)=>{
+  if(u.startsWith('/api/plans/p'))return plan;
+  if(u.endsWith('/diff'))return {available:true,base_sha:'b'.repeat(40),files:[{path:'a.py',status:'modified',additions:4,deletions:1,diff:'+x'},{path:'b.py',status:'added',additions:2,deletions:0,diff:'+y'}]};
+  return basic(m,u);
+ });
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ const main=ui.panel.querySelector('.session-main'),pane=ui.panel.querySelector('.session-pane');
+ assert.ok(main&&pane);assert.equal(main.querySelector('.session-pane'),null);
+ assert.match(visibleText(main),/From plan v3 · Retry plan/);
+ assert.equal(field(main,'Follow-up').getAttribute('placeholder'),'Guide the agent while it works…');
+ const tabs=pane.querySelectorAll('[role="tab"]');assert.deepEqual(tabs.map(t=>t.textContent),['Progress','Diff','Checks','PR']);
+ assert.match(visibleText(pane),/Bound retries/);assert.doesNotMatch(visibleText(pane),/a\.py/);
+ tabs[0].focus();keydown(tabs[0],'ArrowRight');await settle();
+ assert.equal(b.document.activeElement.textContent,'Diff');assert.match(visibleText(pane),/\+6 −1 in 2 files/);assert.match(visibleText(pane),/a\.py/);
+ keydown(b.document.activeElement,'End');await settle();
+ assert.match(visibleText(pane),/Publishing isn't available yet/);assert.match(visibleText(pane),/Saved publication policy: manual/);
+ // The pane is part of the page: Escape and navigation within the session never dismiss it.
+ keydown(b.document.activeElement,'Escape');assert.equal(pane.hidden,false);assert.ok(pane.isConnected);ui.close();
+});
+
+test('Stop sits beside the composer while active and is absent once terminal and contained',async()=>{
+ let s=session('s',{state:'running'});const b=setup((m,u)=>u==='/api/sessions/s'?s:basic(m,u));
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ const stop=()=>button(ui.panel,'Stop session');
+ assert.equal(stop().hidden,false);assert.ok(stop().closest('.session-composer'));
+ s=session('s',{state:'waiting_for_user'});await ui.refresh();assert.equal(stop().hidden,false);
+ s=session('s',{state:'completed',runner:{containment:'confirmed'}});await ui.refresh();assert.equal(stop().hidden,true);
+ s=session('s',{state:'failed',runner:{containment:'failed'}});await ui.refresh();assert.equal(stop().hidden,false);ui.close();
+});
+
+test('a question card sends an offered choice to that question and Reply… targets the composer',async()=>{
+ const sends=[];const b=setup((m,u,o)=>{
+  if(m==='POST'&&u.endsWith('/messages')){sends.push(JSON.parse(o.body));return {id:'m',...sends.at(-1),delivery:'delivered',created_at:1};}
+  if(u==='/api/sessions/s')return session('s',{state:'waiting_for_user',pending_question:{id:'q',prompt:'Which retry limit?',options:['3 attempts','5 attempts']}});
+  return basic(m,u);
+ });
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ const card=ui.panel.querySelector('.question-card');assert.match(visibleText(card),/Which retry limit\?/);
+ button(card,'5 attempts').click();await settle();
+ assert.equal(sends.length,1);assert.equal(sends[0].content,'5 attempts');assert.equal(sends[0].question_id,'q');
+ button(ui.panel.querySelector('.question-card'),'Reply…').click();assert.equal(b.document.activeElement,field(ui.panel,'Follow-up'));assert.equal(field(ui.panel,'Message target').value,'q');ui.close();
+});
+
+test('lost connectivity keeps the last confirmed state and says Reconnecting',async()=>{
+ let down=false;const b=setup((m,u)=>{if(down)throw new Error('offline');return basic(m,u);});
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ down=true;await ui.refresh();await settle();
+ assert.match(visibleText(ui.panel),/Reconnecting… Last update now/);assert.match(visibleText(ui.panel),/running · agent/);ui.close();
+});
+
+test('the rail Recent list shows sessions with phase and elapsed time while in Sessions',async()=>{
+ const recent=[];const shell={setHeader(){},setRecent(items,opts){recent.push({items,opts});}};
+ const b=setup((m,u)=>u.includes('/api/sessions?')?{items:[session('s1',{state:'waiting_for_user'}),session('s2',{state:'completed'})],next_cursor:null}:basic(m,u),'#/sessions');
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),shell,pollMs:1e6});ui.open();await settle();
+ const last=recent.at(-1);assert.equal(last.opts.heading,'Recent sessions');
+ assert.deepEqual(last.items.map(i=>i.href),['#/sessions/s1','#/sessions/s2']);
+ assert.match(last.items[0].meta,/needs your input · \d+ s/);assert.equal(last.items[0].attention,true);assert.match(last.items[1].meta,/completed/);ui.close();
 });

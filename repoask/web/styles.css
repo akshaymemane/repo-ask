@@ -906,8 +906,22 @@ dialog.modal::backdrop { background: #05060899; }
 .setup-pick { display: flex; gap: var(--space-2); align-items: center; font-size: 13px; }
 .setup-host + .landing-title { margin-top: var(--space-5); }
 
-/* ---- Session page: activity in the middle, diff and checks on the right ---- */
-.sessions-panel.session-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); grid-auto-flow: row dense; column-gap: var(--space-5); align-items: start; }
-.sessions-panel.session-detail > * { grid-column: 1; }
-.sessions-panel.session-detail > .session-side { grid-column: 2; position: sticky; top: calc(var(--top-height) + var(--space-3)); max-height: calc(100dvh - var(--top-height) - var(--space-5)); overflow: auto; }
-@media (max-width: 1000px) { .sessions-panel.session-detail { grid-template-columns: minmax(0, 1fr); } .sessions-panel.session-detail > .session-side { grid-column: 1; position: static; max-height: none; } }
+/* ---- Session page: thread in the middle, a details pane the page owns on the right ---- */
+.sessions-panel.session-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%); column-gap: var(--space-5); align-items: start; }
+.session-main { display: grid; gap: var(--space-4); min-width: 0; }
+.session-top { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; }
+.session-origin { margin: 0; }
+.session-pane { position: sticky; top: calc(var(--top-height) + var(--space-3)); max-height: calc(100dvh - var(--top-height) - var(--space-5)); overflow: auto; display: grid; gap: var(--space-3); min-width: 0; }
+.session-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); }
+.session-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: var(--space-2) var(--space-3); color: inherit; cursor: pointer; font: inherit; }
+.session-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent); }
+.question-card { border: 1px solid var(--accent); background: var(--accent-tint); border-radius: 12px; padding: var(--space-4); }
+.question-card h2 { margin-top: 0; font-size: 1rem; }
+.question-choices { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.session-composer { position: sticky; bottom: 0; display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.session-composer label { display: grid; gap: var(--space-1); }
+.session-composer-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.activity-group > summary { font-weight: 600; }
+.diff-totals { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* Narrow widths: the pane drops below the thread; status, phase and Stop stay in view. */
+@media (max-width: 1000px) { .sessions-panel.session-detail { grid-template-columns: minmax(0, 1fr); } .session-pane { position: static; max-height: none; } }
