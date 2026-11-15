@@ -727,3 +727,32 @@ dialog::backdrop { background: #070810be; }
   .page-top { padding: 0 var(--space-4); }
   .side-panel { position: fixed; inset: 0 0 0 auto; width: min(100vw, 450px); z-index: 20; box-shadow: -15px 0 55px #07080ca0; }
 }
+
+/* ---- Shared primitives (ui.js) ---- */
+.btn {
+  min-height: 32px; padding: 5px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--raised); color: var(--text); font-size: 13px;
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn-danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.badge { display: inline-block; font-size: 11px; line-height: 1.6; border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+.badge-ok { color: var(--success); }
+.badge-warn { color: var(--warning); }
+.badge-info { color: var(--info); }
+.badge-danger { color: var(--danger); }
+.badge-off { color: var(--muted); }
+.switch-field { display: inline-flex; align-items: center; gap: var(--space-2); }
+.switch { position: relative; width: 34px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: var(--line); }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .12s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { left: 17px; }
+.switch[aria-busy="true"] { opacity: .7; }
+.switch-error { color: var(--danger); font-size: 12px; }
+dialog.modal { width: min(92vw, 480px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); }
+dialog.modal::backdrop { background: #05060899; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-4) var(--space-4) var(--space-2); }
+.modal-title { font-size: 16px; font-weight: 600; }
+.modal-body { padding: 0 var(--space-4) var(--space-3); max-height: 60dvh; overflow: auto; }
+.modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
