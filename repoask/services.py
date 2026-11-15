@@ -38,6 +38,7 @@ class ApplicationServices:
         self.github = GitHubService(platform.store, platform.jobs, platform.secrets, transport=github_transport)
         self.providers = ProviderService(platform.store, platform.secrets, transport=provider_transport)
         self.indexing = self.routing = self.plans = self.conversations = None
+        self.execution_profiles = self.sessions = None
         self.scheduler = None
         self.legacy_index = None
         self.legacy_sources = {}
@@ -57,7 +58,9 @@ class ApplicationServices:
     def _rebuild_api(self):
         self.api = FeatureAPI(self.platform, self.github, self.providers,
                               indexing=self.indexing, routing=self.routing, plans=self.plans,
-                              conversations=self.conversations, purge_context=self.purge_context, select_context=self.select_context)
+                              conversations=self.conversations, purge_context=self.purge_context,
+                              select_context=self.select_context,
+                              execution_profiles=self.execution_profiles, sessions=self.sessions)
 
     def enable_context(self, indexing):
         self._before_start()
@@ -75,6 +78,37 @@ class ApplicationServices:
         self.handlers['ask.answer'] = conversations.run_answer
         self.github.register_purge_hook('ask', conversations.purge_repository)
         self._rebuild_api()
+
+    def enable_execution(self, execution_profiles=None, sessions=None, *, data_dir=None):
+        """Compose the dedicated execution runtime before application workers start.
+
+        Tests may inject the two services as a pair. Production constructs the
+        reviewed implementations over the already configured Context and Ask
+        services; importing or configuring them starts no Docker/model work.
+        """
+        self._before_start()
+        if self.indexing is None or self.plans is None:
+            raise RuntimeError('Configure Context and Ask before execution.')
+        if self.execution_profiles is not None or self.sessions is not None:
+            raise RuntimeError('Execution services already configured.')
+        if (execution_profiles is None) != (sessions is None):
+            raise ValueError('Inject execution profiles and sessions together.')
+        if execution_profiles is None:
+            from .execution.profiles import ExecutionProfileService
+            from .sessions import SessionService
+            execution_profiles = ExecutionProfileService(self.platform, self.providers)
+            sessions = SessionService(self.platform, self.indexing, self.github, self.providers,
+                                      self.plans, execution_profiles, data_dir=data_dir)
+        self.execution_profiles, self.sessions = execution_profiles, sessions
+        self._rebuild_api()
+        return self.execution_status()
+
+    def execution_status(self):
+        if self.sessions is None:
+            return {'status': 'not_available',
+                    'reason': 'Implementation sessions are not configured.'}
+        runtime = self.sessions.runtime_status() if callable(getattr(self.sessions, 'runtime_status', None)) else {'status': 'stopped'}
+        return {'status': 'available', 'runtime': runtime}
 
     @staticmethod
     def _bundled_demos():
@@ -234,6 +268,8 @@ class ApplicationServices:
             raise RuntimeError('Services already started.')
         self.worker = Worker(self.platform.jobs, {kind: self._maintained(fn) for kind, fn in self.handlers.items()},
                              worker_id=new_id('worker'), lease_ms=120000)
+        if self.sessions is not None:
+            self.sessions.start()
         self.thread = Thread(target=self._run, name='opendevin-background-jobs')
         self.thread.start()
 
@@ -261,6 +297,8 @@ class ApplicationServices:
 
     def close(self):
         self.stop_event.set()
+        if self.sessions is not None:
+            self.sessions.close()
         if self.thread is not None:
             # Current bounded handler settles before its Store is closed. Interrupted
             # processes recover their durable lease on the next application start.

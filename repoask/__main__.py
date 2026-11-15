@@ -107,6 +107,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                         result["providers"]["profiles"] = {"status": "available", **services.providers.status_summary()}
                         result["navigation"][1]["status"] = "available"
                         result["navigation"][2]["status"] = "available"
+                        result["execution"] = services.execution_status()
+                        if services.sessions is not None:
+                            result["navigation"].append({"id": "sessions", "label": "Sessions",
+                                                         "href": "#/sessions", "status": "available"})
                     else:
                         result["components"]["jobs"]["workers_running"] = int(services.running)
                         result["components"]["jobs"]["error_code"] = services.error_code
@@ -309,6 +313,7 @@ def main():
             plans = PlanService(platform.store, indexing, services.providers)
             conversations = ConversationService(platform.store, platform.jobs, indexing, services.providers, routing, plans)
             services.enable_ask(routing, plans, conversations)
+            services.enable_execution(data_dir=args.data_dir.expanduser() if args.data_dir else None)
             server.index = index
             server.platform = platform
             server.model = model
