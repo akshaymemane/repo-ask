@@ -47,6 +47,11 @@ BASE_FILES = {
     'config/token.txt': b'not a real token\n',
     'leak.py': b'KEY = "AKIA' + b'ABCDEFGHIJKLMNOP' + b'"\n',
     'node_modules/pkg/index.js': b'module.exports = 1\n',
+    'run.sh': b'#!/bin/sh\necho run\n',
+}
+CONTEXT_FILES = {
+    'shared/money.py': b'def round_half_even(x):\n    return round(x)\n',
+    'secrets.txt': b'context secret\n',
 }
 
 
@@ -74,31 +79,45 @@ def git_sha(data):
 
 
 class Remote:
-    """Synthetic GitHub REST transport (App, installation, catalog, trees, blobs)."""
+    """Synthetic GitHub REST transport (App, installation, catalog, trees, blobs).
+
+    repo1 (gh:1) is the writable fixture; repo2 (gh:2) is a related read-only context.
+    """
 
     def __init__(self, files=None):
         self.files = dict(BASE_FILES if files is None else files)
         self.symlinks = {'link.py': 'calc.py'}
+        self.executable = {'run.sh'}
         self.commit = 'c' * 40
         self.head = 'c' * 40
         self.truncate = False
         self.calls, self.token_permissions = [], []
         self.lock = threading.Lock()
+        self.repo2 = {'files': dict(CONTEXT_FILES), 'commit': 'd' * 40}
 
-    def tree(self, prefix):
+    def _repo(self, name):
+        if name == 'repo1':
+            return {'files': self.files, 'commit': self.commit, 'symlinks': self.symlinks, 'head': self.head}
+        if name == 'repo2':
+            return {'files': self.repo2['files'], 'commit': self.repo2['commit'], 'symlinks': {}, 'head': self.repo2['commit']}
+        return None
+
+    def tree(self, prefix, repo=None):
+        repo = repo or self._repo('repo1')
         entries, dirs = [], set()
-        for path, data in sorted(self.files.items()):
+        for path, data in sorted(repo['files'].items()):
             if not path.startswith(prefix):
                 continue
             rest = path[len(prefix):]
             if '/' in rest:
                 dirs.add(rest.split('/', 1)[0])
             else:
-                entries.append({'path': rest, 'type': 'blob', 'mode': '100644', 'sha': git_sha(data), 'size': len(data)})
+                mode = '100755' if path in self.executable else '100644'
+                entries.append({'path': rest, 'type': 'blob', 'mode': mode, 'sha': git_sha(data), 'size': len(data)})
         for name in sorted(dirs):
             entries.append({'path': name, 'type': 'tree', 'mode': '040000', 'sha': git_sha(('tree:' + prefix + name).encode())})
         if prefix == '':
-            for name, target in self.symlinks.items():
+            for name, target in repo['symlinks'].items():
                 entries.append({'path': name, 'type': 'blob', 'mode': '120000', 'sha': git_sha(target.encode()), 'size': len(target)})
         return entries
 
@@ -120,29 +139,38 @@ class Remote:
         if path.startswith('/installation/repositories?'):
             page = int(path.rsplit('page=', 1)[1])
             repos = [{'id': 1, 'owner': {'login': 'owner'}, 'name': 'repo1', 'default_branch': 'main',
-                      'description': 'synthetic calc', 'private': True, 'topics': []}] if page == 1 else []
+                      'description': 'synthetic calc', 'private': True, 'topics': []},
+                     {'id': 2, 'owner': {'login': 'owner'}, 'name': 'repo2', 'default_branch': 'main',
+                      'description': 'synthetic shared library', 'private': True, 'topics': []}] if page == 1 else []
             return Response(200, {}, {'repositories': repos})
-        if path.startswith('/repos/owner/repo1/commits/'):
-            return Response(200, {}, {'sha': self.head})
-        if path.startswith('/repos/owner/repo1/git/trees/'):
-            sha = path.rsplit('/', 1)[1]
-            if sha == self.commit:
-                return Response(200, {}, {'sha': sha, 'tree': self.tree(''), 'truncated': self.truncate})
-            prefixes = {git_sha(('tree:' + p).encode()): p for p in self._dir_prefixes()}
-            if sha in prefixes:
-                return Response(200, {}, {'sha': sha, 'tree': self.tree(prefixes[sha] + '/'), 'truncated': False})
-            return Response(404, {}, {})
-        if path.startswith('/repos/owner/repo1/git/blobs/'):
-            sha = path.rsplit('/', 1)[1]
-            for data in self.files.values():
-                if git_sha(data) == sha:
-                    return Response(200, {}, {'encoding': 'base64', 'size': len(data), 'content': base64.b64encode(data).decode()})
-            return Response(404, {}, {})
+        parts = path.split('/')
+        if len(parts) > 4 and parts[1] == 'repos' and parts[2] == 'owner':
+            repo = self._repo(parts[3])
+            if repo is None:
+                return Response(404, {}, {})
+            if parts[4] == 'commits':
+                return Response(200, {}, {'sha': repo['head']})
+            sha = parts[-1]
+            if parts[4:6] == ['git', 'trees']:
+                if sha == repo['commit']:
+                    return Response(200, {}, {'sha': sha, 'tree': self.tree('', repo),
+                                             'truncated': self.truncate and parts[3] == 'repo1'})
+                prefixes = {git_sha(('tree:' + p).encode()): p for p in self._dir_prefixes(repo['files'])}
+                if sha in prefixes:
+                    return Response(200, {}, {'sha': sha, 'tree': self.tree(prefixes[sha] + '/', repo), 'truncated': False})
+                return Response(404, {}, {})
+            if parts[4:6] == ['git', 'blobs']:
+                for data in repo['files'].values():
+                    if git_sha(data) == sha:
+                        return Response(200, {}, {'encoding': 'base64', 'size': len(data),
+                                                 'content': base64.b64encode(data).decode()})
+                return Response(404, {}, {})
         raise AssertionError('unexpected request ' + path)
 
-    def _dir_prefixes(self):
+    @staticmethod
+    def _dir_prefixes(files):
         out = set()
-        for path in self.files:
+        for path in files:
             parts = path.split('/')
             for i in range(1, len(parts)):
                 out.add('/'.join(parts[:i]))
@@ -165,6 +193,9 @@ class World:
         self.children = []
         self.adapter_status = None
         self.cli_version = CLI_VERSION
+        self.container_commands = {}
+        self.provision_error = None
+        self.snapshot_fails = False
 
 
 class FakeRunner:
@@ -186,14 +217,18 @@ class FakeRunner:
             raise RunnerError('not_running')
         return container
 
-    def provision(self, session_id, files, *, image, limits):
+    def provision(self, session_id, files, *, image, limits, file_modes=None, context=None):
         if any(h.session_id == session_id for h in self.list_owned()):
             raise RunnerError('session_exists')
-        for path in files:
+        for path in list(files) + list(context or {}):
             validate_relative_path(path)
+        if self.world.provision_error:
+            raise RunnerError(self.world.provision_error)
         cid = secrets.token_hex(32)
+        modes = {p: m for p, m in (file_modes or {}).items()}
         with self.world.lock:
             self.world.containers[cid] = {'instance': self.instance_id, 'session': session_id, 'files': dict(files),
+                                          'modes': modes, 'context': dict(context or {}), 'context_given': context is not None,
                                           'running': True, 'image': image, 'limits': dict(limits)}
             self.world.provisioned.append(session_id)
         return RunnerHandle(self.instance_id, session_id, cid, image)
@@ -209,7 +244,10 @@ class FakeRunner:
         return files[path]
 
     def write_file(self, handle, path, content):
-        self._c(handle)['files'][validate_relative_path(path)] = bytes(content)
+        container = self._c(handle)
+        path = validate_relative_path(path)
+        container['files'][path] = bytes(content)
+        container['modes'].setdefault(path, '100644')
 
     def delete_file(self, handle, path):
         files = self._c(handle)['files']
@@ -222,12 +260,26 @@ class FakeRunner:
         handler = self.world.commands.get(key)
         if argv[:1] == ['grep']:
             return {'exit_code': 1, 'stdout': '', 'stderr': '', 'timed_out': False, 'truncated': False}
+        if argv[:1] == ['cat'] and len(argv) == 2 and argv[1].startswith('/context/'):
+            data = container['context'].get(argv[1][len('/context/'):])
+            if data is None:
+                return {'exit_code': 1, 'stdout': '', 'stderr': 'No such file', 'timed_out': False, 'truncated': False}
+            return {'exit_code': 0, 'stdout': data.decode(), 'stderr': '', 'timed_out': False, 'truncated': False}
+        rich = self.world.container_commands.get(key)
+        if rich is not None:
+            return rich(container)
         if handler is None:
             return {'exit_code': 127, 'stdout': '', 'stderr': 'sh: command not found', 'timed_out': False, 'truncated': False}
         return handler(container['files'])
 
-    def snapshot(self, handle):
-        return dict(self._c(handle)['files'])
+    def snapshot(self, handle, *, include_modes=False):
+        if self.world.snapshot_fails:
+            raise RunnerError('snapshot_failed')
+        container = self._c(handle)
+        files = dict(container['files'])
+        if include_modes:
+            return files, {p: container['modes'].get(p, '100644') for p in files}
+        return files
 
     def stop(self, handle):
         self.world.stop_calls.append(handle.session_id)
@@ -306,6 +358,12 @@ class ScriptedAgent:
                 if isinstance(step, tuple) and step[0] == 'say':
                     emit('assistant_summary', {'text': step[1]})
                     continue
+                if step == 'ack':
+                    import re as _re
+                    seen = sorted({m for _, r in world.results if isinstance(r, dict)
+                                   for m in _re.findall(r'\[message:smsg_[0-9a-f]+:ack\]', r.get('text', ''))})
+                    emit('assistant_summary', {'text': 'Noted the update. ' + ' '.join(seen)})
+                    continue
                 if callable(step):
                     step()
                     continue
@@ -342,7 +400,9 @@ class FakeProfiles:
         self.error = None
         self.tests = []
         self.store = store
-        self.version = {
+        self.active = 'epv_1'
+        self.versions = {}
+        self.versions['epv_1'] = {
             'id': 'epv_1', 'profile_id': 'prof_1', 'version': 1, 'adapter': 'claude_code', 'auth_mode': 'cli_login',
             'config': {'image': 'python:3.12-slim', 'allow_external_source': True,
                        'runner_limits': {'wall_seconds': 120},
@@ -351,27 +411,54 @@ class FakeProfiles:
             'check': {'status': 'passed', 'image_id': IMAGE_ID, 'cli_version': CLI_VERSION,
                       'capabilities': dict(ScriptedAgent.capabilities), 'checked_at': 1, 'error_code': None}}
 
+    @property
+    def version(self):
+        return self.versions[self.active]
+
+    def add_version(self, **config):
+        """Producer-style update: a new immutable active version (rows persisted)."""
+        number = len(self.versions) + 1
+        ident = 'epv_%d' % number
+        new = copy.deepcopy(self.version)
+        new.update(id=ident, version=number)
+        for key, value in config.items():
+            new['config'][key] = value
+        self.versions[ident] = new
+        self.active = ident
+        self.persist()
+        return new
+
     def persist(self):
         """Write the frozen schema-9 rows the real producer owns (FK targets for sessions)."""
         import json as _json
         with self.store.transaction() as db:
-            db.execute("INSERT OR IGNORE INTO execution_profiles VALUES ('prof_1','synthetic','epv_1',NULL,1,1)")
-            db.execute("INSERT OR IGNORE INTO execution_profile_versions VALUES ('epv_1','prof_1',1,'claude_code','cli_login',?,1)",
-                       (_json.dumps(self.version['config']),))
-            db.execute("INSERT OR IGNORE INTO execution_profile_checks VALUES ('epv_1',NULL,'passed',?,NULL,1)",
-                       (_json.dumps(self.version['check']),))
+            db.execute("INSERT OR IGNORE INTO execution_profiles VALUES ('prof_1','synthetic',?,NULL,1,1)", (self.active,))
+            db.execute('UPDATE execution_profiles SET active_version_id=? WHERE id=?', (self.active, 'prof_1'))
+            for ident, version in self.versions.items():
+                db.execute("INSERT OR IGNORE INTO execution_profile_versions VALUES (?,'prof_1',?,'claude_code','cli_login',?,1)",
+                           (ident, version['version'], _json.dumps(version['config'])))
+                db.execute("INSERT OR IGNORE INTO execution_profile_checks VALUES (?,NULL,'passed',?,NULL,1)",
+                           (ident, _json.dumps(version['check'])))
 
     def require_usable(self, profile_id):
-        if self.error:
-            raise ProfileError(self.error)
         if profile_id != 'prof_1':
             raise ProfileError('not_found')
-        return copy.deepcopy(self.version)
+        return self.require_version_usable(self.active)
+
+    def require_version_usable(self, version_id):
+        """Pinned config/budget/image; CURRENT consent/deletion/test status gate use."""
+        if self.error:
+            raise ProfileError(self.error)
+        if version_id not in self.versions:
+            raise ProfileError('not_found')
+        if self.versions[self.active]['config'].get('allow_external_source') is not True:
+            raise ProfileError('execution_external_source_denied')
+        return copy.deepcopy(self.versions[version_id])
 
     def get_version(self, version_id):
-        if version_id != self.version['id']:
+        if version_id not in self.versions:
             raise ProfileError('not_found')
-        return copy.deepcopy(self.version)
+        return copy.deepcopy(self.versions[version_id])
 
     def run_test(self, job, context):
         self.tests.append(job.id)

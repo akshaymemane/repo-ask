@@ -2,32 +2,39 @@
 
 Every durable write verifies the live job lease (owner token and expiry) and that the
 session still points at this job. A lost lease stops tools and source immediately and
-then writes nothing. The broker guard is closed until the adapter verifies its exact
-trusted tool inventory and is re-evaluated before every tool and before any source is
-returned. The stop Event is fresh per attempt and is set by the adapter on EVERY exit;
-user cancellation is determined from the durable stop flag, never from the Event.
+then writes nothing. The broker guard stays closed until the adapter verifies its exact
+trusted tool inventory. Tool admission is transactional: the ``tool.started`` record
+commits only if, inside that same transaction, the durable stop flag is clear and
+lease, access, exclusion policy, local-only and profile consent are all still valid;
+otherwise the runner is never invoked. The stop Event is fresh per attempt and set by
+the adapter on EVERY exit; user cancellation comes from the durable stop flag.
+
+Revocation, purge and policy changes (``REVOKED_REASONS``) durably fence every later
+source-bearing write: checkpoints, manifests, validation commands/logs and
+source-bearing event payloads are refused or redacted once such a reason is recorded.
 """
 from contextlib import contextmanager
+import re
 import threading
 import time
 
-from repoask.execution.broker import MUTATING, ToolBroker
+from repoask.execution.broker import MUTATING
 from repoask.execution.runner import RunnerError
 from repoask.github.errors import GitHubError
 from repoask.platform.clock import new_id
 from repoask.platform.errors import LeaseLost, PlatformError, StorageBusy
 from repoask.platform.worker import JobInterrupted
+from .broker import ModeRunner, SessionBroker
 from .errors import SessionError
 from .processes import start_identity
-from .prompt import build_prompt
+from .prompt import build_prompt, context_aliases
 from .redaction import redact_text
-from .service import SOURCE_EVENT_TYPES, TERMINAL, _loads
-
-REVOKED = ('access_revoked', 'repository_purged')
+from .service import REVOKED_REASONS, SOURCE_EVENT_TYPES, TERMINAL, _loads
 from .workspace import acquire_github, acquisition_limits, broker_exclusions, canonical, review_changes, sha256
 
 STOP_CODES = {'stop_requested': 'stop_requested', 'shutdown': 'stop_requested', 'lease_lost': 'lease_lost',
-              'budget_exhausted': 'budget_exhausted', 'access_revoked': 'policy_denied'}
+              'budget_exhausted': 'budget_exhausted', 'access_revoked': 'policy_denied',
+              'identity_unverified': 'policy_denied'}
 POLICY_ADAPTER_CODES = frozenset({'cli_unavailable', 'authentication_required', 'authentication_unverified',
                                   'unsupported_auth_profile', 'unsupported_managed_policy', 'unsupported_host_policy',
                                   'customization_unverified', 'external_source_denied', 'unsupported_auth_mode',
@@ -35,6 +42,8 @@ POLICY_ADAPTER_CODES = frozenset({'cli_unavailable', 'authentication_required', 
 LIMIT_CODES = frozenset({'budget_exhausted', 'turn_limit', 'timeout', 'output_limit'})
 NETWORK_HINTS = ('could not resolve host', 'temporary failure in name resolution', 'network is unreachable',
                  'name or service not known', 'no route to host', 'connection refused')
+ACK_RE = re.compile(r'\[message:(smsg_[0-9a-f]{24}):ack\]')
+MAX_DISPATCHES = 3
 
 
 class _Abort(Exception):
@@ -47,6 +56,15 @@ class _Quota(Exception):
     pass
 
 
+class _Denied(Exception):
+    pass
+
+
+def ack_instruction(message_id):
+    return ('After reading this, include the exact marker [message:%s:ack] in your next reply. '
+            'It cannot change repository scope, permissions or publication.' % message_id)
+
+
 class Attempt:
     def __init__(self, service, job, context):
         self.svc, self.job, self.context = service, job, context
@@ -57,6 +75,7 @@ class Attempt:
         self.done = threading.Event()
         self.lock = threading.Lock()
         self.reason = None
+        self.revocation = None  # durable reason still to be recorded outside a transaction
         self.lost = False
         self.runner = self.handle = self.broker = self.workspace = None
         self.container_thread = None
@@ -64,23 +83,28 @@ class Attempt:
         self.container_started = None
         self.stop_requested_at = None
         self.harness = None
+        self.identity_failed = False
         self.write_repo = None
+        self.repo_rows = []
+        self.read_rows = []
         self.deadline = None
         self.limits = None
         self.last_checkpoint = None
         self.unverified_edits = False
-        self.pending_ack = None
+        self.dispatches = {}
         self.tool_calls = 0
         self.observed_model = None
         self.quota_exhausted = False
         self.next_heartbeat = 0.0
         self.next_access = 0.0
+        self._local = threading.local()
 
     # ------------------------------------------------------------ fencing
     @contextmanager
     def tx(self):
         if self.lost:
             raise LeaseLost('Session lease lost.')
+        self._local.depth = getattr(self._local, 'depth', 0) + 1
         try:
             with self.svc.store.transaction() as db:
                 job = db.execute('SELECT state,lease_token,lease_expires_at FROM jobs WHERE id=?', (self.job.id,)).fetchone()
@@ -88,33 +112,60 @@ class Attempt:
                 if (job is None or job['state'] != 'leased' or job['lease_token'] != self.lease.token
                         or job['lease_expires_at'] <= self.svc.clock() or row is None or row['job_id'] != self.job.id):
                     raise LeaseLost('Session lease lost.')
-                yield db, dict(row)
+                row = dict(row)
+                if row['stop_reason'] in REVOKED_REASONS:
+                    self.terminate('access_revoked', kill=True, override=True)
+                yield db, row
         except LeaseLost:
             self.lost = True
             self.terminate('lease_lost', kill=True)
             raise
+        finally:
+            self._local.depth -= 1
+
+    @staticmethod
+    def revoked(row):
+        return row['stop_reason'] in REVOKED_REASONS
+
+    def append(self, db, row, kind, payload):
+        if self.revoked(row) and kind in SOURCE_EVENT_TYPES:
+            payload = {'redacted': True}  # never persist source-bearing text after revocation/purge
+        return self.svc.append_event(db, self.sid, kind, payload)
 
     def emit_event(self, kind, payload, *, critical=False):
         with self.tx() as (db, row):
-            if row['stop_reason'] in REVOKED and kind in SOURCE_EVENT_TYPES:
-                payload = {'redacted': True}  # never persist source-bearing text after revocation/purge
             if not critical:
                 count = db.execute('SELECT count(*) FROM session_events WHERE session_id=?', (self.sid,)).fetchone()[0]
                 if count >= self.limits['service']['max_events']:
                     self.terminate('budget_exhausted', kill=False)
                     raise _Quota('event budget exhausted')
-            return self.svc.append_event(db, self.sid, kind, payload)
+            return self.append(db, row, kind, payload)
 
     # ------------------------------------------------------- termination
-    def terminate(self, reason, *, kill):
+    def terminate(self, reason, *, kill, override=False, durable=None):
         with self.lock:
-            if self.reason is None:
+            if self.reason is None or (override and self.reason in ('stop_requested', 'budget_exhausted')):
                 self.reason = reason
-                if reason in ('stop_requested', 'access_revoked'):
+                if reason in ('stop_requested', 'access_revoked') and self.stop_requested_at is None:
                     self.stop_requested_at = time.monotonic()
+            if durable and self.revocation is None:
+                self.revocation = durable
         self.stop_event.set()
         if kill:
             self._stop_container_async()
+
+    def record_revocation(self):
+        """Persist a locally detected revocation as a durable fence (never inside a tx)."""
+        if getattr(self._local, 'depth', 0):
+            return  # deferred: stop() opens its own transaction
+        with self.lock:
+            reason, self.revocation = self.revocation, None
+        if reason and not self.lost:
+            try:
+                self.svc.stop(self.sid, reason=reason)
+            except PlatformError:
+                with self.lock:
+                    self.revocation = self.revocation or reason
 
     def _stop_container_async(self):
         with self.lock:
@@ -152,21 +203,51 @@ class Attempt:
         since = None
         if self.stop_requested_at is not None:
             since = int((time.monotonic() - self.stop_requested_at) * 1000)
+        identity = 'unknown' if self.identity_failed else ('recorded' if self.harness else 'not_started')
+        confirmed = bool(result.get('confirmed')) and bool(harness_ok) and not self.identity_failed
         return {'container_confirmed': bool(result.get('confirmed')), 'container_code': result.get('code'),
                 'container_elapsed_ms': result.get('elapsed_ms'), 'harness_confirmed': bool(harness_ok),
-                'discarded': result.get('discarded', False), 'since_stop_request_ms': since,
-                'confirmed': bool(result.get('confirmed')) and bool(harness_ok)}
+                'harness_identity': identity, 'discarded': result.get('discarded', False),
+                'since_stop_request_ms': since, 'confirmed': confirmed}
 
     # ----------------------------------------------------------- authority
     def _code(self):
         return STOP_CODES.get(self.reason, 'policy_denied')
 
+    def policy(self, *, full):
+        """Live policy outside any model prompt: None or a durable revocation reason."""
+        try:
+            if self.svc.providers.settings().get('local_only', True) is not False:
+                return 'policy_changed'
+        except Exception:
+            return 'policy_changed'
+        if full:
+            try:
+                current = self.svc.resolve_version(self.snapshot['profile_version_id'])
+                if ((current.get('check') or {}).get('image_id') != self.snapshot['image_id']
+                        or (current.get('config') or {}).get('allow_external_source') is not True):
+                    return 'policy_changed'
+            except Exception:
+                return 'policy_changed'
+            if self.write_repo is not None:
+                try:
+                    self.svc.write_access(self.write_repo)
+                    for row in self.read_rows:
+                        self.svc.read_context(row['repository_id'])  # includes current index eligibility
+                except (SessionError, GitHubError, PlatformError):
+                    return 'access_revoked'
+        for row in self.repo_rows:
+            reason = self.svc.repository_policy(row)
+            if reason:
+                return 'access_revoked' if reason == 'access_revoked' else 'policy_changed'
+        return None
+
     def authority(self, *, full=False):
         """Return a denial code (and trigger containment) or None.
 
-        This is attempt authority, independent of the model-tool gate: the adapter sets
-        the shared stop Event on every exit, so trusted post-agent validation/checkpoint
-        consult termination reasons, lease, access and deadline instead.
+        Attempt authority is independent of the model-tool gate: the adapter sets the
+        shared stop Event on every exit, so trusted post-agent validation/checkpoint
+        consult termination reasons, lease, policy and deadline instead.
         """
         if self.reason is not None:
             return self._code()
@@ -192,17 +273,13 @@ class Attempt:
             return self._code()
         if row['stop_requested'] or job['cancel_requested']:
             reason = row['stop_reason'] or 'user_requested'
-            self.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True)
+            self.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True,
+                           override=reason in REVOKED_REASONS)
             return self._code()
-        if self.write_repo is not None:
-            try:
-                if full:
-                    self.svc.write_access(self.write_repo)
-                else:
-                    self.svc.write_access_fast(self.write_repo)
-            except (SessionError, GitHubError, PlatformError):
-                self.terminate('access_revoked', kill=True)
-                return self._code()
+        reason = self.policy(full=full)
+        if reason:
+            self.terminate('access_revoked', kill=True, override=True, durable=reason)
+            return self._code()
         return None
 
     def guard(self):
@@ -232,30 +309,69 @@ class Attempt:
                 if full:
                     self.next_access = now + 2.0
                 self.authority(full=full)
+                self.record_revocation()
             except Exception:
                 pass
+
+    # ----------------------------------------------------------- admission
+    def admit(self, payload):
+        """Transactional tool admission shared with stop(): commits tool.started or refuses."""
+        with self.tx() as (db, row):
+            if row['stop_requested'] or row['state'] != 'running' or self.reason is not None:
+                if row['stop_requested']:
+                    reason = row['stop_reason'] or 'user_requested'
+                    self.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True,
+                                   override=reason in REVOKED_REASONS)
+                raise _Denied('stop_requested')
+            reason = self.policy(full=False)
+            if reason:
+                self.terminate('access_revoked', kill=True, override=True, durable=reason)
+                raise _Denied(reason)
+            count = db.execute('SELECT count(*) FROM session_events WHERE session_id=?', (self.sid,)).fetchone()[0]
+            if count >= self.limits['service']['max_events']:
+                self.terminate('budget_exhausted', kill=False)
+                raise _Denied('budget_exhausted')
+            if payload.get('tool') in MUTATING:
+                self.unverified_edits = True  # set before the runner can mutate anything
+            self.append(db, row, 'tool.started', payload)
 
     # -------------------------------------------------------------- events
     def broker_emit(self, kind, payload):
         if kind == 'tool_started':
             self.tool_calls += 1
-            if payload.get('tool') in MUTATING:
-                self.unverified_edits = True
-            self.emit_event('tool.started', payload)
+            try:
+                self.admit(payload)
+            except _Denied as exc:
+                try:
+                    self.emit_event('tool.denied', {'tool': payload.get('tool'), 'code': str(exc), 'phase': 'admission'},
+                                    critical=True)
+                except Exception:
+                    pass
+                raise
         elif kind == 'tool_finished':
             self.emit_event('tool.finished', payload, critical=True)
-            if payload.get('tool') == 'ask_user' and payload.get('ok') and self.pending_ack:
-                mid, self.pending_ack = self.pending_ack, None
-                with self.tx() as (db, row):
-                    db.execute("UPDATE session_messages SET delivery='acknowledged',updated_at=? WHERE id=? AND delivery='delivered'",
-                               (self.svc.clock(), mid))
-                    self.svc.append_event(db, self.sid, 'message.delivery', {'message_id': mid, 'delivery': 'acknowledged',
-                                                                            'basis': 'broker_returned_tool_result'})
         elif kind == 'tool_denied':
             self.emit_event('tool.denied', payload, critical=True)
         elif kind == 'checkpoint_failed':
             self.emit_event('checkpoint', {'ok': False, 'code': payload.get('code'), 'reason': payload.get('reason')}, critical=True)
         # broker_started/broker_closed/checkpoint_saved carry nothing new for users.
+
+    def observe_acks(self, text):
+        """Strip private acknowledgement markers; record only acks actually observed."""
+        if not isinstance(text, str):
+            return text
+        ids = set(ACK_RE.findall(text))
+        clean = ACK_RE.sub('', text).strip()
+        if ids:
+            with self.tx() as (db, row):
+                for mid in sorted(ids):
+                    hit = db.execute("UPDATE session_messages SET delivery='acknowledged',reason='model_marker_observed',"
+                                     "updated_at=? WHERE id=? AND session_id=? AND delivery='delivered'",
+                                     (self.svc.clock(), mid, self.sid)).rowcount
+                    if hit:
+                        self.svc.append_event(db, self.sid, 'message.delivery', {'message_id': mid, 'delivery': 'acknowledged',
+                                                                                'basis': 'model_marker_observed'})
+        return clean
 
     def adapter_emit(self, kind, payload):
         if kind == 'adapter_inventory':
@@ -267,10 +383,10 @@ class Attempt:
             self.observed_model = payload.get('model') or None
             self.emit_event('agent.summary', {'kind': 'ready', 'model': self.observed_model}, critical=True)
         elif kind == 'assistant_summary':
-            self.emit_event('agent.summary', {'kind': 'assistant', 'text': payload.get('text', '')})
+            self.emit_event('agent.summary', {'kind': 'assistant', 'text': self.observe_acks(payload.get('text', ''))})
         elif kind == 'adapter_result':
             self.emit_event('agent.summary', {'kind': 'result', 'status': payload.get('status'), 'code': payload.get('code'),
-                                              'text': payload.get('summary', '')}, critical=True)
+                                              'text': self.observe_acks(payload.get('summary', ''))}, critical=True)
 
     def inventory_verified(self):
         self.gate.set()
@@ -281,18 +397,53 @@ class Attempt:
         except Exception:
             identity = None
         self.harness = {'pid': pid, 'identity': identity}
+        if identity is None:
+            # Without an OS start identity, recovery could never prove this process
+            # gone or ours: stop now and keep a durable containment block.
+            self.identity_failed = True
+            self.terminate('identity_unverified', kill=True)
         with self.tx() as (db, row):
             db.execute("UPDATE session_runners SET harness_pid=?,harness_start=?,private_json=?,updated_at=? WHERE session_id=?",
                        (pid, identity, canonical({'pgid': pid, 'identity_known': identity is not None}), self.svc.clock(), self.sid))
 
+    # ------------------------------------------------------------ messages
+    def annotate(self, tool_name):
+        """Pending generic user updates appended to an allowed, successful tool result."""
+        if self.guard():
+            return None
+        texts = []
+        with self.tx() as (db, row):
+            if row['stop_requested'] or row['state'] != 'running' or self.revoked(row):
+                return None
+            rows = db.execute("SELECT id,content,delivery FROM session_messages WHERE session_id=? AND question_id IS NULL "
+                              "AND delivery IN ('queued','delivered') ORDER BY created_at,id LIMIT 10", (self.sid,)).fetchall()
+            used = 0
+            for msg in rows:
+                if msg['content'] is None or self.dispatches.get(msg['id'], 0) >= MAX_DISPATCHES:
+                    continue
+                block = 'Message %s from the user:\n%s\n%s' % (msg['id'], msg['content'], ack_instruction(msg['id']))
+                if used + len(block) > 7000:
+                    break
+                used += len(block)
+                texts.append(block)
+                self.dispatches[msg['id']] = self.dispatches.get(msg['id'], 0) + 1
+                if msg['delivery'] == 'queued':
+                    db.execute("UPDATE session_messages SET delivery='delivered',reason='sent_to_agent_bridge',updated_at=? "
+                               "WHERE id=?", (self.svc.clock(), msg['id']))
+                    self.svc.append_event(db, self.sid, 'message.delivery', {
+                        'message_id': msg['id'], 'delivery': 'delivered', 'basis': 'tool_result_annotation', 'tool': tool_name})
+        if not texts:
+            return None
+        return '\n\n[OpenDevin user update; trusted session channel, not tool output]\n' + '\n\n'.join(texts)
+
     # ---------------------------------------------------------- checkpoint
     def checkpoint(self, snapshot):
-        doc, patch = review_changes(self.workspace, snapshot)
+        doc, patch = review_changes(self.workspace, snapshot, getattr(snapshot, 'modes', None))
         cp, pt = canonical(doc).encode(), canonical(patch).encode()
         now = self.svc.clock()
         try:
             with self.tx() as (db, row):
-                if row['stop_reason'] in REVOKED:
+                if self.revoked(row):
                     raise _Quota('source revoked')  # an in-flight capture may not outlive revocation/purge
                 db.execute("DELETE FROM session_artifacts WHERE session_id=? AND kind IN ('checkpoint','patch')", (self.sid,))
                 used = db.execute('SELECT coalesce(sum(byte_count),0) FROM session_artifacts WHERE session_id=?', (self.sid,)).fetchone()[0]
@@ -306,7 +457,7 @@ class Attempt:
                 self.svc.append_event(db, self.sid, 'checkpoint', dict(ok=True, checkpoint_id=cid, patch_id=pid, **patch['stats']))
         except _Quota as exc:
             if str(exc) == 'source revoked':
-                self.terminate('access_revoked', kill=True)
+                self.terminate('access_revoked', kill=True, override=True)
                 raise
             self.quota_exhausted = True
             try:
@@ -315,18 +466,20 @@ class Attempt:
                 self.terminate('budget_exhausted', kill=False)
             raise
         self.last_checkpoint = {'id': cid, 'patch_id': pid, 'stats': patch['stats']}
-        self.unverified_edits = False
+        self.unverified_edits = False  # cleared ONLY by a verified, persisted capture
         return True
+
+    def capture(self):
+        return ModeRunner(self.runner).snapshot(self.handle)
 
     def final_checkpoint(self):
         if self.handle is None or self.lost or self.reason in ('access_revoked', 'lease_lost'):
             return False
         try:
-            return self.checkpoint(self.runner.snapshot(self.handle))
+            return self.checkpoint(self.capture())
         except (RunnerError, _Quota) as exc:
-            code = getattr(exc, 'code', 'artifact_quota_exhausted')
             if not isinstance(exc, _Quota):
-                self.emit_event('checkpoint', {'ok': False, 'code': code, 'reason': 'final'}, critical=True)
+                self.emit_event('checkpoint', {'ok': False, 'code': exc.code, 'reason': 'final'}, critical=True)
             return False
 
     # ------------------------------------------------------------ question
@@ -342,13 +495,13 @@ class Attempt:
                 db.execute("INSERT INTO session_questions (id,session_id,prompt,state,created_at,updated_at) VALUES (?,?,?,'open',?,?)",
                            (qid, self.sid, redact_text(question, 2000), now, now))
                 self.svc.transition(db, row, 'waiting_for_user', phase='question')
-                self.svc.append_event(db, self.sid, 'question.asked', {'question_id': qid, 'prompt': redact_text(question, 2000)})
+                self.append(db, row, 'question.asked', {'question_id': qid, 'prompt': redact_text(question, 2000)})
         except SessionError:
             return None
         wait_until = time.monotonic() + self.limits['service']['question_wait_seconds']
         answer = None
         while time.monotonic() < wait_until and not self.stop_event.is_set():
-            if self.guard_waiting():
+            if self.authority():
                 break
             with self.svc.store.read() as db:
                 msg = db.execute("SELECT id,content FROM session_messages WHERE session_id=? AND question_id=? AND delivery='queued' "
@@ -356,16 +509,17 @@ class Attempt:
             if msg is not None:
                 try:
                     with self.tx() as (db, row):
-                        if row['state'] != 'waiting_for_user' or row['stop_requested']:
+                        if row['state'] != 'waiting_for_user' or row['stop_requested'] or self.revoked(row):
                             break
                         t = self.svc.clock()
-                        db.execute("UPDATE session_messages SET delivery='delivered',updated_at=? WHERE id=?", (t, msg['id']))
+                        # Dispatched to the agent bridge; acknowledged only if the model echoes its marker.
+                        db.execute("UPDATE session_messages SET delivery='delivered',reason='sent_to_agent_bridge',updated_at=? "
+                                   "WHERE id=?", (t, msg['id']))
                         db.execute("UPDATE session_questions SET state='answered',answer_message_id=?,updated_at=? WHERE id=?", (msg['id'], t, qid))
                         self.svc.append_event(db, self.sid, 'message.delivery', {'message_id': msg['id'], 'delivery': 'delivered',
-                                                                                'question_id': qid})
+                                                                                'question_id': qid, 'basis': 'ask_user_result'})
                         self.svc.transition(db, row, 'running', phase='agent')
-                    self.pending_ack = msg['id']
-                    answer = msg['content']
+                    answer = msg['content'] + '\n\n[OpenDevin] ' + ack_instruction(msg['id'])
                 except (SessionError, LeaseLost):
                     answer = None
                 break
@@ -382,28 +536,23 @@ class Attempt:
                 pass
         return answer
 
-    def guard_waiting(self):
-        """Authority while a question waits (gate already open)."""
-        return self.authority()
-
     # ----------------------------------------------------------------- run
     def run(self):
-        try:
-            with self.tx() as (db, row):
-                if row['state'] != 'queued':
-                    return {'session_id': self.sid, 'state': row['state']}
-                self.limits = _loads(row['limits_json'], {})
-                if row['stop_requested']:
-                    final = 'cancelled' if (row['stop_reason'] or 'user_requested') == 'user_requested' else 'blocked'
-                    self.svc.transition(db, row, final, stop_reason=row['stop_reason'] or 'user_requested',
-                                        error_code=None if final == 'cancelled' else row['stop_reason'])
-                    return {'session_id': self.sid, 'state': final}
-                self.svc.transition(db, row, 'provisioning', phase='access_check', started_at=self.svc.clock())
-                self.session = row
-                repos = [dict(r) for r in db.execute('SELECT * FROM session_repositories WHERE session_id=?', (self.sid,))]
-        except LeaseLost:
-            raise
-        self.repo_row = next(r for r in repos if r['role'] == 'write')
+        with self.tx() as (db, row):
+            if row['state'] != 'queued':
+                return {'session_id': self.sid, 'state': row['state']}
+            self.limits = _loads(row['limits_json'], {})
+            if row['stop_requested']:
+                final = 'cancelled' if (row['stop_reason'] or 'user_requested') == 'user_requested' else 'blocked'
+                self.svc.transition(db, row, final, stop_reason=row['stop_reason'] or 'user_requested',
+                                    error_code=None if final == 'cancelled' else row['stop_reason'])
+                return {'session_id': self.sid, 'state': final}
+            self.svc.transition(db, row, 'provisioning', phase='access_check', started_at=self.svc.clock())
+            self.session = row
+            self.repo_rows = [dict(r) for r in db.execute('SELECT * FROM session_repositories WHERE session_id=? '
+                                                          'ORDER BY role DESC,repository_id', (self.sid,))]
+        self.repo_row = next(r for r in self.repo_rows if r['role'] == 'write')
+        self.read_rows = [r for r in self.repo_rows if r['role'] == 'read']
         self.write_repo = self.repo_row['repository_id']
         self.snapshot = _loads(self.session['profile_snapshot_json'], {})
         self.svc._register(self)
@@ -422,10 +571,7 @@ class Attempt:
             raise
         except Exception as exc:
             code = getattr(exc, 'code', None) or 'internal'
-            try:
-                return self._finish('failed', code if isinstance(code, str) else 'internal', None)
-            except LeaseLost:
-                raise
+            return self._finish('failed', code if isinstance(code, str) else 'internal', None)
         finally:
             self.done.set()
             monitor.join(2)
@@ -464,25 +610,53 @@ class Attempt:
             if phase:
                 db.execute('UPDATE sessions SET phase=?,updated_at=? WHERE id=?', (phase, self.svc.clock(), self.sid))
 
+    def _durable_reason(self):
+        with self.svc.store.read() as db:
+            row = db.execute('SELECT stop_reason FROM sessions WHERE id=?', (self.sid,)).fetchone()
+        return row[0] if row else None
+
     def _abort_for(self, code):
         if self.reason == 'shutdown':
             return 'interrupted', 'shutdown', 'shutdown'
+        if self.reason == 'identity_unverified':
+            return 'failed', 'runtime_identity_unverified', None
         if self.reason == 'access_revoked' or code == 'policy_denied':
-            return 'blocked', 'access_revoked', 'access_revoked'
+            self.record_revocation()
+            durable = self._durable_reason()
+            reason = durable if durable in REVOKED_REASONS else 'access_revoked'
+            return 'blocked', reason, reason
         if self.reason == 'budget_exhausted' or code == 'budget_exhausted':
             return 'failed', 'budget_exhausted', 'budget_exhausted'
         return 'cancelled', None, 'user_requested'
 
+    def _acquire(self, row, limits, *, budget_bytes):
+        pinned = _loads(row['source_manifest_json'], {})
+
+        def authority():
+            code = self.authority()
+            if code:
+                raise _Abort(*self._abort_for(code))
+        caps = dict(limits)
+        caps['max_total_bytes'] = min(caps['max_total_bytes'], budget_bytes)
+        try:
+            return acquire_github(self.svc.github, row['repository_id'], row['base_sha'], pinned.get('exclusions', []),
+                                  caps, check_authority=authority)
+        except SessionError as exc:
+            state = 'blocked' if exc.code in ('source_access_denied', 'base_revision_not_git') else 'failed'
+            code = exc.code if row['role'] == 'write' else 'read_context_' + exc.code
+            self.emit_event('error', {'code': code, 'details': exc.details, 'role': row['role']}, critical=True)
+            raise _Abort(state, code) from None
+
     def _execute(self):
         snap, limits = self.snapshot, self.limits
-        # 1. Fresh policy, profile, CLI and image checks before any source leaves storage.
+        # 1. Fresh policy, PINNED profile version, CLI and image checks before any source leaves storage.
         try:
             if self.svc.providers.settings().get('local_only', True):
                 raise _Abort('blocked', 'execution_local_only')
         except PlatformError:
             raise _Abort('blocked', 'execution_local_only') from None
         try:
-            current = self.svc.execution_profiles.require_usable(snap['profile_id'])
+            current = self.svc.resolve_version(snap['profile_version_id'])
         except Exception as exc:
             raise _Abort('blocked', getattr(exc, 'code', None) or 'execution_profile_unavailable') from None
         check = current.get('check') or {}
@@ -497,7 +671,7 @@ class Attempt:
         repo = self.svc.github.get_repository(self.write_repo)
         prompt, error = build_prompt(content, plan_version_id=self.session['plan_version_id'],
                                      content_hash=self.session['content_hash'], repository_name=repo['full_name'],
-                                     base_sha=self.repo_row['base_sha'])
+                                     base_sha=self.repo_row['base_sha'], contexts=context_aliases(content))
         if error or sha256(prompt.encode()) != _loads(self.session['instructions_json'], {}).get('prompt_sha256'):
             raise _Abort('blocked', error or 'plan_changed')
         try:
@@ -516,21 +690,17 @@ class Attempt:
             raise _Abort('blocked', 'runtime_unavailable')
         # 2. Exact pinned source via the GitHub API boundary (never a host checkout).
         self._check('acquiring_source')
-        with self.svc.store.read() as db:
-            source = db.execute('SELECT exclusions_json FROM index_sources WHERE id=?', (self.write_repo,)).fetchone()
-        exclusions = _loads(source[0], []) if source else []
-
-        def authority():
-            code = self.authority()
-            if code:
-                raise _Abort(*self._abort_for(code))
-        try:
-            self.workspace = acquire_github(self.svc.github, self.write_repo, self.repo_row['base_sha'], exclusions,
-                                            acquisition_limits(limits['runner']), check_authority=authority)
-        except SessionError as exc:
-            state = 'blocked' if exc.code in ('source_access_denied', 'base_revision_not_git') else 'failed'
-            self.emit_event('error', {'code': exc.code, 'details': exc.details}, critical=True)
-            raise _Abort(state, exc.code) from None
+        caps = acquisition_limits(limits['runner'])
+        self.workspace = self._acquire(self.repo_row, caps, budget_bytes=caps['max_total_bytes'])
+        context_files, context_manifests = {}, {}
+        context_budget = caps['max_total_bytes'] // 2
+        for row in self.read_rows:
+            acquired = self._acquire(row, caps, budget_bytes=max(1, context_budget))
+            alias = _loads(row['source_manifest_json'], {}).get('alias')
+            context_budget -= acquired.manifest['counts']['bytes']
+            for path, data in acquired.files.items():
+                context_files[alias + '/' + path] = data
+            context_manifests[row['repository_id']] = (alias, acquired.manifest)
         head = None
         try:
             token = self.svc.github.mint_installation_token(self.write_repo)['token']
@@ -543,20 +713,32 @@ class Attempt:
         warnings = sorted({r for r in manifest['omitted'].values() if r in ('file_too_large', 'sensitive_content', 'unsupported_entry')})
         instance_id = self.svc.instance_id()
         with self.tx() as (db, row):
+            if self.revoked(row):
+                raise _Abort(*self._abort_for('policy_denied'))
+            pinned = _loads(self.repo_row['source_manifest_json'], {})
             db.execute("UPDATE session_repositories SET base_manifest_json=?,source_manifest_json=? WHERE session_id=? AND role='write'",
-                       (canonical(manifest), canonical({'counts': manifest['counts'], 'head_sha': head,
-                                                        'acquired_at': self.svc.clock()}), self.sid))
-            self.svc.append_event(db, self.sid, 'session.state', {'state': 'provisioning', 'phase': 'source_acquired',
-                                                                'counts': manifest['counts'], 'omission_reasons': warnings,
-                                                                'base_sha': self.repo_row['base_sha'],
-                                                                'base_is_head': None if head is None else head == self.repo_row['base_sha']})
+                       (canonical(manifest), canonical(dict(pinned, counts=manifest['counts'], head_sha=head,
+                                                            acquired_at=self.svc.clock())), self.sid))
+            for read in self.read_rows:
+                alias, read_manifest = context_manifests[read['repository_id']]
+                read_pinned = _loads(read['source_manifest_json'], {})
+                db.execute('UPDATE session_repositories SET base_manifest_json=?,source_manifest_json=? WHERE session_id=? AND repository_id=?',
+                           (canonical(read_manifest), canonical(dict(read_pinned, counts=read_manifest['counts'],
+                                                                     acquired_at=self.svc.clock())),
+                            self.sid, read['repository_id']))
+            self.svc.append_event(db, self.sid, 'session.state', {
+                'state': 'provisioning', 'phase': 'source_acquired', 'counts': manifest['counts'], 'omission_reasons': warnings,
+                'base_sha': self.repo_row['base_sha'], 'base_is_head': None if head is None else head == self.repo_row['base_sha'],
+                'read_contexts': [{'repository_id': k, 'alias': v[0], 'counts': v[1]['counts']} for k, v in context_manifests.items()]})
             db.execute('INSERT INTO session_runners (session_id,instance_id,state,updated_at) VALUES (?,?,?,?) '
                        "ON CONFLICT(session_id) DO UPDATE SET state='provisioning',updated_at=excluded.updated_at",
                        (self.sid, instance_id, 'provisioning', self.svc.clock()))
-        # 3. Isolated container with only bounded regular files.
+        # 3. Isolated container: writable workspace with preserved modes plus read-only /context.
         self._check('provisioning_container')
+        modes = {p: m['mode'] for p, m in manifest['files'].items() if m.get('mode') in ('100644', '100755')}
         try:
-            handle = self.runner.provision(self.sid, self.workspace.files, image=snap['image_id'], limits=limits['runner'])
+            handle = self.runner.provision(self.sid, self.workspace.files, image=snap['image_id'], limits=limits['runner'],
+                                           file_modes=modes, context=context_files if self.read_rows else None)
         except RunnerError as exc:
             # provision() removes what it created; verify by label instead of assuming.
             leftover = self._owned_leftover()
@@ -575,16 +757,16 @@ class Attempt:
         if self.reason is not None:
             self._stop_container_async()
             raise _Abort(*self._abort_for(self._code()))
-        self.checkpoint(self.runner.snapshot(handle))  # verified empty-diff baseline from inside the container
+        self.checkpoint(self.capture())  # verified empty-diff baseline from inside the container
         with self.tx() as (db, row):
             if row['state'] != 'provisioning' or row['stop_requested']:
                 raise _Abort(*self._abort_for('stop_requested'))
             self.svc.transition(db, row, 'running', phase='agent')
         # 4. Broker + adapter. The guard stays closed until the inventory is verified.
-        caps = getattr(adapter, 'capabilities', {}) or {}
-        self.broker = ToolBroker(self.runner, handle, guard=self.guard, emit=self.broker_emit, checkpoint=self.checkpoint,
-                                 ask_user=self.ask_user if caps.get('ask_user') else None,
-                                 excluded_paths=broker_exclusions(manifest))
+        caps_adapter = getattr(adapter, 'capabilities', {}) or {}
+        self.broker = SessionBroker(self.runner, handle, annotate=self.annotate, guard=self.guard, emit=self.broker_emit,
+                                    checkpoint=self.checkpoint, ask_user=self.ask_user if caps_adapter.get('ask_user') else None,
+                                    excluded_paths=broker_exclusions(manifest))
         endpoint = self.broker.start(self.svc.broker_root)
         agent = limits['agent']
         remaining = max(1, int((self.deadline - self.svc.clock()) / 1000) - 10)
@@ -601,7 +783,6 @@ class Attempt:
             raise
         except Exception as exc:
             adapter_error = getattr(exc, 'code', None) or 'agent_error'
-            # AdapterError aborts are contained by the process helper before they propagate.
             # AdapterError/LeaseLost propagate only after run_stream contained the group;
             # an uncontained group surfaces as a returned containment_failure instead.
             result = {'status': 'failed', 'code': adapter_error, 'exit_code': None,
@@ -621,6 +802,7 @@ class Attempt:
                 'tool_calls': self.tool_calls, 'observed_model': self.observed_model}
 
     def _after_agent(self, content, result, adapter_error):
+        self.record_revocation()
         with self.svc.store.read() as db:
             row = dict(db.execute('SELECT stop_requested,stop_reason FROM sessions WHERE id=?', (self.sid,)).fetchone())
         if self.lost:
@@ -628,14 +810,16 @@ class Attempt:
         if result.get('stop_confirmed') is not True:
             self.emit_event('error', {'code': 'harness_containment_failed'}, critical=True)
             return self._finish('failed', 'containment_failed', None, content=content)
-        user_stop = bool(row['stop_requested']) and (row['stop_reason'] or 'user_requested') == 'user_requested'
+        if self.identity_failed:
+            return self._finish('failed', 'runtime_identity_unverified', None, content=content)
         if self.reason == 'shutdown':
             return self._finish('interrupted', 'shutdown', 'shutdown', content=content)
+        if row['stop_reason'] in REVOKED_REASONS or self.reason == 'access_revoked':
+            reason = row['stop_reason'] if row['stop_reason'] in REVOKED_REASONS else 'access_revoked'
+            return self._finish('blocked', reason, reason, content=content)
+        user_stop = bool(row['stop_requested']) and (row['stop_reason'] or 'user_requested') == 'user_requested'
         if user_stop or self.reason == 'stop_requested':
             return self._finish('cancelled', None, 'user_requested', content=content)
-        if self.reason == 'access_revoked' or row['stop_requested']:
-            return self._finish('blocked', row['stop_reason'] if row['stop_reason'] not in (None, 'user_requested') else 'access_revoked',
-                                'access_revoked', content=content)
         code = result.get('code')
         if self.reason == 'budget_exhausted' or code in LIMIT_CODES:
             self.final_checkpoint()
@@ -650,7 +834,7 @@ class Attempt:
         try:
             with self.tx() as (db, row):
                 if row['stop_requested'] or row['state'] != 'running':
-                    raise _Abort(*self._abort_for('stop_requested'))
+                    raise _Abort(*self._abort_for('stop_requested' if not self.revoked(row) else 'policy_denied'))
                 self.svc.transition(db, row, 'validating', phase='validation')
         except SessionError:
             raise _Abort(*self._abort_for('stop_requested')) from None
@@ -666,7 +850,7 @@ class Attempt:
             argv = ['sh', '-c', item['command']]
             env = {'image_id': self.snapshot.get('image_id'), 'network': 'none', 'user': '65534:65534', 'cwd': '/workspace',
                    'env': {'HOME': '/tmp', 'TMPDIR': '/tmp'}, 'shell': 'container sh -c'}
-            status, exit_code, artifact, started, finished = 'not_run', None, None, None, None
+            status, exit_code, artifact, started, finished, log = 'not_run', None, None, None, None, None
             reason = None
             if run and self.reason is None and not self.lost:
                 code = self.authority(full=True)
@@ -679,6 +863,8 @@ class Attempt:
                     timeout = min(self.limits['service']['validation_timeout_seconds'], remaining, 600)
                     started = self.svc.clock()
                     self.emit_event('validation.started', {'ordinal': ordinal, 'command': redact_text(item['command'], 500)}, critical=True)
+                    # A validation command may edit files: artifacts are unverified until recaptured.
+                    self.unverified_edits = True
                     try:
                         res = self.runner.run_command(self.handle, argv, timeout_seconds=timeout)
                         exit_code = res['exit_code']
@@ -697,13 +883,16 @@ class Attempt:
                             log += b'\n[output truncated]'
                         artifact = new_id('art')
                     except RunnerError as exc:
-                        status, reason, log = 'error', exc.code, None
+                        status, reason = 'error', exc.code
                     finished = self.svc.clock()
             elif not run:
                 reason = 'agent_not_completed'
             else:
                 reason = self.reason or 'stopped'
             with self.tx() as (db, row):
+                revoked = self.revoked(row)
+                if revoked:
+                    artifact = None  # no source-derived log or command once revoked/purged
                 if artifact is not None:
                     used = db.execute('SELECT coalesce(sum(byte_count),0) FROM session_artifacts WHERE session_id=?', (self.sid,)).fetchone()[0]
                     if used + len(log) > self.limits['service']['artifact_bytes']:
@@ -712,21 +901,28 @@ class Attempt:
                         db.execute('INSERT INTO session_artifacts (id,session_id,kind,sha256,byte_count,content,created_at) VALUES (?,?,?,?,?,?,?)',
                                    (artifact, self.sid, 'validation_log', sha256(log), len(log), log, self.svc.clock()))
                 vid = new_id('val')
+                command = ({'redacted': True} if revoked else
+                           {'argv': argv, 'command': item['command'], 'expected': item['expected']})
                 db.execute('INSERT INTO validation_runs (id,session_id,ordinal,command_json,source,status,required,exit_code,'
                            'artifact_id,environment_json,started_at,finished_at) VALUES (?,?,?,?,?,?,1,?,?,?,?,?)',
-                           (vid, self.sid, ordinal, canonical({'argv': argv, 'command': item['command'], 'expected': item['expected']}),
-                            item['source'], status, exit_code, artifact, canonical(dict(env, reason=reason)), started, finished))
-                self.svc.append_event(db, self.sid, 'validation.finished', {'ordinal': ordinal, 'validation_id': vid, 'status': status,
-                                                                          'exit_code': exit_code, 'reason': reason})
-            if status not in ('not_run',) and self.handle is not None and self.reason is None:
+                           (vid, self.sid, ordinal, canonical(command), item['source'], status, exit_code, artifact,
+                            canonical(dict(env, reason=reason)), started, finished))
+                self.append(db, row, 'validation.finished', {'ordinal': ordinal, 'validation_id': vid, 'status': status,
+                                                            'exit_code': exit_code, 'reason': reason})
+            if status != 'not_run' and self.handle is not None and self.reason is None:
                 try:
-                    self.checkpoint(self.runner.snapshot(self.handle))
-                except (RunnerError, _Quota):
-                    pass
+                    self.checkpoint(self.capture())
+                except (RunnerError, _Quota) as exc:
+                    try:
+                        self.emit_event('checkpoint', {'ok': False, 'code': getattr(exc, 'code', 'artifact_quota_exhausted'),
+                                                       'reason': 'validation'}, critical=True)
+                    except Exception:
+                        pass
 
     def _finish(self, state, error_code, stop_reason, *, content=None):
         if self.lost:
             raise LeaseLost('Session lease lost.')
+        self.record_revocation()
         # Containment always precedes the terminal record.
         if state in ('cancelled', 'blocked', 'interrupted') and self.reason is None:
             self.terminate({'cancelled': 'stop_requested', 'blocked': 'access_revoked', 'interrupted': 'shutdown'}[state], kill=True)
@@ -743,13 +939,18 @@ class Attempt:
             total = sum(summary.values())
         changed = (self.last_checkpoint or {}).get('stats', {})
         if not containment['confirmed']:
-            state, error_code = ('interrupted' if state == 'interrupted' else 'failed'), 'containment_failed'
+            state = 'interrupted' if state == 'interrupted' else 'failed'
+            error_code = 'runtime_identity_unverified' if self.identity_failed else 'containment_failed'
         result = getattr(self, 'result', {}) or {}
-        outcome = {'result': ('reviewable' if changed.get('files') else 'no_changes') if state == 'completed' else state,
+        stale = bool(self.unverified_edits)
+        outcome = {'result': ('incomplete' if stale else 'reviewable' if changed.get('files') else 'no_changes')
+                   if state == 'completed' else state,
                    'changed_files': changed.get('files', 0), 'rejected_paths': changed.get('rejected', 0),
                    'last_checkpoint_id': (self.last_checkpoint or {}).get('id'),
-                   'edits_since_last_checkpoint_may_be_lost': bool(self.unverified_edits),
-                   'validation': {'summary': summary, 'total': total, 'fully_validated': bool(total) and summary.get('passed', 0) == total},
+                   'edits_since_last_checkpoint_may_be_lost': stale, 'artifacts_stale': stale,
+                   'validation': {'summary': summary, 'total': total,
+                                  'fully_validated': bool(total) and summary.get('passed', 0) == total and not stale,
+                                  'validated_tree_captured': not stale},
                    'adapter': {'status': result.get('status'), 'code': result.get('code'), 'exit_code': result.get('exit_code')},
                    'containment': containment}
         outcome['publication_eligible'] = state == 'completed' and outcome['result'] == 'reviewable'
@@ -757,11 +958,15 @@ class Attempt:
         with self.tx() as (db, row):
             if row['state'] in TERMINAL:
                 return {'session_id': self.sid, 'state': row['state']}
-            if state == 'completed' and (row['state'] == 'stopping' or row['stop_requested']):
-                stop_reason = row['stop_reason'] or 'user_requested'
-                state = 'cancelled' if stop_reason == 'user_requested' else 'blocked'
-                error_code = None if state == 'cancelled' else stop_reason
+            if row['stop_reason'] in REVOKED_REASONS and state in ('completed', 'cancelled', 'failed'):
+                state, error_code, stop_reason = 'blocked', row['stop_reason'], row['stop_reason']
                 outcome['result'], outcome['publication_eligible'] = state, False
+            elif state == 'completed' and (row['state'] == 'stopping' or row['stop_requested']):
+                stop_reason = row['stop_reason'] or 'user_requested'
+                state = 'cancelled'
+                outcome['result'], outcome['publication_eligible'] = state, False
+            if row['stop_reason'] == 'repository_purged' or _loads(row['outcome_json'], {}).get('source_redacted'):
+                outcome['source_redacted'] = True
             db.execute('UPDATE session_runners SET state=?,updated_at=? WHERE session_id=?', (runner_state, self.svc.clock(), self.sid))
             self.svc.append_event(db, self.sid, 'containment', containment)
             if result:

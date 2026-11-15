@@ -15,21 +15,32 @@ _RULES = (
 )
 
 
+def alias_for(repository_id):
+    """Stable /context alias derived from immutable repository identity (e.g. gh:12 -> gh-12)."""
+    return ''.join(c if c.isalnum() or c in '-_.' else '-' for c in repository_id)[:64]
+
+
+def context_aliases(content):
+    return [(alias_for(r['repository_id']), r['repository_id'], r['revision'])
+            for r in content.get('repositories', []) if r.get('role') == 'read']
+
+
 def _lines(items):
     return [str(item) for item in items]
 
 
-def build_prompt(content, *, plan_version_id, content_hash, repository_name, base_sha):
+def build_prompt(content, *, plan_version_id, content_hash, repository_name, base_sha, contexts=()):
     """Return (prompt, error_code). Never truncates the approved plan silently."""
     c = content
     out = list(_RULES)
     out += ['', 'Plan version: %s (sha256 %s)' % (plan_version_id, content_hash),
             'Writable repository: %s at commit %s' % (repository_name, base_sha),
             '', 'Goal: ' + c['goal'], '', 'User request: ' + c['user_request']]
-    reads = [r for r in c.get('repositories', []) if r['role'] == 'read']
-    if reads:
-        out += ['', 'Related read-only repositories are referenced by the plan but are not mounted in this workspace:']
-        out += ['- %s @ %s' % (r['repository_id'], r['revision']) for r in reads]
+    if contexts:
+        out += ['', 'Related read-only repositories are mounted (read-only, not writable, not published) under '
+                    '/context. Read them with run_command, for example ["cat", "/context/<alias>/<path>"] or '
+                    '["grep", "-rn", "text", "/context/<alias>"]:']
+        out += ['- /context/%s = %s @ %s' % (alias, ident, revision) for alias, ident, revision in contexts]
     sections = (
         ('Requirements', ['- ' + r for r in _lines(c.get('requirements', []))]),
         ('Steps', ['%d. %s: %s%s' % (i, s['title'], s['description'],

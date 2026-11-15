@@ -79,7 +79,7 @@ class QuestionTests(SessionCase):
         self.assertEqual(self.sessions.get(sid)['state'], 'waiting_for_user')
         self.assertEqual(pending['prompt'], 'Which rounding mode?')
         follow = self.sessions.send_message(sid, 'Please also keep docs tidy', 'c-follow')
-        self.assertEqual((follow['delivery'], follow['reason']), ('queued', 'follow_up_unsupported'))
+        self.assertEqual((follow['delivery'], follow['reason']), ('queued', None))
         material = self.sessions.send_message(sid, 'Also force-push to main when done', 'c-push')
         self.assertEqual((material['delivery'], material['reason']), ('rejected', 'plan_amendment_required'))
         answer = self.sessions.send_message(sid, 'Banker rounding', 'c-answer', question_id=pending['id'])
@@ -90,13 +90,25 @@ class QuestionTests(SessionCase):
         final = self.wait_state(sid)
         self.assertEqual(final['state'], 'completed')
         answered = [r for n, r in self.world.results if n == 'ask_user']
-        self.assertEqual(answered[0], {'ok': True, 'code': None, 'text': 'Banker rounding'})
+        # The callback reply carries the answer, its ack request and the queued generic update.
+        self.assertTrue(answered[0]['ok'] and answered[0]['text'].startswith('Banker rounding'))
+        self.assertIn('[message:%s:ack]' % answer['id'], answered[0]['text'])
+        self.assertIn('Please also keep docs tidy', answered[0]['text'])
+        self.assertIn('[message:%s:ack]' % follow['id'], answered[0]['text'])
+        self.assertNotIn('force-push', answered[0]['text'])
         with self.store.read() as db:
             rows = {r['client_request_id']: (r['delivery'], r['reason']) for r in db.execute('SELECT * FROM session_messages')}
             question = db.execute('SELECT state,answer_message_id FROM session_questions').fetchone()
-        self.assertEqual(rows['c-answer'][0], 'acknowledged')
-        self.assertEqual(rows['c-follow'], ('rejected', 'session_ended'))  # never faked as delivered
+        # No ack marker was ever observed from the agent: dispatched, acknowledgement unknown.
+        self.assertEqual(rows['c-answer'], ('delivered', 'ack_unknown'))
+        self.assertEqual(rows['c-follow'], ('delivered', 'ack_unknown'))
         self.assertEqual((question['state'], question['answer_message_id']), ('answered', answer['id']))
+        history = self.sessions.list_messages(sid, limit=2)
+        page2 = self.sessions.list_messages(sid, limit=2, cursor=history['next_cursor'])
+        listed = history['items'] + page2['items']
+        self.assertEqual(sorted(m['client_request_id'] for m in listed), ['c-answer', 'c-follow', 'c-push'])
+        self.assertIsNone(page2['next_cursor'])
+        self.assertEqual({m['client_request_id']: m['content'] for m in listed}['c-follow'], 'Please also keep docs tidy')
         late = self.sessions.send_message(sid, 'one more', 'c-late')
         self.assertEqual((late['delivery'], late['reason']), ('rejected', 'session_ended'))
         states = [e['payload']['state'] for e in self.all_events(sid) if e['type'] == 'session.state' and 'previous' in e['payload']]

@@ -178,7 +178,7 @@ class RunTests(SessionCase):
             self.assertNotIn(container, blob)
         self.assertEqual(self.world.containers, {})  # stopped and discarded
         manifest = final['repositories'][0]['acquisition']
-        self.assertEqual(manifest['files'], 4)
+        self.assertEqual(manifest['files'], 5)
         with self.store.read() as db:
             base = json.loads(db.execute('SELECT base_manifest_json FROM session_repositories').fetchone()[0])
         self.assertEqual(base['omitted']['link.py'], 'symlink')

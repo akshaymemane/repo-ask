@@ -190,7 +190,8 @@ class Runtime:
             if row['state'] == 'queued' and row['job_state'] == 'queued':
                 continue  # never started; it will run normally
             stale.append(row)
-        report = {'interrupted': [], 'cancelled': [], 'containment_failed': [], 'orphans_removed': 0}
+        report = {'interrupted': [], 'cancelled': [], 'containment_failed': [], 'orphans_removed': 0,
+                  'profile_tests': []}
         runner = self._runner() if (stale or pending or startup) else None
         owned = None
         if runner is not None:
@@ -202,10 +203,17 @@ class Runtime:
             self._recover_session(row, runner, owned, report)
         for row in pending:
             self._recover_runner(row, runner, owned, report)
+        tests = self._recover_tests(runner, owned, startup, report)
         if owned is not None and runner is not None:
             with svc.store.read() as db:
                 active = {r[0] for r in db.execute('SELECT id FROM sessions WHERE state IN (%s)' % ','.join('?' * len(ACTIVE)), ACTIVE)}
+                # Profile-test containers use session_id=job.id. Any queued/leased test job,
+                # and every test the producer still reports for recovery, is never swept here.
+                tests |= {r[0] for r in db.execute("SELECT id FROM jobs WHERE kind='execution.test' "
+                                                   "AND state IN ('queued','leased','needs_reconciliation')")}
             for handle in owned:
+                if handle.session_id in tests:
+                    continue
                 if handle.session_id in active and handle.session_id in svc.active_ids():
                     continue
                 if handle.session_id in active and handle.session_id not in {r['id'] for r in stale}:
@@ -214,6 +222,58 @@ class Runtime:
                     report['orphans_removed'] += 1
         self._resolve_jobs()
         return report
+
+    def _recover_tests(self, runner, owned, startup, report):
+        """Contain dead profile-test runners and resolve them through the producer.
+
+        Returns job ids that the orphan sweep must not touch. A live local test (or,
+        outside startup, any unexpired lease) is protected. A dead-owner lease at
+        startup is contained only with a recorded process identity; the queue job is
+        resolved by the producer only after verified containment, never requeued.
+        """
+        profiles = self.svc.execution_profiles
+        pending_tests = getattr(profiles, 'pending_runtime_tests', None)
+        reconcile = getattr(profiles, 'reconcile_test', None)
+        if not callable(pending_tests) or not callable(reconcile):
+            return set()
+        try:
+            items = pending_tests()
+        except PlatformError:
+            return set()
+        ours, now, protected = self.worker_ids(), self.svc.clock(), set()
+        for item in items:
+            job_id, private = item['job_id'], item.get('private_runtime') or {}
+            protected.add(job_id)
+            try:
+                job = self.svc.jobs.get(job_id)
+            except PlatformError:
+                continue
+            if job.state in ('queued', 'succeeded'):
+                continue
+            if job.state == 'leased' and (job.lease_owner in ours or (not startup and job.lease_expires_at > now)):
+                continue  # live work; never stolen from metadata alone
+            if private.get('instance_id') not in (None, self.svc.instance_id()):
+                continue  # another runtime instance's resources
+            if job.state == 'leased' and private.get('harness_pid') and not private.get('harness_start'):
+                report['profile_tests'].append({'job_id': job_id, 'confirmed': False, 'reason': 'identity_unknown'})
+                continue
+            harness = contain_recorded(private.get('harness_pid'), private.get('harness_start'))
+            if owned is None or runner is None:
+                container = 'unverified'
+            else:
+                matches = [h for h in owned if h.session_id == job_id]
+                container = 'terminated' if all(self._stop_handle(runner, h) for h in matches) else 'unverified'
+            confirmed = harness in ('absent', 'terminated') and container in ('absent', 'terminated')
+            entry = {'job_id': job_id, 'confirmed': confirmed, 'harness': harness, 'container': container}
+            if job.state in ('leased', 'needs_reconciliation'):
+                try:
+                    reconcile(item['version_id'], job_id, containment_confirmed=confirmed)
+                    entry['reconciled'] = True
+                except PlatformError as exc:
+                    entry['reconciled'] = False
+                    entry['reason'] = getattr(exc, 'code', 'reconcile_failed')
+            report['profile_tests'].append(entry)
+        return protected
 
     def _stop_handle(self, runner, handle):
         try:

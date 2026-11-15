@@ -185,16 +185,24 @@ def _text(data):
         return None
 
 
-def review_changes(workspace, snapshot):
+def review_changes(workspace, snapshot, modes=None):
     """Compare trusted base manifest with a container snapshot.
 
     Returns (checkpoint_doc, patch_doc). Rejected paths carry only path+reason; their
     content is never retained. Text diffs are unified; binary files are flagged.
+    ``modes`` (current git modes from the runner) makes regular 0644/0755 mode
+    changes reviewable/publishable; without it, base modes are assumed unchanged.
     """
     manifest, base = workspace.manifest, workspace.files
+    modes = modes or {}
+
+    def base_mode(path):
+        return manifest['files'].get(path, {}).get('mode', '100644')
+
     added = sorted(set(snapshot) - set(base))
     deleted = sorted(set(base) - set(snapshot))
-    modified = sorted(p for p in set(base) & set(snapshot) if sha256(base[p]) != sha256(snapshot[p]))
+    modified = sorted(p for p in set(base) & set(snapshot)
+                      if sha256(base[p]) != sha256(snapshot[p]) or modes.get(p, base_mode(p)) != base_mode(p))
     rejected, kept = [], []
     for status, paths in (('added', added), ('modified', modified), ('deleted', deleted)):
         for path in paths:
@@ -205,10 +213,12 @@ def review_changes(workspace, snapshot):
                 kept.append((status, path))
     files, changed = [], {}
     for status, path in sorted(kept, key=lambda item: item[1]):
-        mode = manifest['files'].get(path, {}).get('mode', '100644')
+        old_mode = base_mode(path) if status != 'added' else None
+        mode = modes.get(path, old_mode or '100644') if status != 'deleted' else old_mode
         before = base.get(path, b'') if status != 'added' else b''
         after = snapshot.get(path, b'') if status != 'deleted' else b''
-        item = {'path': path, 'status': status, 'mode': mode,
+        item = {'path': path, 'status': status, 'mode': mode, 'old_mode': old_mode,
+                'mode_changed': status == 'modified' and mode != old_mode,
                 'base_sha256': manifest['files'].get(path, {}).get('sha256'),
                 'sha256': sha256(after) if status != 'deleted' else None, 'bytes': len(after)}
         old, new = _text(before), _text(after)

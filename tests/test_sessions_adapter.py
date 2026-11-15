@@ -19,6 +19,8 @@ import json, os, subprocess, sys, time
 from pathlib import Path
 here = Path(__file__).resolve().parent
 args = sys.argv[1:]
+while args[:1] == ["--setting-sources"]:  # CLI global metadata flags precede subcommands
+    args = args[2:]
 if args == ["--version"]:
     print(VERSION); sys.exit(0)
 if args == ["auth", "status"]:
@@ -26,6 +28,8 @@ if args == ["auth", "status"]:
 if args == ["plugin", "list", "--json"]:
     print("[]"); sys.exit(0)
 mode = (here / "mode").read_text().strip()
+prompt = sys.stdin.read()  # the adapter passes the prompt on private stdin, never argv
+(here / "prompt_seen").write_text(str(len(prompt)) + ":" + str(any("Plan version" in a for a in sys.argv)))
 config = json.loads(args[args.index("--mcp-config") + 1])
 server = config["mcpServers"]["opendevin"]
 env = dict(os.environ); env.update(server.get("env", {}))
@@ -48,6 +52,15 @@ if mode == "hang":
     (here / "results.json").write_text(json.dumps(results))
     time.sleep(300)
 results.append(["read", rpc("tools/call", {"name": "read_file", "arguments": {"path": "calc.py"}})["result"]])
+if mode == "followup":
+    (here / "results.json").write_text(json.dumps(results))
+    while not (here / "go").exists():
+        time.sleep(0.05)
+    listed = rpc("tools/call", {"name": "list_files", "arguments": {}})["result"]
+    results.append(["list", listed])
+    import re
+    markers = re.findall(r"\[message:smsg_[0-9a-f]+:ack\]", listed["content"][0]["text"])
+    print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Read the update. " + " ".join(markers)}]}}), flush=True)
 results.append(["write", rpc("tools/call", {"name": "write_file", "arguments": {"path": "calc.py", "content": "def add(a, b):\n    return a + b\n"}})["result"]])
 (here / "results.json").write_text(json.dumps(results))
 print(json.dumps({"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "PRIVATE-REASONING"},
@@ -111,6 +124,27 @@ class RealAdapterProtocolTests(SessionCase):
         self.assertTrue(runner['harness_pid'] and runner['harness_start'])
         with self.assertRaises(ProcessLookupError):
             os.kill(runner['harness_pid'], 0)
+
+    def test_real_adapter_mcp_follow_up_dispatch_and_observed_ack(self):
+        (self.bin / 'mode').write_text('followup')
+        _, version = self.ready_plan()
+        self.sessions.start()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'k-real-follow')['session_id']
+        self.wait(self.results, timeout=40, message='fake CLI read')
+        message = self.sessions.send_message(sid, 'Keep the public signature unchanged', 'c-real-follow')
+        (self.bin / 'go').write_text('1')
+        final = self.wait_state(sid, timeout=40)
+        self.assertEqual(final['state'], 'completed', final)
+        listed = dict((k, v) for k, v in self.results())['list']
+        self.assertIn('Keep the public signature unchanged', listed['content'][0]['text'])
+        with self.store.read() as db:
+            row = db.execute('SELECT delivery,reason FROM session_messages WHERE id=?', (message['id'],)).fetchone()
+        self.assertEqual((row['delivery'], row['reason']), ('acknowledged', 'model_marker_observed'))
+        texts = [e['payload'].get('text', '') for e in self.all_events(sid) if e['type'] == 'agent.summary']
+        self.assertIn('Read the update.', texts)
+        self.assertFalse([t for t in texts if '[message:' in t])
+        seen = (self.bin / 'prompt_seen').read_text()
+        self.assertTrue(int(seen.split(':')[0]) > 0 and seen.endswith('False'))  # prompt on stdin, not argv
 
     def test_real_adapter_process_group_cancellation_timing(self):
         (self.bin / 'mode').write_text('hang')

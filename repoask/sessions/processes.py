@@ -27,7 +27,8 @@ def start_identity(pid):
         return 'linux:' + fields[19]  # starttime (field 22) in clock ticks since boot
     if not os.path.exists(_PS):
         raise OSError('ps unavailable')
-    result = subprocess.run([_PS, '-o', 'lstart=', '-p', str(pid)], stdin=subprocess.DEVNULL,
+    # Same normalization as the profile producer: /bin/ps -p PID -o lstart=, C locale, UTC.
+    result = subprocess.run([_PS, '-p', str(pid), '-o', 'lstart='], stdin=subprocess.DEVNULL,
                             capture_output=True, timeout=3, env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C', 'TZ': 'UTC'})
     text = result.stdout.decode('ascii', 'replace').strip()
     if result.returncode != 0 or not text:
@@ -68,7 +69,11 @@ def contain_recorded(pid, identity, *, budget_seconds=5.0):
         return 'unverified'
     if current is None:
         return 'absent' if _group_gone(pid) else 'unverified'
-    if identity is None or current != identity:
+    if identity is None:
+        # A live PID without a recorded start identity can never be proven ours or
+        # proven gone: fail closed and keep the containment block.
+        return 'unverified'
+    if current != identity:
         # A different process now owns that PID; the recorded harness is gone. Its group
         # may still exist only if the reused PID is a new group leader we do not own.
         return 'absent'

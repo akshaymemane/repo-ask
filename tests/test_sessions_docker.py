@@ -67,6 +67,35 @@ class DockerSessionTests(SessionCase):
         self.assertIn('+    return a + b', self.sessions.diff(sid)['files'][0]['diff'])
         self.assertTrue(final['outcome']['containment']['confirmed'])
 
+    def test_real_container_modes_and_read_only_context(self):
+        from repoask.platform.worker import Worker
+        run = self.index.request_index('gh:2')
+        Worker(self.jobs, {'index.run': self.index.run_index}, worker_id='index2').run_once()
+        self.assertEqual(self.index.get_run(run['id'])['state'], 'completed')
+        snap = self.index.get_state('gh:2')['active_snapshot']
+        read = {'repository_id': 'gh:2', 'role': 'read', 'snapshot_id': snap['id'], 'revision': snap['revision'], 'branch': 'main'}
+        self.world.script = [('run_command', {'argv': ['./run.sh']}),
+                             ('run_command', {'argv': ['cat', '/context/gh-2/shared/money.py']}),
+                             ('run_command', {'argv': ['sh', '-c', 'echo x > /context/gh-2/shared/money.py']}),
+                             ('run_command', {'argv': ['sh', '-c', 'chmod -x run.sh']})]
+        content = self.content()
+        _, version = self.ready_plan(repositories=content['repositories'] + [read], validation=[
+            {'command': 'test ! -w /context/gh-2/shared/money.py', 'expected': 'context read-only', 'source': 'proposed',
+             'citation_ids': []}])
+        self.sessions.start()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'k-docker-ctx')['session_id']
+        final = self.wait_state(sid, timeout=180)
+        self.assertEqual(final['state'], 'completed', final)
+        outputs = [r for n, r in self.world.results if n == 'run_command']
+        import json as _json
+        decoded = [_json.loads(r['text']) for r in outputs]
+        self.assertEqual(decoded[0]['stdout'].strip(), 'run')  # base 0755 preserved
+        self.assertIn('round_half_even', decoded[1]['stdout'])
+        self.assertNotEqual(decoded[2]['exit_code'], 0)  # context immutable for the actor
+        self.assertEqual([v['status'] for v in self.sessions.validations(sid)['items']], ['passed'])
+        files = {f['path']: f for f in self.sessions.diff(sid)['files']}
+        self.assertEqual((files['run.sh']['old_mode'], files['run.sh']['mode']), ('100755', '100644'))
+
     def test_real_container_stop_timing(self):
         self.world.script = ['hang']
         _, version = self.ready_plan()

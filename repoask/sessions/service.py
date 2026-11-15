@@ -19,7 +19,7 @@ from repoask.indexing.safety import excluded
 from repoask.platform.clock import now_ms, new_id
 from repoask.platform.errors import PlatformError
 from .errors import SessionError
-from .prompt import INSTRUCTIONS_VERSION, build_prompt
+from .prompt import INSTRUCTIONS_VERSION, alias_for, build_prompt, context_aliases
 from .redaction import event_payload, redact_text
 from .workspace import canonical, sha256
 
@@ -38,6 +38,11 @@ AGENT_LIMITS = {'wall_seconds': (1, 3600, 600), 'max_turns': (1, 40, 12),
                 'max_budget_usd': (0, 10, 1.0), 'max_output_bytes': (1024, 1024 * 1024, 524288)}
 SERVICE_LIMITS = {'artifact_bytes': 32 * 1024 * 1024, 'max_events': 5000, 'question_wait_seconds': 900,
                   'validation_timeout_seconds': 300, 'max_validations': 20}
+REVOKED_REASONS = ('access_revoked', 'repository_purged', 'policy_changed')
+# Reasons rooted in the pinned profile version; a retry rechecks them on that version.
+PROFILE_REASONS = frozenset({'execution_test_required', 'execution_test_failed', 'execution_test_interrupted',
+                             'execution_test_pending', 'execution_image_unpinned', 'execution_profile_unavailable',
+                             'invalid_profile_limits', 'execution_adapter_unsupported', 'not_found'})
 SOURCE_EVENT_TYPES = ('agent.summary', 'tool.started', 'tool.finished', 'tool.denied', 'checkpoint',
                       'question.asked', 'validation.started', 'validation.finished', 'error')
 MATERIAL_RE = re.compile(r'(?i)\b(?:force[- ]?push|push (?:to|the)|git push|merge (?:it|this|the|into)|deploy|'
@@ -162,8 +167,12 @@ class SessionService:
         values = dict(fields, state=state, updated_at=now, phase=phase or (state if state not in ('running',) else row['phase']))
         if state in TERMINAL:
             values['finished_at'] = now
-            db.execute("UPDATE session_messages SET delivery='rejected',reason='session_ended',updated_at=? "
+            # Never dispatched: rejected. Dispatched but no model acknowledgement observed:
+            # remains delivered with an explicit unknown-acknowledgement reason.
+            db.execute("UPDATE session_messages SET delivery='rejected',reason='terminal_before_delivery',updated_at=? "
                        "WHERE session_id=? AND delivery='queued'", (now, row['id']))
+            db.execute("UPDATE session_messages SET reason='ack_unknown',updated_at=? "
+                       "WHERE session_id=? AND delivery='delivered'", (now, row['id']))
             db.execute("UPDATE session_questions SET state='cancelled',updated_at=? WHERE session_id=? AND state='open'",
                        (now, row['id']))
         db.execute('UPDATE sessions SET ' + ','.join(k + '=?' for k in values) + ' WHERE id=?', (*values.values(), row['id']))
@@ -211,11 +220,86 @@ class SessionService:
         if row is None or meta.get('purged') or meta.get('purging'):
             raise SessionError('repository_unavailable')
 
+    def read_access_fast(self, repository_id):
+        """Read-only related context: current contents_read grant and not purged."""
+        self.github.get_repository(repository_id)
+        self.github.require_access(repository_id, 'contents_read')
+        with self.store.read() as db:
+            row = db.execute('SELECT index_enabled,metadata_json FROM index_sources WHERE id=?', (repository_id,)).fetchone()
+        meta = _loads(row[1], {}) if row else {'purged': True}
+        if row is None or meta.get('purged') or meta.get('purging'):
+            raise SessionError('repository_unavailable')
+
+    def read_context(self, repository_id):
+        """Preflight check for an optional read-only related repository."""
+        try:
+            state = self.index.get_state(repository_id)
+        except Exception:
+            raise SessionError('read_context_unavailable') from None
+        if state.get('kind') != 'github':
+            raise SessionError('read_context_unsupported_kind')
+        if not state.get('eligible') or state.get('purged') or state.get('purging'):
+            raise SessionError('read_context_unavailable')
+        try:
+            self.read_access_fast(repository_id)
+        except (SessionError, GitHubError, PlatformError):
+            raise SessionError('read_context_unavailable') from None
+
+    def live_exclusions(self, repository_id):
+        with self.store.read() as db:
+            row = db.execute('SELECT exclusions_json FROM index_sources WHERE id=?', (repository_id,)).fetchone()
+        return _loads(row[0], []) if row else None
+
+    @staticmethod
+    def exclusions_hash(patterns):
+        return sha256(canonical(sorted(patterns)).encode()) if patterns is not None else None
+
+    def repository_policy(self, row):
+        """Live policy for one session repository row: None when usable, else a reason."""
+        try:
+            if row['role'] == 'write':
+                self.write_access_fast(row['repository_id'])
+            else:
+                self.read_access_fast(row['repository_id'])
+        except (SessionError, GitHubError, PlatformError):
+            return 'access_revoked'
+        pinned = _loads(row['source_manifest_json'], {}).get('exclusions_sha256')
+        if pinned is None or self.exclusions_hash(self.live_exclusions(row['repository_id'])) != pinned:
+            return 'exclusions_changed'
+        return None
+
+    def source_policy(self, session_id):
+        """Whether any session source-bearing projection may be shown NOW.
+
+        Every repository bound to the session must still be accessible and its
+        exclusion policy must equal the policy pinned at launch; otherwise all
+        source-bearing projections (diff, tool/agent/question/validation events,
+        question prompts, validation commands/output, message content) are hidden.
+        """
+        with self.store.read() as db:
+            rows = [dict(r) for r in db.execute('SELECT repository_id,role,source_manifest_json FROM session_repositories '
+                                                'WHERE session_id=?', (session_id,))]
+        if not rows:
+            return {'available': False, 'reason': 'repository_unavailable'}
+        for row in rows:
+            reason = self.repository_policy(row)
+            if reason:
+                return {'available': False, 'reason': reason}
+        return {'available': True, 'reason': None}
+
     # ------------------------------------------------------------- preflight
-    def _resolve_profile(self, profile_id):
+    def resolve_version(self, version_id):
+        """Pinned immutable profile version with fresh revocable permission."""
+        resolver = getattr(self.execution_profiles, 'require_version_usable', None)
+        if not callable(resolver):
+            raise SessionError('execution_profile_unavailable')
+        return resolver(version_id)
+
+    def _resolve_profile(self, profile_id, version_id=None):
         reasons = []
         try:
-            version = self.execution_profiles.require_usable(profile_id)
+            version = (self.resolve_version(version_id) if version_id is not None
+                       else self.execution_profiles.require_usable(profile_id))
         except Exception as exc:
             code = getattr(exc, 'code', None)
             return None, None, [code if isinstance(code, str) and code else 'execution_profile_unavailable']
@@ -262,8 +346,13 @@ class SessionService:
             reasons.append('exactly_one_write_target_required')
             if len(writes) > 1:
                 reasons.append('multi_repository_write_unsupported')
-        if any(r.get('role') == 'read' for r in repos):
-            warnings.append('read_context_not_provisioned')
+        for read in [r for r in repos if r.get('role') == 'read']:
+            try:
+                self.read_context(read['repository_id'])
+            except SessionError as exc:
+                reasons.append(exc.code)
+            if not isinstance(read.get('revision'), str) or not _SHA_RE.match(read['revision']):
+                reasons.append('read_context_revision_not_git')
         if not content.get('citations'):
             reasons.append('citations_required')
         if any(q.get('blocking') and not q.get('answer') for q in content.get('open_questions') or []):
@@ -301,7 +390,8 @@ class SessionService:
             reasons.append('runtime_in_use')
         if repo is not None and len(writes) == 1:
             _, error = build_prompt(content, plan_version_id='pending', content_hash='0' * 64,
-                                    repository_name=repo['full_name'], base_sha=writes[0].get('revision', ''))
+                                    repository_name=repo['full_name'], base_sha=writes[0].get('revision', ''),
+                                    contexts=context_aliases(content))
             if error:
                 reasons.append(error)
         if snapshot is not None:
@@ -379,21 +469,50 @@ class SessionService:
         if version['content_hash'] != content_hash:
             raise SessionError('plan_hash_mismatch')
         readiness = version['readiness']
-        if readiness['state'] != 'ready' or version['content'] is None:
+        if version['content'] is None or readiness['state'] == 'superseded':
             raise SessionError('plan_not_ready', details=readiness['blocking_reasons'] or [readiness['state']])
         content = version['content']
         result, private = self._preflight(content)
-        if result['blocking_reasons']:
-            raise SessionError('plan_not_ready', details=result['blocking_reasons'])
-        snapshot, limits, write, repo = private['snapshot'], private['limits'], private['write'], private['repo']
+        blocking = result['blocking_reasons']
+        if predecessor is not None:
+            # A retry repeats the predecessor's pinned intent: its profile VERSION is
+            # rechecked for fresh permission instead of adopting the active version.
+            blocking = [r for r in blocking if r not in PROFILE_REASONS]
+            ready_reasons = [r for r in readiness['blocking_reasons'] if r not in PROFILE_REASONS]
+            if ready_reasons:
+                raise SessionError('plan_not_ready', details=ready_reasons)
+        elif readiness['state'] != 'ready':
+            raise SessionError('plan_not_ready', details=readiness['blocking_reasons'] or [readiness['state']])
+        if blocking:
+            raise SessionError('plan_not_ready', details=blocking)
+        write, repo = private['write'], private['repo']
         prompt, _ = build_prompt(content, plan_version_id=plan_version_id, content_hash=content_hash,
-                                 repository_name=repo['full_name'], base_sha=write['revision'])
-        instructions = {'version': INSTRUCTIONS_VERSION, 'prompt_sha256': sha256(prompt.encode()),
-                        'skills': [], 'plugins': [], 'memory': [], 'warnings': result['warnings']}
-        policy = content['publication']['policy']
-        publication = {'policy': policy, 'requires_explicit_action': policy == 'manual_draft',
-                       'requires_full_validation': policy == 'on_success_draft', 'state': 'not_started',
-                       'authorized_by_launch': policy == 'on_success_draft'}
+                                 repository_name=repo['full_name'], base_sha=write['revision'],
+                                 contexts=context_aliases(content))
+        if predecessor is not None:
+            snapshot = _loads(predecessor['profile_snapshot_json'], {})
+            limits = _loads(predecessor['limits_json'], {})
+            instructions = _loads(predecessor['instructions_json'], {})
+            publication = _loads(predecessor['publication_json'], {})
+            _, _, pinned_reasons = self._resolve_profile(None, snapshot.get('profile_version_id'))
+            if pinned_reasons:
+                raise SessionError('plan_not_ready', details=pinned_reasons)
+            current = self.resolve_version(snapshot['profile_version_id'])
+            if (current.get('check') or {}).get('image_id') != snapshot.get('image_id'):
+                raise SessionError('execution_profile_changed')
+            if instructions.get('prompt_sha256') != sha256(prompt.encode()):
+                raise SessionError('plan_changed')
+            publication = dict(publication, state='not_started')
+        else:
+            if readiness['state'] != 'ready':
+                raise SessionError('plan_not_ready', details=readiness['blocking_reasons'])
+            snapshot, limits = private['snapshot'], private['limits']
+            instructions = {'version': INSTRUCTIONS_VERSION, 'prompt_sha256': sha256(prompt.encode()),
+                            'skills': [], 'plugins': [], 'memory': [], 'warnings': result['warnings']}
+            policy = content['publication']['policy']
+            publication = {'policy': policy, 'requires_explicit_action': policy == 'manual_draft',
+                           'requires_full_validation': policy == 'on_success_draft', 'state': 'not_started',
+                           'authorized_by_launch': policy == 'on_success_draft'}
         try:
             return self._insert_session(plan_version_id, content_hash, key, launch_hash, predecessor, pv, content,
                                         snapshot, limits, instructions, publication)
@@ -444,10 +563,14 @@ class SessionService:
                         canonical(snapshot), canonical(limits), canonical(instructions), '{}',
                         canonical(publication), '{}', now, now))
             for item in content['repositories']:
+                row = db.execute('SELECT exclusions_json FROM index_sources WHERE id=?', (item['repository_id'],)).fetchone()
+                patterns = _loads(row[0], []) if row else []
+                pinned = {'exclusions': sorted(patterns), 'exclusions_sha256': self.exclusions_hash(patterns),
+                          'alias': alias_for(item['repository_id']) if item['role'] == 'read' else None}
                 db.execute('INSERT INTO session_repositories (session_id,repository_id,role,snapshot_id,base_sha,'
-                           'base_branch,session_branch) VALUES (?,?,?,?,?,?,?)',
+                           'base_branch,session_branch,source_manifest_json) VALUES (?,?,?,?,?,?,?,?)',
                            (sid, item['repository_id'], item['role'], item['snapshot_id'], item['revision'],
-                            item['branch'], 'opendevin/' + sid if item['role'] == 'write' else None))
+                            item['branch'], 'opendevin/' + sid if item['role'] == 'write' else None, canonical(pinned)))
             self.append_event(db, sid, 'session.state', {'state': 'queued', 'previous': None, 'attempt':
                                                          predecessor['attempt'] + 1 if predecessor else 1,
                                                          'predecessor_id': predecessor['id'] if predecessor else None})
@@ -455,19 +578,14 @@ class SessionService:
 
     # ------------------------------------------------------------------ reads
     def _live_source(self, session_id):
-        """True when the session's writable source may be shown now (live permission)."""
+        """(available, write repository id) under the full live source policy."""
+        policy = self.source_policy(session_id)
         with self.store.read() as db:
             row = db.execute("SELECT repository_id FROM session_repositories WHERE session_id=? AND role='write'",
                              (session_id,)).fetchone()
-        if row is None:
-            return False, None
-        try:
-            self.write_access_fast(row[0])
-            return True, row[0]
-        except (SessionError, GitHubError, PlatformError):
-            return False, row[0]
+        return policy['available'], row[0] if row else None
 
-    def _public(self, db, row, *, live):
+    def _public(self, db, row, *, live, reason=None):
         repos = [dict(r) for r in db.execute('SELECT * FROM session_repositories WHERE session_id=? ORDER BY role DESC,repository_id', (row['id'],))]
         runner = db.execute('SELECT state FROM session_runners WHERE session_id=?', (row['id'],)).fetchone()
         question = db.execute("SELECT id,prompt,created_at FROM session_questions WHERE session_id=? AND state='open'", (row['id'],)).fetchone()
@@ -481,7 +599,9 @@ class SessionService:
             public_repos.append({'repository_id': r['repository_id'], 'role': r['role'], 'snapshot_id': r['snapshot_id'],
                                  'base_sha': r['base_sha'], 'base_branch': r['base_branch'],
                                  'session_branch': r['session_branch'], 'current_diff_hash': r['current_diff_hash'],
-                                 'provisioned': r['role'] == 'write',
+                                 'provisioned': bool(source.get('counts')), 'context_alias': source.get('alias'),
+                                 'mount': ('/workspace' if r['role'] == 'write' else
+                                           '/context/' + source['alias'] if source.get('alias') else None),
                                  'acquisition': source.get('counts'), 'head_sha_at_start': source.get('head_sha')})
         runner_state = runner[0] if runner else None
         return {
@@ -496,10 +616,14 @@ class SessionService:
             'instructions': _loads(row['instructions_json'], {}), 'usage': _loads(row['usage_json'], {}),
             'publication': _loads(row['publication_json'], {}), 'outcome': _loads(row['outcome_json'], {}),
             'latest_seq': latest,
+            # UI must hide already-rendered source when this flips to false.
+            'source_available': bool(live), 'source_unavailable_reason': None if live else (reason or 'source_unavailable'),
             'pending_question': ({'id': question['id'], 'prompt': question['prompt'] if live else None,
                                   'redacted': not live or question['prompt'] is None, 'created_at': question['created_at']}
                                  if question else None),
-            'capabilities': {'ask_user': bool(caps.get('ask_user')), 'follow_up': False, 'resume': False,
+            'capabilities': {'ask_user': bool(caps.get('ask_user')), 'follow_up': True,
+                             'follow_up_channel': 'broker_tool_result_annotation',
+                             'follow_up_acknowledgement': 'model_marker_observed', 'resume': False,
                              'adapter_checkpoint': False, 'artifact_checkpoints': True},
             'runner': {'state': runner_state, 'containment': self._containment(runner_state)},
             'created_at': row['created_at'], 'updated_at': row['updated_at'],
@@ -512,9 +636,11 @@ class SessionService:
 
     def get(self, session_id):
         _ident(session_id, 'session_id')
-        live, _ = self._live_source(session_id)
         with self.store.read() as db:
-            return self._public(db, self._row(db, session_id), live=live)
+            self._row(db, session_id)
+        policy = self.source_policy(session_id)
+        with self.store.read() as db:
+            return self._public(db, self._row(db, session_id), live=policy['available'], reason=policy['reason'])
 
     def list_sessions(self, limit=50, cursor=None):
         from repoask.ask.common import page
@@ -525,9 +651,9 @@ class SessionService:
             raise SessionError('validation') from None
         items = []
         for row in rows:
-            live, _ = self._live_source(row['id'])
+            policy = self.source_policy(row['id'])
             with self.store.read() as db:
-                items.append(self._public(db, row, live=live))
+                items.append(self._public(db, row, live=policy['available'], reason=policy['reason']))
         return {'items': items, 'next_cursor': nxt}
 
     def events(self, session_id, after=0, limit=200):
@@ -547,7 +673,8 @@ class SessionService:
                 payload = {'redacted': True}
             items.append({'session_id': session_id, 'seq': r['seq'], 'created_at': r['created_at'],
                           'type': r['type'], 'payload': payload})
-        return {'items': items, 'next_seq': items[-1]['seq'] if items else after, 'has_more': more}
+        return {'items': items, 'next_seq': items[-1]['seq'] if items else after, 'has_more': more,
+                'source_available': bool(live)}
 
     def artifacts(self, session_id):
         _ident(session_id, 'session_id')
@@ -606,14 +733,15 @@ class SessionService:
             log = None
             if live and r['log'] is not None:
                 log = redact_text(bytes(r['log']).decode('utf-8', 'replace'), None)
-            items.append({'id': r['id'], 'ordinal': r['ordinal'], 'command': _loads(r['command_json'], {}),
+            items.append({'id': r['id'], 'ordinal': r['ordinal'],
+                          'command': _loads(r['command_json'], {}) if live else {'redacted': True},
                           'source': r['source'], 'status': r['status'], 'required': bool(r['required']),
                           'exit_code': r['exit_code'], 'artifact_id': r['artifact_id'],
                           'environment': _loads(r['environment_json'], {}), 'output': log,
                           'output_redacted': r['artifact_id'] is not None and log is None,
                           'started_at': r['started_at'], 'finished_at': r['finished_at']})
         summary = {k: sum(1 for i in items if i['status'] == k) for k in ('passed', 'failed', 'timeout', 'error', 'not_run', 'unavailable')}
-        return {'items': items, 'summary': summary,
+        return {'items': items, 'summary': summary, 'source_available': bool(live),
                 'fully_validated': bool(items) and summary['passed'] == len(items)}
 
     # --------------------------------------------------------------- messages
@@ -648,9 +776,8 @@ class SessionService:
                 delivery, reason = 'rejected', 'plan_amendment_required'
             elif question is not None and question['state'] != 'open':
                 delivery, reason = 'rejected', 'question_not_open'
-            elif question is None:
-                # The adapter has no proven follow-up channel; stay queued, never fake delivery.
-                reason = 'follow_up_unsupported'
+            # Generic updates stay queued until the session broker dispatches them in a
+            # successful tool result; acknowledgement requires an observed model marker.
             mid = new_id('smsg')
             db.execute('INSERT INTO session_messages (id,session_id,client_request_id,content,question_id,delivery,reason,'
                        'created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
@@ -658,6 +785,26 @@ class SessionService:
             self.append_event(db, session_id, 'message.delivery', {'message_id': mid, 'delivery': delivery,
                                                                   'reason': reason, 'question_id': question_id})
             return self._message(db.execute('SELECT * FROM session_messages WHERE id=?', (mid,)).fetchone())
+
+    def list_messages(self, session_id, limit=50, cursor=None):
+        """Delivery history in (created_at,id) order; content hidden when source is unavailable."""
+        from repoask.ask.common import page
+        _ident(session_id, 'session_id')
+        with self.store.read() as db:
+            self._row(db, session_id)
+        live, _ = self._live_source(session_id)
+        try:
+            with self.store.read() as db:
+                rows, nxt = page(db, 'session_messages', limit, cursor, 'session_id=?', (session_id,))
+        except ValueError:
+            raise SessionError('validation') from None
+        items = []
+        for row in rows:
+            item = self._message(row)
+            item['content'] = row['content'] if live and row['content'] is not None else None
+            item['content_redacted'] = item['content'] is None
+            items.append(item)
+        return {'items': items, 'next_cursor': nxt, 'source_available': bool(live)}
 
     @staticmethod
     def _message(row):
@@ -672,7 +819,10 @@ class SessionService:
         with self.store.transaction() as db:
             row = self._row(db, session_id)
             if row['state'] not in TERMINAL:
-                if not row['stop_requested']:
+                # A revocation/purge durably supersedes a user stop so every later
+                # source-bearing write is fenced by the stronger reason.
+                stronger = reason in REVOKED_REASONS and row['stop_reason'] != 'repository_purged' and row['stop_reason'] != reason
+                if not row['stop_requested'] or stronger:
                     db.execute('UPDATE sessions SET stop_requested=1,stop_reason=?,updated_at=? WHERE id=?',
                                (reason, self.clock(), session_id))
                     row.update(stop_requested=1, stop_reason=reason)
@@ -693,7 +843,8 @@ class SessionService:
         with self._active_lock:
             attempt = self._active.get(session_id)
         if attempt is not None:
-            attempt.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True)
+            attempt.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True,
+                              override=reason in REVOKED_REASONS)
         return view
 
     def _stop_view(self, db, row):
