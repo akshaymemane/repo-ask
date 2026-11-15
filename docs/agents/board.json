@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-15T17:47:58Z",
+  "updated": "2026-11-15T17:56:00Z",
   "phase": "M2_integration_and_publication",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -504,7 +504,7 @@
       "id": "M2-ADAPTER-SPIKE",
       "milestone": "M2",
       "title": "Select first headless coding agent through lifecycle proof",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": [
         "F07"
       ],
@@ -526,13 +526,13 @@
       "base_sha": "1fa296f951a63d22d4f6d9d764a601b502e7b9ec",
       "branch": "task/adapter-containment-fix",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-adapter-containment-fix",
-      "reviewer_session": "fresh independent reviewer required because prior reviewer authored the fix",
+      "reviewer_session": "fresh independent Codex reviewer; approved in review-r3",
       "handoff": "docs/agents/runs/M2-ADAPTER-SPIKE/handoff.md",
       "heartbeat_at": "2026-11-15T17:47:58Z",
       "submitted_sha": "698ead78093801bb7117928f3503a20889991606",
-      "integration_sha": null,
+      "integration_sha": "d3cbb8e",
       "blocker": null,
-      "next_action": "Fresh independent exact-commit review of 698ead7, then integrate the major containment fix. Track prelaunch stop/deadline and callback classification as open minor follow-ups.",
+      "next_action": "Major containment fix approved and integrated; 34/34 adapter tests passed on integration. Prelaunch stop/deadline and callback classification remain minor follow-ups.",
       "completion_depends_on": [
         "M1-INTEGRATE",
         "M2-RUNNER-SPIKE"
@@ -930,7 +930,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Commit execution/session wiring, integrate approved adapter containment and UI redesign, then run combined Python/UI and real Docker/model gates. F06 remains dependency-blocked until M2-PRS integrates."
+      "next_action": "Execution/session wiring, adapter containment and UI redesign are integrated; UI passes 178/178. Run combined Python, real Docker/model gates, then integrate F06 from M2-PRS."
     },
     {
       "id": "M3-INTEGRATE",
@@ -1226,7 +1226,7 @@
       "id": "UI-REDESIGN",
       "milestone": "M2",
       "title": "Conversation-first UI/UX redesign across all pages",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": [
         "F11",
         "F01",
@@ -1262,9 +1262,9 @@
       "handoff": "docs/agents/runs/UI-REDESIGN/acceptance.md",
       "heartbeat_at": "2026-11-15T06:30:00+00:00",
       "submitted_sha": "b830f7a95ac6a2d822e54664936414bbdb93ab67",
-      "integration_sha": null,
+      "integration_sha": "68818e2",
       "blocker": null,
-      "next_action": "Approved exact candidate plus review doc at 57ef577. Integrate and run the full UI suite with REPOASK_TEST_PYTHON=.venv/bin/python against the real session backend.",
+      "next_action": "Approved redesign integrated. Full UI suite passes 178/178 against the real session backend after aligning the real-service test with the tabbed detail contract.",
       "write_scope": [
         "repoask/web/**",
         "tests/ui/**",
