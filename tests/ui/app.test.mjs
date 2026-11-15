@@ -267,7 +267,7 @@ test("health.no_platform shows storage and jobs disabled, not as errors", async 
 
 test("unknown enum values render as neutral Unknown, never success or connected", async () => {
   const workspace = structuredClone(fixtures.workspace.demo_memory);
-  workspace.mode = "connected";
+  workspace.mode = "hybrid"; // "connected" became a real mode in the UI redesign
   workspace.providers.answer.status = "probing";
   workspace.storage.status = "rebuilding";
   workspace.catalog.github.status = "connected";
