@@ -24,7 +24,7 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   assert.match(visibleText(panel),/implementation_not_permitted/);
   assert.equal(button('Start session').disabled,true);
   button(panel.querySelectorAll('button').find(x=>x.textContent.includes('worker.py:1')).textContent).click();await settle();
-  assert.match(visibleText(panel),/1 def deliver/);
+  assert.match(visibleText(b.document.getElementById('side-panel')),/def deliver/);assert.equal(b.document.getElementById('side-panel').hidden,false);
   input(field('goal'),'Human edited goal');input(field('requirements'),'Preserve mail\nBound retries');
   button('Add step').click();await settle();
   input(field('2. title'),'Observe retries');input(field('2. description'),'Record attempt count');

@@ -96,3 +96,27 @@ test("recent list shows titles and falls back to Untitled, never ids", async () 
   assert.deepEqual(b.recent.map((r) => r.title), ["Deploy flow", "Untitled · 2 h ago"]);
   assert.deepEqual(b.recent.map((r) => r.href), ["#/ask/conv_1", "#/ask/conv_2"]);
 });
+
+test("citations open in the side panel when Ask has one", async () => {
+  const cite = { repository_id: "gh:1", snapshot_id: "s", revision: "d8f5918f985503cd5a2fd0c0956abd32b4800f3c", path: "src/lib/api.ts", start_line: 2, end_line: 2 };
+  const c = { id: "c", title: "T", scope_revision: 1, repository_ids: ["gh:1"], runs: [], plans: [], messages: [{ id: "m", role: "assistant", state: "complete", content: "See", citations: [cite], created_at: 1 }] };
+  const b = createBrowser(html, { hash: "#/ask/c", respond: (m, u) => {
+    if (u === "/api/conversations") return { items: [c] };
+    if (u === "/api/conversations/c") return c;
+    if (u === "/api/repositories/gh%3A1/context") return { ...REPOS["gh:1"], active_snapshot: { mode: "lexical_only", branch: "main" } };
+    if (u.startsWith("/api/context/source")) return { revision: cite.revision, path: cite.path, first_line: 1, lines: ["a", "b", "c"], total_lines: 3 };
+    return { status: 404, body: {} };
+  } });
+  b.window.sessionStorage = storage();
+  install(b);
+  const { createSidePanel } = await import("../../repoask/web/panel.js");
+  const sidePanel = createSidePanel(b.document.getElementById("side-panel"));
+  const ui = await createAskPanel({ host: b.document.getElementById("view-ask"), sidePanel });
+  await settle();
+  ui.panel.querySelector("button.cite").click();
+  await settle();
+  const side = b.document.getElementById("side-panel");
+  assert.equal(side.hidden, false);
+  assert.match(visibleText(side), /akshaymemane\/rcnl-app · main @ d8f5918/);
+  assert.equal(side.querySelectorAll(".code-line.hl").length, 1);
+});

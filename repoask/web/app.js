@@ -2,8 +2,10 @@ import { createAskPanel } from "./ask.js";
 import { createContextPanel } from "./context.js";
 import { createSessionPanel, createExecutionSettings } from "./sessions.js";
 import { createShell } from "./shell.js";
+import { createSidePanel } from "./panel.js";
 const byId = (id) => document.getElementById(id);
 const shell = createShell({ document });
+const sidePanel = createSidePanel(byId("side-panel"));
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -1243,7 +1245,7 @@ featureRequest("/api/sessions?limit=1").then(available => { if (Array.isArray(av
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
 
-persistentAsk = await createAskPanel({host: byId("view-ask"), shell, onMount: handle => {
+persistentAsk = await createAskPanel({host: byId("view-ask"), shell, sidePanel, onMount: handle => {
   // Retire legacy content before the first saved-page/history read can wait or fail.
   persistentAsk = handle;
   connectedUI.savedAskReady = true;
