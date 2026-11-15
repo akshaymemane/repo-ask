@@ -145,3 +145,12 @@ policy gating, purge redaction, and no force/default-branch write. M2 completion
 requires a user-authorized pilot in a disposable GitHub repository that creates one
 real draft PR with actual changes and recorded checks. Fakes alone do not satisfy that
 pilot, and no pilot may reuse Git CLI credentials.
+
+## Primary references
+
+- [Git tree endpoints](https://docs.github.com/en/rest/git/trees?apiVersion=2022-11-28)
+- [Git commit endpoints](https://docs.github.com/en/rest/git/commits?apiVersion=2022-11-28)
+- [Git reference endpoints](https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28)
+- [Pull request endpoints](https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28)
+- [Authenticating as a GitHub App installation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation)
+- [Compare-two-commits response bounds](https://docs.github.com/en/rest/commits/commits?apiVersion=2022-11-28#compare-two-commits)
