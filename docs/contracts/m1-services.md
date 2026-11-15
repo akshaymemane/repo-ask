@@ -183,6 +183,11 @@ future calls even if a plan references its old version.
   with `catalog.source: "github"`, when the GitHub summary status is `connected`.
   `GET /api/context/repositories` omits `index_sources` rows of kind `demo` while any
   `github_connections` row has status `connected`; demo rows remain listed otherwise.
+- `GET /api/provider-profiles/discover[?base_url=]` (default `http://127.0.0.1:11434`, loopback
+  only) returns `{reachable, models: [{name, family, parameter_size, context_length, embedding,
+  loaded, gpu}], error_code}`; unreachable Ollama is `reachable: false, error_code:
+  "provider_unreachable"`, not an error. `POST /api/provider-profiles/discover/dimensions`
+  `{base_url?, model}` embeds the synthetic text "dimension probe" and returns `{dimensions}`.
 
 ## Acceptance and live prerequisites
 
