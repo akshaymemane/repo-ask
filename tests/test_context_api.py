@@ -72,3 +72,32 @@ class ContextAPITests(TestCase):
         api=FeatureAPI(self.platform,None,None,indexing=self.index,purge_context=lambda ident:called.append(ident) or {'state':'completed'})
         self.assertEqual(api.dispatch('POST','/api/repositories/local:x/purge',body={}).body['state'],'completed')
         self.assertEqual(called,['local:x'])
+
+
+class ContextCatalogDemoTests(TestCase):
+    def setUp(self):
+        self.platform=Platform.open(None)
+        self.addCleanup(self.platform.close)
+        self.api=FeatureAPI(self.platform,None,None,indexing=IndexStub())
+        with self.platform.store.transaction() as c:
+            c.execute("INSERT INTO index_sources(id,kind,name,created_at,updated_at) VALUES('demo:orders-api','demo','orders-api',1,1)")
+            c.execute("INSERT INTO index_sources(id,kind,name,local_path,created_at,updated_at) VALUES('local:tool','local','tool','/x',1,1)")
+
+    def ids(self):
+        return {v['repository_id'] for v in self.api.dispatch('GET','/api/context/repositories','').body['items']}
+
+    def connect(self,status):
+        with self.platform.store.transaction() as c:
+            c.execute("INSERT INTO secret_refs(id,backend,purpose,label,created_at) VALUES('sr1','test','github_app_private_key','GitHub App',1)")
+            c.execute("INSERT INTO github_connections(id,app_id,slug,private_key_ref,status,created_at,updated_at) VALUES('ghc1','1','s','sr1',?,1,1)",(status,))
+
+    def test_demo_rows_listed_without_github_connection(self):
+        self.assertEqual(self.ids(),{'demo:orders-api','local:tool'})
+
+    def test_demo_rows_hidden_once_github_connected(self):
+        self.connect('connected')
+        self.assertEqual(self.ids(),{'local:tool'})
+
+    def test_demo_rows_kept_while_github_only_configured(self):
+        self.connect('configured')
+        self.assertIn('demo:orders-api',self.ids())

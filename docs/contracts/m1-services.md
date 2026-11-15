@@ -179,6 +179,10 @@ future calls even if a plan references its old version.
 - GET /api/jobs and GET /api/jobs/{id}; bounded sanitized job state, never raw payload/lease token.
 - Workspace summary becomes versioned M1 and reflects actual connected/profile states;
   preserve existing fields where possible. Worker thread starts only registered safe handlers.
+- UI redesign (2026-11-15): `/api/workspace` `mode` is `demo | local | connected`. It is `connected`,
+  with `catalog.source: "github"`, when the GitHub summary status is `connected`.
+  `GET /api/context/repositories` omits `index_sources` rows of kind `demo` while any
+  `github_connections` row has status `connected`; demo rows remain listed otherwise.
 
 ## Acceptance and live prerequisites
 
