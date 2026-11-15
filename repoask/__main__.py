@@ -29,6 +29,7 @@ ASSETS = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/context.js": ("context.js", "text/javascript; charset=utf-8"),
     "/ask.js": ("ask.js", "text/javascript; charset=utf-8"),
+    "/sessions.js": ("sessions.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
