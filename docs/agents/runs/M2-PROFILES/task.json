@@ -1,0 +1,34 @@
+{
+  "id": "M2-PROFILES",
+  "base_sha": "28343c3a6a5223bb6195678d2d55203692cdbc14",
+  "owner": "native Codex platform",
+  "exclusive_paths": [
+    "repoask/execution/profiles.py",
+    "tests/test_execution_profiles.py",
+    "docs/agents/runs/M2-PROFILES/**"
+  ],
+  "requirements": [
+    "F07 AI10,11,12",
+    "F12 OP02,04,08"
+  ],
+  "inputs": [
+    "docs/contracts/m2-sessions.md",
+    "docs/contracts/m2-execution-spike.md",
+    "repoask/platform/execution_schema.py",
+    "repoask/platform/session_schema.py"
+  ],
+  "acceptance": [
+    "ExactfrozenSQL/APIcontracts, source/grant/stop/budgetfences outside model",
+    "Meaningfuldurability/failure/privacy/restart/idempotencychecks",
+    "Realprotocol/runner/adapterintegrationwhereauthorized; nofakeinferenceclaims",
+    "Scopedcommit/handoff andfreshoppositeharness exactreview"
+  ],
+  "candidate_dependencies": {
+    "adapter": [
+      "6789421",
+      "9de6eeb20208919c578e446052ca129a38f50480"
+    ]
+  },
+  "reviewer": "fresh oppositeharness independentreview",
+  "handoff": "docs/agents/runs/M2-PROFILES/handoff.md"
+}
