@@ -298,7 +298,6 @@ test("Repositories view lists real /api/repos data read-only", async () => {
     "notifications-worker Sample 1 ✓Indexed".replace(/ /g, ""),
   ]);
   assert.match(demo.text("repositories-content"), /Bundled example repositories/);
-  assert.match(demo.text("repositories-content"), /Catalog unavailable/);
   assert.equal(demo.byId("view-repositories").querySelectorAll("button").some(b => b.textContent === "Save repository selection"), false);
 
   const local = await boot({

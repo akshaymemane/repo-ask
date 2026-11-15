@@ -25,28 +25,6 @@ const button = (root,text) => root.querySelectorAll('button').find(x=>x.textCont
 function input(root,label) { const wrap=root.querySelectorAll('label').find(x=>x.textContent.startsWith(label)); return wrap?.querySelector('input') || wrap?.querySelector('select') || wrap?.querySelector('textarea'); }
 function formFor(root,text) { return button(root,text).closest('form'); }
 
-test('catalog pagination, server filters and independent selection use exact HTTP contracts',async()=>{
- const app=await boot((method,url)=>{
-  if (method==='PATCH') return {...repo,index_enabled:true};
-  if(url.startsWith('/api/repositories?')) {
-   const q=new URL(url,'http://local').searchParams;
-   return {items:[{...repo,full_name:q.get('cursor')?'team/second':'team/widget'}],total:26,next_cursor:q.get('cursor')?null:'page-two'};
-  }
- },'#/repositories');
- const root=app.document.getElementById('repositories-content');
- assert.match(visibleText(root),/deep indexing HTTP integration pending/);
- const selection=formFor(root,'Save repository selection'); input(selection,'Index team/widget').checked=true;
- selection.requestSubmit(); await settle();
- const patch=app.requests.find(x=>x.method==='PATCH');
- assert.equal(patch.url,'/api/repositories/gh%3A1'); assert.deepEqual(JSON.parse(patch.body),{index_enabled:true,implementation_enabled:false});
- button(root,'Next page').click(); await settle(); assert.match(visibleText(root),/team\/second/);
- assert.ok(app.requests.some(x=>x.url.includes('cursor=page-two')));
- button(root,'Previous page').click(); await settle(); assert.match(visibleText(root),/team\/widget/);
- input(root,'Exact owner').value='team'; input(root,'Search name or description').value='widget'; input(root,'Indexing selection').value='true';
- formFor(root,'Apply catalog filters').requestSubmit();await settle();
- const last=app.requests.filter(x=>x.url.startsWith('/api/repositories?')).at(-1).url;
- assert.match(last,/query=widget/);assert.match(last,/owner=team/);assert.match(last,/index_enabled=true/);assert.doesNotMatch(last,/cursor/);
-});
 
 test('App setup clears multiline PEM immediately, creates safe connect link and exposes refresh/disconnect',async()=>{
  const app=await boot((method,url)=>{
@@ -117,12 +95,6 @@ test('embeddings preserve exact dimensions and secret-free saves omit credential
  assert.deepEqual(saved.config.capabilities,['embeddings']);assert.equal(saved.config.embedding_dimensions,768);assert.equal('secret_value' in saved,false);
 });
 
-test('lost mutation response is explicit and never blindly retried',async()=>{
- const app=await boot((method)=>{if(method==='PATCH')throw new Error('network failure');},'#/repositories');
- const root=app.document.getElementById('repositories-content');formFor(root,'Save repository selection').requestSubmit();await settle();
- assert.match(visibleText(root),/outcome is unknown/);assert.match(visibleText(root),/Refresh and inspect saved state/);
- assert.equal(app.requests.filter(x=>x.method==='PATCH').length,1);
-});
 
 
 test('GitHub settings renders with browser-like getter-only textarea.type', async () => {
@@ -182,24 +154,6 @@ test('provider mutation prevents reloads from rendering pre-mutation settings', 
  assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Save destination policy').length, 1);
 });
 
-test('permission submission freezes both controls and reconciles saved response before re-enabling', async () => {
- const patch = delayed();
- const app = await boot((method) => method === 'PATCH' ? patch.promise : undefined, '#/repositories');
- const root = app.document.getElementById('repositories-content'); const form = formFor(root, 'Save repository selection');
- const indexing = input(form, 'Index team/widget'); const implementation = input(form, 'Allow implementation in team/widget');
- indexing.checked = true; implementation.checked = true; form.requestSubmit(); await settle();
- assert.equal(indexing.disabled, true); assert.equal(implementation.disabled, true);
- assert.equal(button(form, 'Save repository selection').disabled, true);
- assert.doesNotMatch(visibleText(form), /Selection saved/);
- // Even programmatic changes cannot leave a false view beside a saved message.
- indexing.checked = false; implementation.checked = false;
- patch.resolve({...repo, index_enabled:true, implementation_enabled:true}); await settle();
- assert.equal(indexing.checked, true); assert.equal(implementation.checked, true);
- assert.equal(indexing.disabled, false); assert.equal(implementation.disabled, false);
- assert.match(visibleText(form), /Selection saved/);
- implementation.checked = false; implementation.dispatchEvent({type:'change'});
- assert.match(visibleText(form), /Unsaved selection/); assert.doesNotMatch(visibleText(form), /Selection saved/);
-});
 
 test('newest GitHub load wins and callback guidance survives reloads', async () => {
  let delay = false; const reads = [];
@@ -236,25 +190,6 @@ test('GitHub configure blocks stale reloads until its outcome settles', async ()
  assert.equal(root.querySelectorAll('button').filter(x=>x.textContent==='Save App configuration').length,1);
 });
 
-test('catalog reloads and access mutations wait for a pending permission save', async () => {
- const gate=delayed();let saved=false;
- const app=await boot((method,url)=>{
-  if(method==='PATCH')return gate.promise;
-  if(url.startsWith('/api/repositories?')&&saved)return {items:[{...repo,index_enabled:true}],total:1,next_cursor:null};
- },'#/repositories');
- const root=app.document.getElementById('repositories-content');const form=formFor(root,'Save repository selection');
- input(form,'Index team/widget').checked=true;form.requestSubmit();await settle();
- const count=app.requests.filter(x=>x.url.startsWith('/api/repositories?')).length;
- button(root,'Reload catalog').click();formFor(root,'Apply catalog filters').requestSubmit();
- app.window.location.hash='#/settings';await settle();
- button(app.document.getElementById('settings-content'),'Refresh catalog').click();await settle();
- assert.equal(app.requests.filter(x=>x.url.startsWith('/api/repositories?')).length,count);
- assert.equal(app.requests.filter(x=>x.url==='/api/github/refresh').length,0);
- assert.match(visibleText(form),/Working/);
- saved=true;gate.resolve({...repo,index_enabled:true});await settle();
- button(root,'Reload catalog').click();await settle();
- assert.equal(input(formFor(root,'Save repository selection'),'Index team/widget').checked,true);
-});
 
 test('invalid GitHub installation URLs are sanitized and saved settings retain keyboard focus', async () => {
  const app=await boot((method,url)=>{

@@ -46,7 +46,7 @@ export function toggleSwitch({ label, checked, onChange }) {
       value = next;
     } catch (error) {
       show(value);
-      message.textContent = error && error.message ? error.message : "Could not save.";
+      message.textContent = error?.silent ? "" : error && error.message ? error.message : "Could not save.";
     } finally {
       pending = false;
       control.removeAttribute("aria-busy");
@@ -86,7 +86,7 @@ export function createModal({ title, onClose } = {}) {
   let settle;
   const closed = new Promise((resolve) => { settle = resolve; });
 
-  const focusables = () => root.querySelectorAll(FOCUSABLE).filter((node) =>
+  const focusables = () => [...root.querySelectorAll(FOCUSABLE)].filter((node) =>
     !node.disabled && !node.closest("[hidden]") && (node.tagName !== "A" || node.hasAttribute("href")));
 
   root.addEventListener("keydown", (event) => {

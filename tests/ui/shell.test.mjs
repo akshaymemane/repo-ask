@@ -112,3 +112,11 @@ test("side panel opens tabs, closes on Escape and restores focus", async () => {
   assert.equal(host.hidden, true);
   assert.equal(b.document.activeElement, opener);
 });
+
+test("the page header follows the route, not the Ask module", async () => {
+  const b = await boot({ hash: "#/repositories", api: legacyApi() });
+  assert.equal(b.document.getElementById("page-header-title").textContent, "Repositories");
+  b.window.location.hash = "#/settings";
+  await settle();
+  assert.equal(b.document.getElementById("page-header-title").textContent, "Settings");
+});

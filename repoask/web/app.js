@@ -1,5 +1,5 @@
 import { createAskPanel } from "./ask.js";
-import { createContextPanel } from "./context.js";
+import { createRepositoriesPage } from "./repositories.js";
 import { createSessionPanel, createExecutionSettings } from "./sessions.js";
 import { createShell } from "./shell.js";
 import { createSidePanel } from "./panel.js";
@@ -416,6 +416,7 @@ function showRoute(moveFocus) {
   state.route = route;
   for (const [id, info] of Object.entries(ROUTES)) byId(info.view).hidden = id !== route;
   shell.setRoute(route);
+  if (route !== "ask") shell.setHeader({ title: ROUTES[route].label });
   // Ask-only controls act on the current conversation.
   const onAsk = route === "ask";
   byId("show-repos").hidden = !onAsk || Boolean(persistentAsk);
@@ -843,13 +844,12 @@ function renderLegacyRepositories() {
 const connectedUI = { githubReady: false, providersReady: false, sessionsReady: false, executionReady: false, savedAskReady: false };
 const githubPanel = node("section", undefined, "connected-panel");
 const providerPanel = node("section", undefined, "connected-panel");
-const catalogPanel = node("section", undefined, "connected-panel");
 const sessionsUI = createSessionPanel({host: byId("sessions-content"), onAvailable: () => {
   if (!connectedUI.sessionsReady) { exposeSessions(); if (state.route === "settings") renderSettings(); }
 }});
 const executionUI = createExecutionSettings({isVisible: () => state.route === "settings", onAvailable: () => { connectedUI.executionReady = true; }});
-const contextUI = createContextPanel({request: featureRequest, isVisible: () => state.route === "repositories"});
-window.addEventListener("hashchange", () => { if (state.route === "repositories") contextUI.refresh(); });
+let reposPage = null;
+window.addEventListener("hashchange", () => { if (state.route === "repositories" && reposPage) reposPage.refresh(); });
 function renderSettings() {
   const focused = document.activeElement;
   const restore = inside(githubPanel, focused) || inside(providerPanel, focused) || inside(executionUI.element, focused);
@@ -859,8 +859,10 @@ function renderSettings() {
   if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
 function renderRepositories() {
-  renderLegacyRepositories();
-  byId("repositories-content").append(catalogPanel, contextUI.element);
+  if (!connectedUI.githubReady) { renderLegacyRepositories(); return; }
+  reposPage ||= createRepositoriesPage({ host: byId("repositories-content"), request: featureRequest, panel: sidePanel, shell });
+  if (reposPage.element.parentNode !== byId("repositories-content")) byId("repositories-content").replaceChildren(reposPage.element);
+  reposPage.refresh();
 }
 
 showRoute(false);
@@ -961,7 +963,7 @@ function inside(root, element) {
   return false;
 }
 function restorePanelFocus(panel, restore) {
-  const visible = panel === catalogPanel ? state.route === "repositories" : state.route === "settings";
+  const visible = state.route === "settings";
   if (restore && visible &&
       (document.activeElement === document.body || !document.activeElement?.isConnected)) {
     const heading = panel.querySelector("h2"); heading?.setAttribute("tabindex", "-1"); heading?.focus();
@@ -969,7 +971,6 @@ function restorePanelFocus(panel, restore) {
 }
 async function githubMutation(path, payload) {
   if (githubMutationPending) throw new Error("A GitHub update is pending. Wait for it to finish.");
-  if (catalog.pendingSaves) throw new Error("Repository permissions are being saved. Wait before changing GitHub access.");
   ++githubLoadGeneration; githubMutationPending = true;
   try { return await featureRequest(path, "POST", payload); }
   finally { githubMutationPending = false; }
@@ -1010,7 +1011,7 @@ async function loadGitHub() {
             status.replaceChildren(link, node("span", ` · Expires ${timeLabel(result.expires_at)}`));
           } else {
             status.textContent = endpoint === "refresh" ? `Discovery ${result.state}. Reload status to check progress.` : "Disconnected. Reload status to inspect access.";
-            await loadCatalog(true);
+            if (reposPage) await reposPage.refresh();
           }
         })); box.append(button);
       }
@@ -1034,88 +1035,6 @@ async function loadGitHub() {
   finally { if (generation === githubLoadGeneration) restorePanelFocus(githubPanel, restore); }
 }
 
-const catalog = { cursor: null, previous: [], next: null, sequence: 0, pendingSaves: 0 };
-const catalogForm = node("form", undefined, "settings-form catalog-filters");
-catalogPanel.append(node("h2", "GitHub repository catalog"), node("p", "Catalog metadata is available before source indexing. Indexing selection does not grant implementation permission. Ask below still uses its explicit local/demo snapshots."));
-const searchCatalog = control(catalogForm, "Search name or description", "", "search"); searchCatalog.maxLength = 200;
-const ownerCatalog = control(catalogForm, "Exact owner");
-const indexCatalog = choose(catalogForm, "Indexing selection", [["", "All"], ["true", "Enabled"], ["false", "Disabled"]], "");
-const languageCatalog = control(catalogForm, "Language on this page");
-const archivedCatalog = choose(catalogForm, "Archive state on this page", [["", "All"], ["true", "Archived"], ["false", "Active"]], "");
-const forkCatalog = choose(catalogForm, "Fork state on this page", [["", "All"], ["true", "Forks"], ["false", "Originals"]], "");
-const catalogApply = submitButton(catalogForm, "Apply catalog filters"); catalogPanel.append(catalogForm);
-const catalogStatus = notice(catalogPanel); const catalogRows = node("div"); catalogPanel.append(catalogRows);
-const catalogPrevious = action("Previous page", () => { if (catalog.pendingSaves) return; catalog.cursor = catalog.previous.pop() ?? null; loadCatalog(); });
-const catalogNext = action("Next page", () => { if (catalog.pendingSaves) return; catalog.previous.push(catalog.cursor); catalog.cursor = catalog.next; loadCatalog(); });
-const catalogReload = action("Reload catalog", () => loadCatalog(true));
-catalogPanel.append(catalogPrevious, catalogNext, catalogReload);
-catalogForm.addEventListener("submit", event => { event.preventDefault(); loadCatalog(true); });
-function catalogBusy() {
-  const busy = catalog.pendingSaves > 0;
-  catalogApply.disabled = busy; catalogReload.disabled = busy;
-  catalogPrevious.disabled = busy || !catalog.previous.length;
-  catalogNext.disabled = busy || !catalog.next;
-  if (busy) catalogStatus.textContent = "Saving repository permissions. Catalog reloads wait until the save finishes.";
-}
-async function loadCatalog(reset = false) {
-  if (catalog.pendingSaves) { catalogBusy(); return; }
-  if (reset) { catalog.cursor = null; catalog.previous = []; }
-  const sequence = ++catalog.sequence;
-  catalogPrevious.disabled = true; catalogNext.disabled = true; catalogStatus.textContent = "Loading catalog…";
-  catalogRows.replaceChildren();
-  const params = new URLSearchParams({ limit: "25" });
-  if (searchCatalog.value.trim()) params.set("query", searchCatalog.value.trim());
-  if (ownerCatalog.value.trim()) params.set("owner", ownerCatalog.value.trim());
-  if (indexCatalog.value) params.set("index_enabled", indexCatalog.value);
-  if (catalog.cursor) params.set("cursor", catalog.cursor);
-  try {
-    const result = await featureRequest(`/api/repositories?${params}`);
-    if (sequence !== catalog.sequence) return;
-    if (!Array.isArray(result.items)) throw new Error("Unsupported catalog response.");
-    catalog.next = result.next_cursor;
-    catalogStatus.textContent = `${result.total} matching repositories · ${result.items.length} on this page. ${result.items.length ? "" : "Connect GitHub or change filters to find repositories."}`;
-    const visible = result.items.filter(repo =>
-      (!languageCatalog.value.trim() || (repo.language || "").toLowerCase() === languageCatalog.value.trim().toLowerCase()) &&
-      (!archivedCatalog.value || String(repo.archived) === archivedCatalog.value) &&
-      (!forkCatalog.value || String(repo.fork) === forkCatalog.value));
-    catalogStatus.textContent += ` ${visible.length} visible after page filters. Language/archive/fork filters apply only to this page; use Next page to continue.`;
-    for (const repo of visible) {
-      const box = node("section", undefined, "setting-box");
-      box.append(node("h3", repo.full_name), node("p", repo.description || "No description"),
-        node("p", `${repo.language || "Language unknown"} · ${repo.visibility || "Visibility unknown"} · ${repo.archived ? "Archived" : "Active"} · ${repo.fork ? "Fork" : "Original"} · ${repo.access_state}`),
-        node("p", `Branch ${repo.default_branch || "unknown"} · Last push ${timeLabel(repo.pushed_at)} · Topics: ${(repo.topics || []).join(", ") || "none"}`),
-        node("p", "Source index status unknown: deep indexing HTTP integration pending. Selection saves eligibility only; it does not confirm an indexed snapshot."));
-      const form = node("form", undefined, "settings-form");
-      const indexing = toggle(form, `Index ${repo.full_name}`, repo.index_enabled);
-      const implementation = toggle(form, `Allow implementation in ${repo.full_name}`, repo.implementation_enabled);
-      const save = submitButton(form, "Save repository selection"); const status = notice(form);
-      if (repo.access_state !== "accessible") { indexing.disabled = true; implementation.disabled = true; save.disabled = true; status.textContent = "Access unavailable. Reconnect or refresh GitHub; saved choices do not grant access."; }
-      for (const checkbox of [indexing, implementation]) checkbox.addEventListener("change", () => {
-        if (!save.disabled) status.textContent = "Unsaved selection. Save to apply these permissions.";
-      });
-      form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
-        if (githubMutationPending) throw new Error("GitHub access is changing. Wait before saving repository permissions.");
-        if (catalog.pendingSaves) throw new Error("Another repository selection is being saved. Wait before submitting.");
-        const submitted = { index_enabled: indexing.checked, implementation_enabled: implementation.checked };
-        ++catalog.pendingSaves; ++catalog.sequence; catalogBusy();
-        indexing.disabled = true; implementation.disabled = true;
-        try {
-          const saved = await featureRequest(`/api/repositories/${encodeURIComponent(repo.id)}`, "PATCH", submitted);
-          if (typeof saved.index_enabled !== "boolean" || typeof saved.implementation_enabled !== "boolean") {
-            throw new Error("Selection response unavailable. Reload catalog to confirm saved permissions.");
-          }
-          indexing.checked = saved.index_enabled; implementation.checked = saved.implementation_enabled;
-          status.textContent = "Selection saved. GitHub capabilities will be checked again before execution.";
-        } finally {
-          indexing.disabled = false; implementation.disabled = false;
-          --catalog.pendingSaves; catalogBusy();
-          catalogStatus.textContent = "Repository save finished. Reload catalog to confirm current permissions.";
-        }
-      }); }); box.append(form); catalogRows.append(box);
-    }
-    catalogPrevious.disabled = !catalog.previous.length; catalogNext.disabled = !catalog.next;
-  } catch (error) { if (sequence === catalog.sequence) catalogStatus.textContent = `Catalog unavailable: ${error.message}`; }
-}
 
 let providerProfiles = [];
 let providerSettings;
@@ -1233,7 +1152,8 @@ function renderProviderEditor(profile = null) {
   }); providerEditor.append(form);
 }
 
-await Promise.all([loadGitHub(), loadProviders(), loadCatalog(), contextUI.refresh()]);
+await Promise.all([loadGitHub(), loadProviders()]);
+if (state.route === "repositories") renderRepositories();
 // Execution discovery never holds the saved Ask workspace behind an unrelated read.
 executionUI.refresh().then(() => { if (state.route === "settings") renderSettings(); });
 // Successful list discovery makes Sessions reachable even when the legacy status

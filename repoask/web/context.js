@@ -1,5 +1,5 @@
 // Snapshot status and controls; repository access and jobs remain server-owned.
-export function createContextPanel({request, isVisible}) {
+export function createContextPanel({request, isVisible, repositoryId = null}) {
   const doc = document;
   const make = (tag, text, className) => {
     const element = doc.createElement(tag);
@@ -65,7 +65,9 @@ export function createContextPanel({request, isVisible}) {
       const query = new URLSearchParams({limit: '25'});
       if (cursor) query.set('cursor', cursor);
       const [result, modelSettings] = await Promise.all([
-        request(`/api/context/repositories?${query}`), request('/api/settings/model-roles')
+        repositoryId ? request(`/api/repositories/${encodeURIComponent(repositoryId)}/context`).then(item => ({items: [item], next_cursor: null}))
+          : request(`/api/context/repositories?${query}`),
+        request('/api/settings/model-roles')
       ]);
       if (current !== generation) return;
       if (!Array.isArray(result.items) || result.items.some(repo => !repo || typeof repo.repository_id !== 'string' || typeof repo.name !== 'string' || typeof repo.eligible !== 'boolean')) throw new Error('Unsupported context response.');
@@ -147,7 +149,7 @@ export function createContextPanel({request, isVisible}) {
       if (!result.items.length) panel.append(make('p', 'Connect GitHub or start with an explicit local/demo source.'));
       const prev = button('Previous context page', () => { if (pending || drafts.size) return; cursor = previous.pop() ?? null; refresh(); });
       const more = button('Next context page', () => { if (pending || drafts.size) return; previous.push(cursor); cursor = next; refresh(); });
-      prev.disabled = !previous.length; more.disabled = !next; panel.append(prev, more);
+      prev.disabled = !previous.length; more.disabled = !next; if (!repositoryId) panel.append(prev, more);
     } catch (error) {
       if (current === generation) output.textContent = `Context unavailable: ${error.message}`;
     } finally { if (current === generation) poll(); }
