@@ -289,6 +289,15 @@ class TransportNetworkTests(_TransportChecks):
                 self.assertEqual([], target.requests)
         self.assert_no_transport_threads()
 
+    def test_sends_product_user_agent_not_urllib_default(self):
+        with Peer(reply()) as peer:
+            UrllibTransport().send(self.request(peer))
+            self.assertTrue(peer.closed.wait(1))
+            head = peer.requests[0].split(b'\r\n\r\n', 1)[0].lower()
+            self.assertIn(b'\r\nuser-agent: opendevin-local\r\n', head + b'\r\n')
+            self.assertNotIn(b'python-urllib', head)
+        self.assert_no_transport_threads()
+
     def test_environment_proxies_are_ignored(self):
         with Peer(reply(body=b'origin')) as origin, Peer(reply(body=b'proxy')) as proxy:
             env = {name: proxy.url for name in ('http_proxy', 'HTTP_PROXY', 'https_proxy',

@@ -15,6 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import (HTTPHandler, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request,
                             build_opener)
 
+USER_AGENT = 'OpenDevin-local'
 
 @dataclass(frozen=True)
 class TransportRequest:
@@ -206,6 +207,9 @@ class UrllibTransport:
         self._opener = build_opener(ProxyHandler({}), _NoRedirect(),
                                     _HTTPSHandler(context=ssl_context or ssl.create_default_context()),
                                     _HTTPHandler())
+        # CDN-fronted providers (for example api.groq.com) reject urllib's default
+        # User-Agent with 403, which would surface as provider_auth.
+        self._opener.addheaders = [('User-Agent', USER_AGENT)]
 
     def send(self, request, *, cancel_event=None):
         deadline = time.monotonic() + request.timeout
