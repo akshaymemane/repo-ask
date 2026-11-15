@@ -20,6 +20,7 @@ from repoask.platform.clock import new_id, now_ms
 from repoask.platform.errors import LeaseLost, PlatformError
 from repoask.platform.worker import CancelledError, JobInterrupted, UnknownOutcomeError
 from .broker import ToolBroker, TOOL_NAMES
+from .adapter_process import ProcessContainmentError
 from .claude import AdapterError, ClaudeAdapter
 from .runner import DockerRunner, RunnerError, validate_limits
 
@@ -32,6 +33,9 @@ _CAPABILITIES = frozenset({'headless', 'streaming', 'cancellation', 'resume',
                          'checkpoint', 'follow_up', 'ask_user', 'ask_user_requires_callback'})
 _IMAGE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}$')
 _IMAGE_ID = re.compile(r'^sha256:[0-9a-f]{64}$')
+_IMAGE_COMPONENT = re.compile(r'^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$')
+_IMAGE_TAG = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')
+_REGISTRY_HOST = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$')
 _CLI_VERSION = re.compile(r'^[0-9][A-Za-z0-9 .()_+\-]{0,127}$')
 _PROBE_CODES = frozenset({
     'cli_unavailable', 'unsupported_host_policy', 'unsupported_managed_policy',
@@ -103,7 +107,7 @@ def _validate(spec):
     if spec['adapter'] != 'claude_code' or spec['auth_mode'] != 'cli_login':
         _error('unsupported')
     image = spec['image']
-    if not isinstance(image, str) or not _IMAGE.fullmatch(image):
+    if not _valid_image(image):
         _error('validation')
     consent = spec.get('allow_external_source', False)
     if type(consent) is not bool:
@@ -129,6 +133,35 @@ def _validate(spec):
                        'runner_limits': limits, 'agent_limits': agent}}
 
 
+def _valid_image(image):
+    """Local Docker references only; userinfo/URLs are never persisted as images."""
+    if (not isinstance(image, str) or not _IMAGE.fullmatch(image)
+            or '://' in image or '//' in image):
+        return False
+    if image.startswith('sha256:'):
+        return _IMAGE_ID.fullmatch(image) is not None
+    if '@' in image:
+        if image.count('@') != 1:
+            return False
+        image, digest = image.split('@')
+        if not _IMAGE_ID.fullmatch(digest):
+            return False
+    parts = image.split('/')
+    if len(parts) > 1 and ('.' in parts[0] or ':' in parts[0] or parts[0] == 'localhost'):
+        registry = parts.pop(0)
+        host, separator, port = registry.partition(':')
+        if not _REGISTRY_HOST.fullmatch(host) or '..' in host:
+            return False
+        if separator and (not port.isdigit() or not 1 <= int(port) <= 65535):
+            return False
+    name, separator, tag = parts[-1].partition(':')
+    if separator:
+        if not _IMAGE_TAG.fullmatch(tag):
+            return False
+        parts[-1] = name
+    return all(_IMAGE_COMPONENT.fullmatch(part) for part in parts)
+
+
 class ExecutionProfileService:
     def __init__(self, platform, providers, *, runner_factory=None, adapter_factory=None, clock=now_ms):
         self.platform, self.store, self.jobs = platform, platform.store, platform.jobs
@@ -150,7 +183,21 @@ class ExecutionProfileService:
         return row
 
     def _check(self, db, version_id):
-        row = db.execute('SELECT * FROM execution_profile_checks WHERE version_id=?', (version_id,)).fetchone()
+        version = self._row(db, 'execution_profile_versions', version_id)
+        row = None
+        # A presentation-only rename may reuse evidence, including a probe already
+        # in flight. Do not duplicate its private runtime/job recovery record. Any
+        # intervening executable/source/limit change breaks the inheritance chain.
+        for candidate in db.execute(
+                'SELECT v.adapter,v.auth_mode,v.config_json,c.* FROM execution_profile_versions v '
+                'LEFT JOIN execution_profile_checks c ON c.version_id=v.id '
+                'WHERE v.profile_id=? AND v.version<=? ORDER BY v.version DESC',
+                (version['profile_id'], version['version'])):
+            if any(candidate[key] != version[key] for key in ('adapter', 'auth_mode', 'config_json')):
+                break
+            if candidate['version_id'] is not None:
+                row = candidate
+                break
         if row is None:
             return None
         data = json.loads(row['result_json'])
@@ -238,7 +285,8 @@ class ExecutionProfileService:
                 if not isinstance(cursor, str) or len(cursor) > 512:
                     raise ValueError
                 stamp, ident = json.loads(base64.b64decode(cursor, altchars=b'-_', validate=True))
-                if type(stamp) is not int or not isinstance(ident, str) or len(ident) > 100:
+                if (type(stamp) is not int or not -(2 ** 63) <= stamp <= 2 ** 63 - 1
+                        or not isinstance(ident, str) or len(ident) > 100):
                     raise ValueError
             except (ValueError, TypeError, UnicodeError):
                 _error('validation')
@@ -439,9 +487,25 @@ class ExecutionProfileService:
     def run_test(self, job, context):
         stop, gate = threading.Event(), threading.Event()
         with self.store.transaction() as db:
-            version, previous = self._owned_test(db, job, context)
+            version, previous = self._owned_test(db, job, context, allow_stopped=True)
             if previous['status'] != 'queued':
                 _error('execution_test_reconciliation_required')
+            try:
+                self._owned_test(db, job, context)
+            except LeaseLost:
+                raise
+            except (Exception, JobInterrupted) as failure:
+                # This attempt has not called a factory or touched the runtime.
+                # Record its known, safe rejection instead of making the external
+                # worker invent an unknown outcome requiring manual containment.
+                code = (failure.code if isinstance(failure, ExecutionProfileError) else
+                        'execution_test_interrupted' if isinstance(failure, (JobInterrupted, CancelledError))
+                        else 'execution_test_failed')
+                db.execute("UPDATE execution_profile_checks SET status='failed',result_json=?,"
+                           'error_code=?,checked_at=? WHERE version_id=? AND job_id=?',
+                           (_json({'checks': {'runtime_started': False, 'containment_confirmed': True}}),
+                            code, self.clock(), version['id'], job.id))
+                return {'version_id': version['id'], 'status': 'failed', 'error_code': code}
             db.execute("UPDATE execution_profile_checks SET status='running',result_json='{}',"
                        'error_code=NULL,checked_at=NULL WHERE version_id=? AND job_id=?',
                        (version['id'], job.id))
@@ -531,9 +595,13 @@ class ExecutionProfileService:
                         max_budget_usd=config['agent_limits']['max_budget_usd'],
                         max_output_bytes=config['agent_limits']['max_output_bytes'])
                     harness_confirmed = result.get('stop_confirmed') is True
-                except AdapterError:
-                    # The producer guarantees AdapterError is raised after verified
-                    # process cleanup; unknown exceptions do not make that promise.
+                except ProcessContainmentError:
+                    harness_confirmed = False
+                    raise
+                except (Exception, JobInterrupted):
+                    # The adapter's process boundary confirms termination before
+                    # propagating callback errors. Only ProcessContainmentError or
+                    # an explicit stop_confirmed=False means containment is unknown.
                     harness_confirmed = True
                     raise
                 finally:

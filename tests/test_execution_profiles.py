@@ -4,11 +4,13 @@ No model or Docker inference runs. The test runner executes only the fixed
 synthetic POSIX arithmetic fixture in a temporary directory, not repository code.
 It is a fixture, not evidence of production container isolation or CLI login.
 """
+import base64
 import json
 import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -16,6 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from repoask.execution.claude import AdapterError
+from repoask.execution.adapter_process import run_stream
 from repoask.execution.profiles import ExecutionProfileError, ExecutionProfileService
 from repoask.execution.runner import RunnerError, RunnerHandle
 from repoask.platform import Platform, Worker
@@ -143,6 +146,14 @@ class FixtureAdapter:
         self.calls.append(('run', prompt, kwargs))
         self.endpoint = dict(endpoint)
         self.kwargs = kwargs
+        if self.mode in ('callback_process', 'unconfirmed_process'):
+            def started(pid):
+                self.process_id = pid
+                kwargs['on_started'](pid)
+            return run_stream([sys.executable, '-c', 'import time; time.sleep(.05)'],
+                              cwd=str(self.owner.runner.root), env={}, on_line=lambda _: None,
+                              timeout_seconds=2, max_output_bytes=1024,
+                              stop_event=kwargs['stop_event'], on_started=started)
         kwargs['on_started'](os.getpid())  # Simulated harness identity, no model process.
         if self.mode != 'no_inventory':
             kwargs['on_inventory_verified']()
@@ -298,6 +309,26 @@ class ProfileTests(unittest.TestCase):
         for cursor in (True, '!', 'e30=', 'WzEsMl0='):
             self.code('validation', lambda: self.service.list_profiles(cursor=cursor))
 
+    def test_cursor_timestamp_rejects_overflow_and_accepts_int64_boundaries(self):
+        self.create()
+        def cursor(stamp):
+            return base64.urlsafe_b64encode(json.dumps([stamp, 'cursor']).encode()).decode()
+        for stamp in (2 ** 63, -(2 ** 63) - 1, 10 ** 100, -(10 ** 100), True, 1.5):
+            self.code('validation', lambda: self.service.list_profiles(cursor=cursor(stamp)))
+        self.assertEqual(1, len(self.service.list_profiles(cursor=cursor(-(2 ** 63)))['items']))
+        self.assertEqual([], self.service.list_profiles(cursor=cursor(2 ** 63 - 1))['items'])
+
+    def test_image_references_reject_userinfo_urls_and_malformed_digests(self):
+        for image in ('user:password@registry.example/repo', 'https://registry.example/repo',
+                      'docker://repo', 'registry.example//repo', 'repo@not-a-digest',
+                      'repo@sha256:bad', 'sha256:bad', 'repo@sha256:' + 'a' * 64 + '@suffix',
+                      'user:secret/repo', 'registry:65536/repo'):
+            with self.subTest(image=image):
+                self.code('validation', lambda: self.service.create(self.spec(image=image)))
+        for n, image in enumerate(('local-toolchain:cached', 'registry.example:5000/team/image:tag',
+                                   'localhost:5000/team/image', IMAGE, 'team/image@' + IMAGE)):
+            self.assertEqual(image, self.service.create(self.spec(name='Image %d' % n, image=image))['version']['config']['image'])
+
     def test_validation_rejects_credentials_paths_flags_and_unsupported_auth(self):
         for key in ('executable', 'environment', 'mounts', 'docker_args', 'secret_value', 'token', 'capabilities'):
             self.code('validation', lambda: self.service.create(self.spec(**{key: PRIVATE})))
@@ -415,6 +446,41 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual('failed', self.result()['status'])
         self.code('execution_test_failed', lambda: self.service.require_usable(self.profile['id']))
 
+    def test_name_only_rename_preserves_completed_check_without_runtime_work(self):
+        self.create(); self.request(); self.work()
+        previous = self.result()
+        calls = len(self.factory_calls)
+        renamed = self.service.update(self.profile['id'], {'name': 'Presentation rename'})
+        self.assertEqual(previous, renamed['check'])
+        self.assertEqual(renamed['active_version_id'], self.service.require_usable(self.profile['id'])['id'])
+        self.assertEqual(calls, len(self.factory_calls))
+        self.assertIsNone(self.platform.jobs.claim('rival', kinds={'execution.test'}))
+
+    def test_name_only_rename_preserves_inflight_check_and_single_recovery_record(self):
+        self.create(); self.request()
+        self.adapter.on_run = lambda: self.adapter.release.wait(2)
+        self.start_work()
+        renamed = self.service.update(self.profile['id'], {'name': 'Renamed during check'})
+        self.assertEqual('running', renamed['check']['status'])
+        self.assertEqual(1, len(self.service.pending_runtime_tests()))
+        self.adapter.release.set(); self.worker_thread.join(2)
+        self.assertFalse(self.worker_thread.is_alive())
+        self.assertEqual('passed', self.result()['status'])
+        self.assertEqual(renamed['active_version_id'], self.service.require_usable(self.profile['id'])['id'])
+        self.assertEqual([], self.service.pending_runtime_tests())
+
+    def test_rename_cannot_inherit_over_config_changes_or_resurrect_old_pass(self):
+        self.create(); self.request(); self.work()
+        self.service.update(self.profile['id'], {'image': 'changed:cached'})
+        self.service.update(self.profile['id'], {'image': 'local-toolchain:cached'})
+        self.service.update(self.profile['id'], {'name': 'Back to original config'})
+        self.assertIsNone(self.result())
+        self.code('execution_test_required', lambda: self.service.require_usable(self.profile['id']))
+        self.request(); self.adapter.mode = 'wrong_change'; self.work()
+        self.service.update(self.profile['id'], {'name': 'Rename after failure'})
+        self.assertEqual('failed', self.result()['status'])
+        self.code('execution_test_failed', lambda: self.service.require_usable(self.profile['id']))
+
     def test_cached_success_survives_restart_but_policy_is_live(self):
         self.create(); self.request(); self.work()
         profile_id = self.profile['id']
@@ -503,8 +569,52 @@ class ProfileTests(unittest.TestCase):
         self.create(); self.request(); self.providers.update_settings(local_only=True)
         self.work()
         self.assertEqual([], self.factory_calls)
+        self.assertEqual('failed', self.result()['status'])
+        self.assertEqual('execution_local_only', self.result()['error_code'])
+        self.assertEqual('succeeded', self.platform.jobs.get(self.requested['job_id']).state)
+        self.assertEqual([], self.service.pending_runtime_tests())
+        self.providers.update_settings(local_only=False)
+        self.request(); self.work()
+        self.assertEqual('passed', self.result()['status'])
+
+    def test_shutdown_before_runtime_is_safe_failure_and_permits_fresh_test(self):
+        self.create(); self.request()
+        shutdown = threading.Event(); shutdown.set()
+        self.work(shutdown=shutdown)
+        self.assertEqual([], self.factory_calls)
+        self.assertEqual('failed', self.result()['status'])
+        self.assertEqual('succeeded', self.platform.jobs.get(self.requested['job_id']).state)
+        self.assertEqual([], self.service.pending_runtime_tests())
+        self.request(); self.work()
+        self.assertEqual('passed', self.result()['status'])
+
+    def test_callback_error_after_real_process_cleanup_is_not_unknown_containment(self):
+        self.create(); self.request(); self.adapter.mode = 'callback_process'
+        with patch.object(self.service, '_process_start', side_effect=RuntimeError(PRIVATE)):
+            self.work()
+        self.assertEqual('failed', self.result()['status'])
+        self.assertEqual('execution_test_failed', self.result()['error_code'])
+        self.assertTrue(self.private_result()['checks']['containment_confirmed'])
+        self.assertEqual('succeeded', self.platform.jobs.get(self.requested['job_id']).state)
+        self.assertEqual([], self.service.pending_runtime_tests())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(self.adapter.process_id, 0)
+
+    def test_process_containment_error_remains_unknown_even_when_process_is_gone(self):
+        from repoask.execution import adapter_process
+        self.create(); self.request(); self.adapter.mode = 'unconfirmed_process'
+        original = adapter_process._terminate_group
+        def unverified(process, watcher):
+            original(process, watcher)
+            return False
+        with patch.object(adapter_process, '_terminate_group', side_effect=unverified):
+            self.work()
         self.assertEqual('interrupted', self.result()['status'])
+        self.assertEqual('containment_unverified', self.result()['error_code'])
         self.assertEqual('needs_reconciliation', self.platform.jobs.get(self.requested['job_id']).state)
+        self.code('execution_test_reconciliation_required', self.request)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(self.adapter.process_id, 0)
 
     def test_detected_auth_failure_stores_only_safe_code(self):
         self.create(); self.adapter.preflight_error = AdapterError('authentication_required')
