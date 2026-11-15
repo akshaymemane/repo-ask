@@ -1,0 +1,98 @@
+// Chat-style Ask: landing composer creates a titled conversation, mid-conversation scope, recent titles.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { createBrowser, input, install, keydown, settle, visibleText } from "./dom.mjs";
+import { createAskPanel, titleFrom } from "../../repoask/web/ask.js";
+
+const html = readFileSync(new URL("../../repoask/web/index.html", import.meta.url), "utf8");
+const storage = () => { const map = new Map(); return { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) }; };
+const ctx = (id, name) => ({ repository_id: id, name: `akshaymemane/${name}`, kind: "github", eligible: true, status: "ready", active_snapshot: { mode: "lexical_only", coverage: { files: 3 } }, active_run: null });
+const REPOS = { "gh:1": ctx("gh:1", "rcnl-app"), "gh:2": ctx("gh:2", "central-deploy-manager"), "gh:3": ctx("gh:3", "cube-workbench"), "gh:4": ctx("gh:4", "edgemesh"), "gh:5": ctx("gh:5", "mysociety") };
+
+async function boot(respond, { hash = "#/ask" } = {}) {
+  const b = createBrowser(html, { hash, respond });
+  b.window.sessionStorage = storage();
+  b.window.confirm = () => true;
+  install(b);
+  globalThis.sessionStorage = b.window.sessionStorage;
+  globalThis.localStorage = storage();
+  const recent = [];
+  const headers = [];
+  const shell = { setRecent: (items) => recent.splice(0, recent.length, ...items), setHeader: (h) => headers.push(h) };
+  const ui = await createAskPanel({ host: b.document.getElementById("view-ask"), shell });
+  await settle();
+  return { ...b, ui, recent, headers, button: (t) => ui.panel.querySelectorAll("button").find((n) => n.textContent === t) };
+}
+
+test("titleFrom trims to 60 characters at a word boundary", () => {
+  assert.equal(titleFrom("What does rcnl-app do and how is it structured?"), "What does rcnl-app do and how is it structured?");
+  assert.equal(titleFrom("Explain how the deploy manager schedules rollouts across every edge region we run"), "Explain how the deploy manager schedules rollouts across…");
+});
+
+test("first send from the landing page creates a titled conversation with chosen repos, navigates and sends", async () => {
+  const posts = [];
+  let conversation = null;
+  const b = await boot((m, u, o) => {
+    if (u === "/api/conversations" && m === "GET") return { items: conversation ? [conversation] : [] };
+    if (u === "/api/conversations" && m === "POST") { posts.push(JSON.parse(o.body)); conversation = { id: "conv_new", title: posts[0].title, scope_revision: 1, repository_ids: posts[0].repository_ids, messages: [], runs: [], plans: [] }; return conversation; }
+    if (u === "/api/conversations/conv_new") return conversation;
+    if (u === "/api/conversations/conv_new/messages") { posts.push(JSON.parse(o.body)); return { id: "run", state: "queued" }; }
+    if (u.startsWith("/api/context/repositories")) return { items: Object.values(REPOS), next_cursor: null };
+    const m2 = /^\/api\/repositories\/(.+)\/context$/.exec(u);
+    if (m2) return REPOS[decodeURIComponent(m2[1])];
+    return { status: 404, body: { code: "not_found" } };
+  });
+  assert.match(visibleText(b.ui.panel), /What are we working on\?/);
+  b.ui.panel.querySelectorAll("button").find((n) => n.getAttribute("aria-label") === "Add repositories").click();
+  await settle(30);
+  b.document.querySelectorAll(".picker-row").find((r) => visibleText(r).includes("rcnl-app")).querySelector("input").click();
+  b.document.querySelectorAll("dialog.modal button").find((n) => n.textContent.startsWith("Add")).click();
+  await settle();
+  const box = b.ui.panel.querySelector("textarea");
+  input(box, "What does rcnl-app do and how is it structured?");
+  keydown(box, "Enter");
+  await settle(40);
+  assert.deepEqual(posts[0], { title: "What does rcnl-app do and how is it structured?", repository_ids: ["gh:1"] });
+  assert.equal(b.window.location.hash, "#/ask/conv_new");
+  assert.equal(posts[1].content, "What does rcnl-app do and how is it structured?");
+  assert.equal(posts[1].intent, "answer");
+  assert.deepEqual(b.recent.map((r) => r.title), ["What does rcnl-app do and how is it structured?"]);
+});
+
+test("adding a 5th repository mid-conversation patches scope, logs it and marks the plan stale", async () => {
+  let c = { id: "c", title: "Deploy flow", scope_revision: 4, repository_ids: ["gh:1", "gh:2", "gh:3", "gh:4"], runs: [],
+    messages: [{ id: "m1", role: "user", content: "Plan it", state: "complete", created_at: 1 }], plans: [{ id: "plan_1", title: "Deploy plan", latest_version_id: "v1", created_at: 2 }] };
+  const patches = [];
+  const b = await boot((m, u, o) => {
+    if (u === "/api/conversations") return { items: [c] };
+    if (u === "/api/conversations/c") { if (m === "PATCH") { patches.push(JSON.parse(o.body)); c = { ...c, repository_ids: patches.at(-1).repository_ids, scope_revision: 5 }; } return c; }
+    if (u === "/api/plans/plan_1") return { id: "plan_1", latest_version_id: "v1", version: { version: 1, content: { steps: [{}, {}] }, readiness: { state: "ready", blocking_reasons: [] } } };
+    if (u.startsWith("/api/context/repositories")) { const q = new URL(u, "http://x").searchParams.get("query") ?? ""; return { items: Object.values(REPOS).filter((r) => r.name.includes(q)), next_cursor: null }; }
+    const m2 = /^\/api\/repositories\/(.+)\/context$/.exec(u);
+    if (m2) return REPOS[decodeURIComponent(m2[1])];
+    return { status: 404, body: { code: "not_found" } };
+  }, { hash: "#/ask/c" });
+  await settle(20);
+  const box = b.ui.panel.querySelector("textarea");
+  input(box, "Also check @mysoc");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await settle();
+  keydown(box, "Enter");
+  await settle(40);
+  assert.deepEqual(patches, [{ repository_ids: ["gh:1", "gh:2", "gh:3", "gh:4", "gh:5"], expected_revision: 4 }]);
+  const text = visibleText(b.ui.panel);
+  assert.match(text, /Added mysociety/);
+  assert.match(text, /Made before mysociety was added · Regenerate/);
+  assert.deepEqual(b.ui.panel.querySelectorAll(".chip-repo .chip-label").map((n) => n.textContent), ["rcnl-app", "central-deploy-manager", "cube-workbench", "edgemesh", "mysociety"]);
+  assert.deepEqual(b.headers.at(-1).pills.slice(0, 5).map((p) => p.text), ["rcnl-app", "central-deploy-manager", "cube-workbench", "edgemesh", "mysociety"]);
+});
+
+test("recent list shows titles and falls back to Untitled, never ids", async () => {
+  const b = await boot((m, u) => {
+    if (u === "/api/conversations") return { items: [{ id: "conv_1", title: "Deploy flow", updated_at: Date.now() - 120000 }, { id: "conv_2", title: "", updated_at: Date.now() - 7200000 }] };
+    return { status: 404, body: { code: "not_found" } };
+  });
+  assert.deepEqual(b.recent.map((r) => r.title), ["Deploy flow", "Untitled · 2 h ago"]);
+  assert.deepEqual(b.recent.map((r) => r.href), ["#/ask/conv_1", "#/ask/conv_2"]);
+});

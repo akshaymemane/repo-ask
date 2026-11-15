@@ -39,9 +39,9 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   b.window.location.hash=`#/ask/${seed.conversation.id}`;await settle(30);assert.match(visibleText(panel),/Durable UI test/);
   input(field('Question or planning request'),'How does mail delivery work?');button('Ask').click();await settle(30);
   const c=call(`/api/conversations/${seed.conversation.id}`).body;assert.equal(c.messages.filter(x=>x.role==='user').length,1);assert.equal(c.runs.length,1);
-  button('Cancel request').click();await settle(30);assert.equal(call(`/api/conversations/${seed.conversation.id}`).body.runs[0].state,'cancelled');
-  button('Retry request').click();await settle(30);assert.equal(call(`/api/conversations/${seed.conversation.id}`).body.messages.filter(x=>x.role==='user').length,1);
-  button('Cancel request').click();await settle(30);
+  button('Cancel').click();await settle(30);assert.equal(call(`/api/conversations/${seed.conversation.id}`).body.runs[0].state,'cancelled');
+  button('Retry').click();await settle(30);assert.equal(call(`/api/conversations/${seed.conversation.id}`).body.messages.filter(x=>x.role==='user').length,1);
+  button('Cancel').click();await settle(30);
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -52,7 +52,7 @@ test('missing persistent API preserves the legacy DOM and demo',async()=>{
 });
 
 test('uncertain message submission reuses client ID and survives navigation refusal',async()=>{
- const c={id:'c',title:'Saved',scope_revision:1,repository_ids:[],messages:[],runs:[],plans:[]};const submitted=[];
+ const c={id:'c',title:'Saved',scope_revision:1,repository_ids:['r'],messages:[],runs:[],plans:[]};const submitted=[];
  const b=createBrowser(html,{hash:'#/ask/c',respond:(m,u,o)=>{
   if(u==='/api/conversations')return {items:[c],next_cursor:null};
   if(u==='/api/conversations/c')return c;
@@ -77,7 +77,7 @@ test('source and conversation reads fence late responses; citations render untru
  }});install(b);
  const ui=await createAskPanel({host:b.document.getElementById('view-ask')});
  assert.equal(ui.panel.querySelector('img'),null);
- const cites=ui.panel.querySelectorAll('button').filter(x=>x.textContent.includes('@ a'));cites[0].click();await settle();cites[1].click();await settle();
+ const cites=ui.panel.querySelectorAll('button').filter(x=>x.classList.contains('cite'));assert.equal(cites.length,2);cites[0].click();await settle();cites[1].click();await settle();
  first({repository_id:'r',revision:'a',path:'one',first_line:1,lines:['late first']});await settle();
  assert.match(visibleText(ui.panel),/second/);assert.doesNotMatch(visibleText(ui.panel),/late first/);
 });

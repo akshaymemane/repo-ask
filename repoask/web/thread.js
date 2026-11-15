@@ -34,7 +34,7 @@ function details(message) {
   const destination = message.destination ? `${message.destination.kind ?? ""} ${message.destination.host ?? ""}`.trim() : "destination unknown";
   const usage = message.usage || {};
   const tokens = Number.isFinite(usage.input_tokens) ? `${usage.input_tokens} in / ${usage.output_tokens ?? "?"} out tokens` : "usage unknown";
-  const cost = Number.isFinite(usage.cost_usd) ? `$${usage.cost_usd.toFixed(4)}` : "cost unknown";
+  const cost = Number.isFinite(usage.estimated_cost) ? `${usage.cost_status || "estimated"} ${usage.estimated_cost} USD` : "cost unknown";
   return `${message.model ?? "model unknown"} · ${destination} · ${tokens} · ${cost}`;
 }
 
@@ -62,6 +62,8 @@ function assistant(message, view, handlers) {
     if (run) button(box, "Retry", () => handlers.onRetry(run.id));
   } else if (message.state === "cancelled") {
     box.append(el("p", "Cancelled.", "msg-muted"));
+    const run = view.runs.find((item) => item.assistant_message_id === message.id);
+    if (run) button(box, "Retry", () => handlers.onRetry(run.id));
   } else {
     const seconds = Math.max(0, Math.round(((view.now ?? Date.now()) - message.created_at) / 1000));
     box.append(el("p", `Waiting for the model… ${seconds} s`, "msg-pending"));
