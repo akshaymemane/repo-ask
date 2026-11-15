@@ -121,10 +121,11 @@ class GitHubClient:
             raise GitHubError('validation')
         failed = None
         try:
-            response = self.transport(Request(method, path, {
-                'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json',
-                'User-Agent': 'OpenDevin-local'}, body))
+            headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                       'Content-Type': 'application/json', 'User-Agent': 'OpenDevin-local'}
+            if token is not None:
+                headers['Authorization'] = 'Bearer ' + token
+            response = self.transport(Request(method, path, headers, body))
         except GitHubError:
             raise
         except (TimeoutError, socket.timeout):
@@ -150,6 +151,19 @@ class GitHubClient:
         if not 200 <= response.status < 300:
             raise GitHubError('malformed_output')
         return response.json
+
+    def convert_manifest(self, code):
+        if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', code):
+            raise GitHubError('manifest_conversion_failed')
+        try:
+            value = self.request('POST', '/app-manifests/' + code + '/conversions', None)
+        except GitHubError as exc:
+            if exc.code == 'rate_limited':
+                raise
+            raise GitHubError('manifest_conversion_failed') from None
+        if not isinstance(value, dict) or not isinstance(value.get('pem'), str) or not isinstance(value.get('slug'), str):
+            raise GitHubError('manifest_conversion_failed')
+        return {'id': value.get('id'), 'slug': value['slug'], 'pem': value['pem']}
 
     def app(self, token):
         return self.request('GET', '/app', token)
