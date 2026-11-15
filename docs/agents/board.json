@@ -642,17 +642,29 @@
         "Lost response/retry yields one PR"
       ],
       "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "base_sha": "103882e297d95f9cae7ee587fdef2c0b3e4fe54a",
+      "branch": "task/m2-publication",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication",
+      "reviewer_session": "fresh opposite-harness quality and security reviewer after candidate",
+      "handoff": "docs/agents/runs/M2-PRS/handoff.md",
+      "heartbeat_at": "2026-11-15T10:52:19Z",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "Contract and migration11 frozen at 103882e. Wait for M2-SESSIONS approval/integration, then launch one isolated publication builder against the trusted publication_snapshot handoff.",
+      "completion_depends_on": [
+        "M2-PROFILES",
+        "M2-ADAPTER-SPIKE"
+      ],
+      "write_scope": [
+        "repoask/publication/**",
+        "tests/test_publication_*.py",
+        "repoask/github/client.py (publication methods only)",
+        "tests/test_github_client.py (publication methods only)",
+        "docs/agents/runs/M2-PRS/**"
+      ],
+      "contract": "docs/contracts/m2-publication.md",
+      "reviewer": "fresh opposite-harness quality and security review"
     },
     {
       "id": "M2-PILOT",

@@ -1,0 +1,41 @@
+{
+  "id": "M2-PRS",
+  "title": "Draft publication and uncertain-outcome reconciliation",
+  "state": "backlog",
+  "base_sha": "103882e297d95f9cae7ee587fdef2c0b3e4fe54a",
+  "branch": "task/m2-publication",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication",
+  "owner": null,
+  "depends_on": ["M2-SESSIONS", "M1-GITHUB"],
+  "contract": "docs/contracts/m2-publication.md",
+  "requirements": ["PR-01", "PR-02", "PR-03", "PR-04", "PR-05", "PR-06", "PR-07", "PR-08", "PR-09", "PR-10", "PR-11", "OP-02", "OP-06", "OP-12"],
+  "write_scope": [
+    "repoask/publication/**",
+    "tests/test_publication_*.py",
+    "repoask/github/client.py (publication methods only)",
+    "tests/test_github_client.py (publication methods only)",
+    "docs/agents/runs/M2-PRS/**"
+  ],
+  "forbidden_scope": [
+    "repoask/platform/**",
+    "repoask/sessions/**",
+    "repoask/session_api.py",
+    "repoask/services.py",
+    "repoask/__main__.py",
+    "repoask/web/**"
+  ],
+  "acceptance": [
+    "Publication uses only a trusted exact session checkpoint and current repository policy",
+    "GitHub token is repository scoped and never persisted or exposed to the runner/model/browser",
+    "Tree uses the actual base tree SHA and preserves unseen files, modes and deletions",
+    "Branch creation never force-pushes or writes the default branch",
+    "Lost branch and PR responses reconcile to exactly one branch and one draft PR",
+    "Base advance overlap and incomplete 300-file comparison block visibly",
+    "Manual failed-check disclosure and automatic success-only policy are both proven",
+    "Restart, double-click, permission revocation, purge and empty diff are covered",
+    "Focused and combined tests pass; no fake is reported as a live GitHub pilot"
+  ],
+  "reviewer": "fresh opposite-harness quality and security reviewer",
+  "handoff": "docs/agents/runs/M2-PRS/handoff.md",
+  "blocker": "M2-SESSIONS exact candidate is under independent review and publication_snapshot is not integrated yet"
+}
