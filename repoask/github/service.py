@@ -2,7 +2,10 @@
 import base64
 import hashlib
 import json
+import re
 import secrets as random
+import threading
+from urllib.parse import urlsplit
 from .client import GitHubClient, jwt, private_key as validate_private_key, positive_id, component, permissions as validate_permissions
 from .errors import GitHubError
 from repoask.platform.clock import now_ms, new_id
@@ -22,6 +25,7 @@ class GitHubService:
         self.store, self.jobs, self.secrets, self.clock = store, jobs, secrets, clock
         self.client = GitHubClient(transport=transport, clock=clock)
         self.listeners, self.purge_hooks = [], {}
+        self.manifest_states, self.manifest_lock = {}, threading.Lock()
 
     def _one(self, table, ident):
         with self.store.read() as db:
@@ -78,6 +82,39 @@ class GitHubService:
         if old:
             self.secrets.revoke(old)
         return self._public_connection(self._one('github_connections', ident))
+
+    def begin_manifest(self, *, public_base_url, organization=None):
+        """Prepare a GitHub App manifest; the state is in-memory, single use and expires in 10 minutes."""
+        parts = urlsplit(public_base_url) if isinstance(public_base_url, str) else None
+        if parts is None or parts.scheme != 'http' or parts.hostname not in ('127.0.0.1', 'localhost') \
+                or parts.path not in ('', '/') or parts.query or parts.username:
+            raise GitHubError('validation')
+        if organization is not None and (not isinstance(organization, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,39}', organization)):
+            raise GitHubError('validation')
+        base = public_base_url.rstrip('/')
+        callback = base + '/api/github/manifest/callback'
+        manifest = {'name': 'opendevin-' + random.token_hex(3), 'url': callback, 'redirect_url': callback,
+                    'setup_url': base + '/api/github/callback',
+                    'hook_attributes': {'url': base + '/api/github/webhook-disabled', 'active': False},
+                    'public': False, 'default_permissions': {'contents': 'read', 'metadata': 'read'},
+                    'default_events': [], 'request_oauth_on_install': False, 'setup_on_update': False}
+        state, expires = random.token_urlsafe(32), self.clock() + 600000
+        with self.manifest_lock:
+            now = self.clock()
+            self.manifest_states = {k: v for k, v in self.manifest_states.items() if v > now}
+            self.manifest_states[hashlib.sha256(state.encode()).hexdigest()] = expires
+        action = ('https://github.com/organizations/' + organization + '/settings/apps/new') if organization \
+            else 'https://github.com/settings/apps/new'
+        return {'action': action, 'state': state, 'manifest': manifest, 'expires_at': expires}
+
+    def finish_manifest(self, state, code):
+        key = hashlib.sha256(state.encode()).hexdigest() if isinstance(state, str) and 1 <= len(state) <= 200 else None
+        with self.manifest_lock:
+            expires = self.manifest_states.pop(key, None) if key else None
+        if expires is None or expires <= self.clock():
+            raise GitHubError('manifest_state_invalid')
+        app = self.client.convert_manifest(code)
+        return self.configure(app['id'], app['slug'], app['pem'])
 
     def connections(self):
         with self.store.read() as db:

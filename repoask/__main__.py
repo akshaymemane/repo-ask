@@ -290,7 +290,7 @@ def main():
         platform.close()
         index.db.close()
         parser.exit(1, f"Could not start OpenDevin on port {args.port}. {error.strerror}\n")
-    services = ApplicationServices(platform)
+    services = ApplicationServices(platform, public_base_url=f"http://127.0.0.1:{args.port}")
     try:
         with server:
             indexing = IndexService(platform.store, platform.jobs, services.github, services.providers)

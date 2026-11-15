@@ -33,8 +33,9 @@ class ShutdownContext:
 
 
 class ApplicationServices:
-    def __init__(self, platform, *, github_transport=None, provider_transport=None):
+    def __init__(self, platform, *, github_transport=None, provider_transport=None, public_base_url='http://127.0.0.1:8765'):
         self.platform = platform
+        self.public_base_url = public_base_url
         self.github = GitHubService(platform.store, platform.jobs, platform.secrets, transport=github_transport)
         self.providers = ProviderService(platform.store, platform.secrets, transport=provider_transport)
         self.indexing = self.routing = self.plans = self.conversations = None
@@ -45,7 +46,7 @@ class ApplicationServices:
         self.context_sources = {}
         self.context_lock = RLock()
         self.demo_loader = self._bundled_demos
-        self.api = FeatureAPI(platform, self.github, self.providers)
+        self.api = FeatureAPI(platform, self.github, self.providers, public_base_url=public_base_url)
         self.stop_event = Event()
         self.thread = None
         self.error_code = None
@@ -60,7 +61,8 @@ class ApplicationServices:
                               indexing=self.indexing, routing=self.routing, plans=self.plans,
                               conversations=self.conversations, purge_context=self.purge_context,
                               select_context=self.select_context,
-                              execution_profiles=self.execution_profiles, sessions=self.sessions)
+                              execution_profiles=self.execution_profiles, sessions=self.sessions,
+                              public_base_url=self.public_base_url)
 
     def enable_context(self, indexing):
         self._before_start()

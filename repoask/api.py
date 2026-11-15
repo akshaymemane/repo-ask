@@ -60,8 +60,9 @@ def error_status(code):
 
 
 class FeatureAPI:
-    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None, select_context=None, execution_profiles=None, sessions=None):
+    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None, select_context=None, execution_profiles=None, sessions=None, public_base_url='http://127.0.0.1:8765'):
         self.platform, self.github, self.providers = platform, github, providers
+        self.public_base_url = public_base_url
         from .session_api import ExecutionAPI
         self.execution_api = ExecutionAPI(execution_profiles,sessions)
         self.ask = None
@@ -94,6 +95,18 @@ class FeatureAPI:
             response = self.ask.dispatch(method, path, raw_query, body)
             if response is not None:
                 return response
+        if path == '/api/github/manifest/callback' and method == 'GET':
+            q = query_fields(raw_query, {'state', 'code'})
+            try:
+                self.github.finish_manifest(q.get('state', ''), q.get('code', ''))
+                code = 'manifest_created'
+            except PlatformError as error:
+                code = error.code if re.fullmatch(r'[a-z_]{1,64}', error.code) else 'setup_failed'
+            return APIResponse(303, headers={'Location': '/#/settings/github?github=' + code})
+        if path == '/api/github/manifest/start' and method == 'POST':
+            data = fields(body, {'organization'})
+            return APIResponse(200, self.github.begin_manifest(public_base_url=self.public_base_url,
+                                                               organization=data.get('organization') or None))
         if path == '/api/github/callback' and method == 'GET':
             q = query_fields(raw_query, {'state', 'installation_id', 'setup_action'})
             try:
