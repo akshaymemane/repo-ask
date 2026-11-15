@@ -925,3 +925,11 @@ dialog.modal::backdrop { background: #05060899; }
 .diff-totals { font-variant-numeric: tabular-nums; font-weight: 600; }
 /* Narrow widths: the pane drops below the thread; status, phase and Stop stay in view. */
 @media (max-width: 1000px) { .sessions-panel.session-detail { grid-template-columns: minmax(0, 1fr); } .session-pane { position: static; max-height: none; } }
+
+/* ---- Repository detail panel ---- */
+.detail-section { display: grid; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.detail-section h4 { margin: 0; }
+.detail-actions, .chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.detail-add { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; }
+.detail-add label { display: grid; gap: var(--space-1); }
+.danger-zone h4 { color: var(--danger); }

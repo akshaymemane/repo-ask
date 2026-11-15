@@ -132,7 +132,8 @@ test("clicking a repository opens details with plain skipped reasons and its ind
   assert.match(text, /akshaymemane\/rcnl-app · private · main @ c5bd264/);
   assert.match(text, /59 files indexed · 35 skipped/);
   assert.match(text, /28 generated files, 5 files that look like secrets, 2 binary or secret-like files/);
-  assert.ok(side.querySelectorAll("button").find((x) => x.textContent === "Reindex akshaymemane/rcnl-app"));
+  assert.ok(side.querySelectorAll("button").find((x) => x.textContent === "Reindex now"));
+  assert.match(text, /Ignored paths/);assert.match(text, /dist\/\*\*/);assert.match(text, /Danger zone/);
   assert.ok(side.querySelectorAll("a").find((a) => a.getAttribute("href") === "https://github.com/akshaymemane/rcnl-app"));
 });
 
@@ -212,4 +213,59 @@ test("failed first row save cannot overwrite an immutable queued second intent",
   assert.deepEqual(bodies,[{index_enabled:false,implementation_enabled:false},{index_enabled:false,implementation_enabled:true}]);
   assert.equal(switchIn(row(host,"rcnl-app"),"Use in Ask").getAttribute("aria-checked"),"false");
   assert.equal(switchIn(row(host,"rcnl-app"),"Allow changes").getAttribute("aria-checked"),"true");
+});
+
+
+test("detail panel ignores and un-ignores paths, reindexes, pauses and deletes the local index only after confirming", async () => {
+  let exclusions = ["dist/**"];
+  const { host, side, calls, b } = await setup({
+    "GET /api/repositories/gh%3A1/exclusions": () => ({ exclusions }),
+    "PATCH /api/repositories/gh%3A1/exclusions": ({ body }) => { exclusions = body.exclusions; return { exclusions }; },
+  });
+  const sideButton = (text) => side.querySelectorAll("button").find((x) => x.textContent === text);
+  row(host, "rcnl-app").querySelector("th button").click();
+  await settle(20);
+  sideButton("＋ Add").click();
+  input(side.querySelectorAll("label").find((x) => x.textContent.startsWith("Path or glob")).querySelector("input"), "vendor/**");
+  side.querySelector("form.detail-add").requestSubmit();
+  await settle(30);
+  assert.deepEqual(exclusions, ["dist/**", "vendor/**"]);
+  assert.match(visibleText(side), /Now ignoring vendor\/\*\*/);
+  side.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Stop ignoring dist/**").click();
+  await settle(30);
+  assert.deepEqual(exclusions, ["vendor/**"]);
+
+  sideButton("Reindex now").click();
+  await settle(30);
+  assert.ok(calls.some(([m, p]) => m === "POST" && p === "/api/repositories/gh%3A1/index"));
+
+  sideButton("Delete local index…").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog");
+  assert.ok(dialog);
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Cancel").click();
+  await settle(20);
+  assert.equal(calls.filter(([m, p]) => m === "POST" && p.endsWith("/purge")).length, 0);
+  sideButton("Delete local index…").click();
+  await settle();
+  b.document.querySelector("dialog").querySelectorAll("button").find((x) => x.textContent === "Delete local index").click();
+  await settle(30);
+  assert.equal(calls.filter(([m, p]) => m === "POST" && p === "/api/repositories/gh%3A1/purge").length, 1);
+  assert.match(visibleText(side), /Local index deleted\./);
+});
+
+test("a running index job offers Pause and disables Reindex", async () => {
+  const { host, side, calls } = await setup({
+    "GET /api/repositories/gh%3A1/context": () => contextItem("gh:1", "rcnl-app", { active_run: { id: "job1", state: "running", phase: "embedding", progress: { files: 12 } } }),
+  });
+  row(host, "rcnl-app").querySelector("th button").click();
+  await settle(20);
+  // Context in the table comes from the list; open detail reflects it after the first refresh of the row.
+  const reindex = side.querySelectorAll("button").find((x) => x.textContent === "Reindex now");
+  reindex.click(); await settle(30);
+  const pause = side.querySelectorAll("button").find((x) => x.textContent === "Pause");
+  assert.ok(pause);
+  assert.equal(side.querySelectorAll("button").find((x) => x.textContent === "Reindex now").disabled, true);
+  pause.click(); await settle(30);
+  assert.ok(calls.some(([m, p]) => m === "POST" && p === "/api/index-jobs/job1/pause"));
 });
