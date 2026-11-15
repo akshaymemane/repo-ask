@@ -830,3 +830,15 @@ dialog.modal::backdrop { background: #05060899; }
 .persistent-ask > h1:focus { font-size: 13px; color: var(--muted); width: min(100%, 760px); margin: var(--space-2) auto 0; }
 .persistent-ask > p[role="status"] { width: min(100%, 760px); margin: var(--space-2) auto 0; padding: 0 var(--space-4); color: var(--muted); font-size: 13px; }
 .persistent-ask > p[role="status"]:empty { display: none; }
+
+/* ---- Code viewer ---- */
+.code-head { font-weight: 600; font-size: 13px; }
+.code-path { color: var(--muted); font-family: var(--mono); font-size: 12px; margin: 2px 0 var(--space-2); overflow-wrap: anywhere; }
+.code-github { font-size: 12px; color: var(--accent); }
+.code-view { margin: var(--space-2) 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
+.code-line { display: flex; white-space: pre; }
+.code-line .ln { flex: none; width: 48px; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
+.code-line.hl { background: var(--accent-tint); }
+.code-line.hl .ln { color: var(--accent); }
+.code-error { color: var(--danger); }
+.code-status { color: var(--muted); }

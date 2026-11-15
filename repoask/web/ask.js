@@ -3,6 +3,7 @@ import { createComposer } from "./composer.js";
 import { renderThread } from "./thread.js";
 import { rememberRepositories } from "./repo-source.js";
 import { relativeTime } from "./ui.js";
+import { openSource } from "./code-viewer.js";
 // Persistent Ask consumes the frozen AskAPI; source and model output are always text.
 const el = (tag, text) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; return n; };
 const enc = encodeURIComponent;
@@ -16,7 +17,7 @@ export function titleFrom(text) {
   const cut = clean.slice(0, 60);
   return (cut.lastIndexOf(' ') > 30 ? cut.slice(0, cut.lastIndexOf(' ')) : cut) + '…';
 }
-export async function createAskPanel({host, request = http, onMount = () => {}, shell = NO_SHELL}) {
+export async function createAskPanel({host, request = http, onMount = () => {}, shell = NO_SHELL, sidePanel = null}) {
   let listing, initialHistoryError;
   try {
     listing = await request('/api/conversations');
@@ -91,6 +92,13 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   }
   let historyNext=null;
   async function cite(c, token, trigger) {
+    if (sidePanel) {
+      const context = contexts.get(c.repository_id);
+      const name = context?.name ?? null;
+      const github = String(c.repository_id).startsWith('gh:') && name && name.includes('/') ? `https://github.com/${name}` : null;
+      openSource(sidePanel, c, {request, repoName: name, branch: context?.active_snapshot?.branch ?? null, githubUrl: github});
+      return;
+    }
     const sourceToken=++sourceEpoch; source.replaceChildren(el('p', 'Loading exact snapshot…'));
     try {
       const q = new URLSearchParams(); for (const key of ['repository_id','snapshot_id','path','start_line','end_line']) q.set(key, c[key]);
@@ -319,7 +327,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);reasons.id='ask-launch-reasons';body.append(reasons);start.setAttribute('aria-describedby',reasons.id);
   }
   async function load() {
-    clearTimeout(timer); const token=++epoch; sourceEpoch++; current=null;
+    clearTimeout(timer); const token=++epoch; sourceEpoch++; current=null; sidePanel?.close();
     // Retire controls immediately: the URL must never operate on the previous record.
     source.replaceChildren();body.replaceChildren(el('p','Loading saved Ask…'));
     const parts=location.hash.split('/');
