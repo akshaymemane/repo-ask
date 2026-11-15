@@ -469,7 +469,7 @@ class SessionService:
         if version['content_hash'] != content_hash:
             raise SessionError('plan_hash_mismatch')
         readiness = version['readiness']
-        if version['content'] is None or readiness['state'] == 'superseded':
+        if version['content'] is None or (predecessor is None and readiness['state'] == 'superseded'):
             raise SessionError('plan_not_ready', details=readiness['blocking_reasons'] or [readiness['state']])
         content = version['content']
         result, private = self._preflight(content)
@@ -478,7 +478,11 @@ class SessionService:
             # A retry repeats the predecessor's pinned intent: its profile VERSION is
             # rechecked for fresh permission instead of adopting the active version.
             blocking = [r for r in blocking if r not in PROFILE_REASONS]
-            ready_reasons = [r for r in readiness['blocking_reasons'] if r not in PROFILE_REASONS]
+            # Supersession is expected for an immutable retry.  All current
+            # access, implementation, exclusion and pinned-profile checks are
+            # still performed by _preflight and _resolve_profile.
+            ready_reasons = [r for r in readiness['blocking_reasons']
+                             if r not in PROFILE_REASONS and r != 'superseded']
             if ready_reasons:
                 raise SessionError('plan_not_ready', details=ready_reasons)
         elif readiness['state'] != 'ready':
@@ -536,7 +540,8 @@ class SessionService:
                 return {'session_id': again['id'], 'state': again['state']}
             current = db.execute('SELECT p.latest_version_id,p.deleted_at,v.content_hash,v.deleted_at AS vdel '
                                  'FROM plan_versions v JOIN plans p ON p.id=v.plan_id WHERE v.id=?', (plan_version_id,)).fetchone()
-            if (current is None or current['latest_version_id'] != plan_version_id or current['deleted_at'] is not None
+            if (current is None or (predecessor is None and current['latest_version_id'] != plan_version_id)
+                    or current['deleted_at'] is not None
                     or current['vdel'] is not None or current['content_hash'] != content_hash):
                 raise SessionError('plan_not_ready', details=['superseded'])
             if predecessor is not None:
@@ -678,13 +683,18 @@ class SessionService:
 
     def artifacts(self, session_id):
         _ident(session_id, 'session_id')
+        policy = self.source_policy(session_id)
         with self.store.read() as db:
             self._row(db, session_id)
             rows = db.execute('SELECT id,kind,sha256,byte_count,content IS NULL AS redacted,created_at FROM session_artifacts '
                               'WHERE session_id=? ORDER BY created_at,id', (session_id,)).fetchall()
-        return {'items': [{'id': r['id'], 'kind': r['kind'], 'sha256': None if r['redacted'] else r['sha256'],
-                           'byte_count': r['byte_count'], 'redacted': bool(r['redacted']), 'created_at': r['created_at']}
-                          for r in rows]}
+        live = policy['available']
+        return {'items': [{'id': r['id'], 'kind': r['kind'],
+                           'sha256': None if r['redacted'] or not live else r['sha256'],
+                           'byte_count': None if not live else r['byte_count'],
+                           'redacted': bool(r['redacted']) or not live, 'created_at': r['created_at']}
+                          for r in rows], 'source_available': bool(live),
+                'source_unavailable_reason': None if live else policy['reason']}
 
     def _latest_artifact(self, db, session_id, kind):
         return db.execute('SELECT * FROM session_artifacts WHERE session_id=? AND kind=? ORDER BY created_at DESC,rowid DESC LIMIT 1',

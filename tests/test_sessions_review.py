@@ -113,6 +113,16 @@ class PrivacyFenceTests(ReviewCase):
         self.assertTrue(all(not r['ok'] for r in self.tool_results('read_file')[1:]))
         self.assertEqual(self.world.containers, {})
 
+    def test_profile_consent_revocation_is_synchronous_at_next_tool(self):
+        def revoke():
+            self.profiles.version['config']['allow_external_source'] = False
+        self.world.script = [('read_file', {'path': 'calc.py'}), revoke,
+                             ('read_file', {'path': 'README.md'})]
+        sid = self.run_plan('k-consent-sync')
+        final = self.wait_state(sid)
+        self.assertEqual((final['state'], final['error_code']), ('blocked', 'policy_changed'))
+        self.assertEqual(self.tool_results('read_file')[-1]['code'], 'policy_denied')
+
 
 class StopAdmissionTests(ReviewCase):
     def test_r3_stop_between_guard_and_admission_never_starts_the_tool(self):
@@ -223,6 +233,38 @@ class PinnedRetryTests(ReviewCase):
         with self.assertRaises(SessionError) as caught:
             self.sessions.retry(sid, 'k-r7c-retry')
         self.assertEqual(caught.exception.code, 'plan_not_ready')
+
+    def test_retry_keeps_exact_predecessor_after_newer_plan_version(self):
+        plan, version = self.ready_plan()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'k-old-attempt')['session_id']
+        self.sessions.stop(sid)
+        newer = self.plans.save_version(plan['id'], self.content(requirements=['new intent']), version['id'])['version']
+        successor = self.sessions.get(self.sessions.retry(sid, 'k-old-retry')['session_id'])
+        self.assertEqual(successor['plan_version_id'], version['id'])
+        self.assertNotEqual(successor['plan_version_id'], newer['id'])
+
+
+class ProjectionAndPublicationTests(ReviewCase):
+    def test_artifact_metadata_is_tombstoned_after_access_revocation(self):
+        self.world.script = [('write_file', {'path': 'calc.py', 'content': FIX})]
+        sid = self.run_plan('k-artifact-fence')
+        self.wait_state(sid)
+        before = self.sessions.artifacts(sid)
+        self.assertTrue(before['items'] and before['source_available'])
+        self.github.update_selection(self.repo, index_enabled=True, implementation_enabled=False)
+        after = self.sessions.artifacts(sid)
+        self.assertFalse(after['source_available'])
+        self.assertTrue(all(x['redacted'] and x['sha256'] is None and x['byte_count'] is None
+                            for x in after['items']))
+
+    def test_automatic_publication_requires_every_validation_to_pass(self):
+        self.world.script = [('write_file', {'path': 'calc.py', 'content': FIX})]
+        _, version = self.ready_plan(publication={'policy': 'on_success_draft'})
+        self.sessions.start()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'k-publish-gate')['session_id']
+        final = self.wait_state(sid)
+        self.assertFalse(final['outcome']['publication_eligible'])
+        self.assertFalse(final['outcome']['validation']['fully_validated'])
 
 
 class FollowUpTests(ReviewCase):

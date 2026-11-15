@@ -287,7 +287,10 @@ class Attempt:
             return self._code()
         if not self.gate.is_set():
             return 'policy_denied'
-        return self.authority()
+        # Every broker call can expose repository source.  Re-resolve the
+        # revocable profile consent/image at both broker boundaries instead
+        # of relying on the asynchronous monitor's two-second cadence.
+        return self.authority(full=True)
 
     def _monitor(self):
         interval = max(1.0, self.svc.lease_ms / 4000.0)
@@ -323,7 +326,10 @@ class Attempt:
                     self.terminate('stop_requested' if reason == 'user_requested' else 'access_revoked', kill=True,
                                    override=reason in REVOKED_REASONS)
                 raise _Denied('stop_requested')
-            reason = self.policy(full=False)
+            # Close the race between the broker's pre-call guard and durable
+            # admission: consent/profile authority must still be current when
+            # tool.started is committed.
+            reason = self.policy(full=True)
             if reason:
                 self.terminate('access_revoked', kill=True, override=True, durable=reason)
                 raise _Denied(reason)
@@ -953,7 +959,20 @@ class Attempt:
                                   'validated_tree_captured': not stale},
                    'adapter': {'status': result.get('status'), 'code': result.get('code'), 'exit_code': result.get('exit_code')},
                    'containment': containment}
-        outcome['publication_eligible'] = state == 'completed' and outcome['result'] == 'reviewable'
+        try:
+            source_current = self.svc.source_policy(self.sid)['available']
+        except Exception:
+            source_current = False
+        publication = _loads(self.session.get('publication_json'), {})
+        outcome['publication_eligible'] = bool(
+            publication.get('policy') == 'on_success_draft'
+            and state == 'completed'
+            and outcome['result'] == 'reviewable'
+            and outcome['rejected_paths'] == 0
+            and outcome['validation']['fully_validated']
+            and containment['confirmed']
+            and source_current
+        )
         runner_state = 'terminated' if containment['confirmed'] else 'containment_failed'
         with self.tx() as (db, row):
             if row['state'] in TERMINAL:
