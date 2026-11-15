@@ -1,0 +1,14 @@
+{
+  "scope": "Isolated session-ui-qa Chrome context at own port8890; temporary synthetic service fixture only",
+  "service_evidence": "Real FeatureAPI, SQLite, ExecutionProfileService, PlanService and SessionService. Synthetic GitHub transport, in-memory runner and scripted model adapter. No inference, Docker isolation, live credentials or publication proof.",
+  "viewport": {"width":390,"height":844,"deviceScaleFactor":1,"mobile":true},
+  "checks": [
+    {"scenario":"Settings execution form labels","inputs":17,"unlabeled":0,"scrollWidth":390,"innerWidth":390},
+    {"scenario":"Saved plan exact preflight","ready":"server ready","profileVersionVisible":true,"resolvedImageVisible":true,"agentLimitsVisible":true,"publicationPolicy":"manual_draft","startDisabled":false,"scrollWidth":390},
+    {"scenario":"Keyboard Tab from saved Ask heading","focused":"New saved conversation","outline":"2px solid rgb(135,186,255)","visible":true},
+    {"scenario":"Start routes to actual server session ID","result":"session URL with server ses_ identifier; queued state and pinned version/hash/base/limits displayed"},
+    {"scenario":"Synthetic execution result","state":"completed","observedModel":"scripted-fixture","diff":"calc.py changes subtraction to addition","checks":"All recorded checks passed","cost":"0.01 USD (reported)","scrollWidth":390},
+    {"scenario":"Terminal transition with focused message draft","focusPreserved":true,"readOnly":true,"disabled":false,"draftPreserved":true,"scrollWidth":390}
+  ],
+  "known_dependency": "Session37a lacks the accepted GETmessages/source_available projection; that endpoint reported reconnect failure honestly. Complete actual message/access-redaction evidence requires SessionR1 candidate, separate from these browser interactions."
+}

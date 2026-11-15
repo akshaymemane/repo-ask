@@ -1,0 +1,47 @@
+{
+  "id": "M2-SESSION-UI",
+  "base_sha": "94ccc6e9cb53e859b662efba7f8a802bfe6591ea",
+  "owner": "native Codex experience",
+  "exclusive_paths": [
+    "repoask/web/sessions.js",
+    "repoask/web/app.js",
+    "repoask/web/ask.js",
+    "repoask/web/index.html",
+    "repoask/web/styles.css",
+    "tests/ui/session*.mjs",
+    "tests/ui/session-service-bridge.py",
+    "docs/agents/runs/M2-SESSION-UI/**"
+  ],
+  "requirements": [
+    "F05 SE05,06,07,08,10,11",
+    "F07 executionprofileUI",
+    "F11 UX04..11"
+  ],
+  "inputs": [
+    "docs/contracts/m2-sessions.md",
+    "docs/contracts/m2-execution-spike.md"
+  ],
+  "acceptance": [
+    "SessionlistandURLs, durableeventreplay/reconnectwithoutduplicates",
+    "Actualserver-derivedphases/diff/checks/provenance/limits anduncertainty",
+    "Stop/retry/messageidempotency, userquestionreply, redaction/staleUI/focus/keyboard/narrow",
+    "ExecutionprofileCRUD+asyncsynthetictest andpolicyguidance, Planexecutionprofileselection+immutableversionSave",
+    "PreserveexistingAsk/catalog/providerflows andtests; actualAPIbridge, nofakeinferenceclaims"
+  ],
+  "completion_depends_on": [
+    "M2-SESSIONS",
+    "M2-PROFILES",
+    "M2-ADAPTER-SPIKE"
+  ],
+  "reviewer": "freshClaude quality reviewer",
+  "handoff": "docs/agents/runs/M2-SESSION-UI/handoff.md",
+  "candidate_dependencies": [
+    "6789421",
+    "9de6eeb",
+    "73a682f",
+    "ea7de6d",
+    "b5ca0c4",
+    "551e988",
+    "37a4a4a"
+  ]
+}

@@ -1,5 +1,6 @@
 import { createAskPanel } from "./ask.js";
 import { createContextPanel } from "./context.js";
+import { createSessionPanel, createExecutionSettings } from "./sessions.js";
 const byId = (id) => document.getElementById(id);
 
 function node(tag, text, className) {
@@ -379,6 +380,7 @@ const ROUTES = {
   ask: { view: "view-ask", title: "ask-title", label: "Ask" },
   repositories: { view: "view-repositories", title: "repositories-title", label: "Repositories" },
   settings: { view: "view-settings", title: "settings-title", label: "Settings" },
+  sessions: { view: "view-sessions", title: "sessions-title", label: "Sessions" },
 };
 
 function announce(text) {
@@ -392,6 +394,7 @@ function routeFromHash() {
   const hash = location.hash;
   if (hash === "" || hash === "#" || hash === "#/") return "ask";
   if (/^#\/(ask|plans)\/[^/]+(?:\/[^/]+)?$/.test(hash)) return "ask";
+  if (/^#\/sessions\/[^/]+$/.test(hash)) return "sessions";
   const match = /^#\/([a-z]+)(?:\?github=[a-z_]{1,64})?$/.exec(hash);
   return match && Object.hasOwn(ROUTES, match[1]) ? match[1] : null;
 }
@@ -496,13 +499,22 @@ byId("refresh-status").addEventListener("click", () => {
   if (!state.status.loading) refreshStatus(true);
 });
 
+function exposeSessions() {
+  connectedUI.sessionsReady = true;
+  if (!document.querySelector('.primary-nav a[data-route="sessions"]')) {
+    const item = node("li"); const a = node("a", "Sessions"); a.setAttribute("href", "#/sessions"); a.dataset.route = "sessions";
+    if (state.route === "sessions") a.setAttribute("aria-current", "page");
+    item.append(a); document.querySelector(".primary-nav ul").append(item);
+  }
+  applyNavigation();
+}
 function applyNavigation() {
   const { workspace } = state.status;
   if (workspace.kind !== "ok" || !Array.isArray(workspace.data.navigation)) return;
   const ids = workspace.data.navigation.map((entry) => entry && entry.id);
   for (const link of document.querySelectorAll(".primary-nav a")) {
     // Ask always stays reachable; other areas follow the server's list.
-    link.parentNode.hidden = link.dataset.route !== "ask" && !ids.includes(link.dataset.route);
+    link.parentNode.hidden = link.dataset.route !== "ask" && !(link.dataset.route === "sessions" && connectedUI.sessionsReady) && !ids.includes(link.dataset.route);
   }
 }
 
@@ -744,10 +756,10 @@ function renderLegacySettings() {
     const grid = node("div", undefined, "status-grid");
     grid.append(
       workspaceCard(data),
-      modelCard(data, healthData),
+      ...(connectedUI.savedAskReady ? [] : [modelCard(data, healthData)]),
       ...(connectedUI.providersReady ? [] : [notAvailableCard("Provider profiles", field(data, "providers", "profiles"))]),
       ...(connectedUI.githubReady ? [] : [notAvailableCard("GitHub", field(data, "catalog", "github"))]),
-      notAvailableCard("Implementation sessions", field(data, "execution")),
+      ...(connectedUI.sessionsReady ? [] : [notAvailableCard("Implementation sessions", field(data, "execution"))]),
       storageCard(data, healthData),
       secretsCard(data),
     );
@@ -823,17 +835,22 @@ function renderLegacyRepositories() {
   root.replaceChildren(...parts);
 }
 
-const connectedUI = { githubReady: false, providersReady: false };
+const connectedUI = { githubReady: false, providersReady: false, sessionsReady: false, executionReady: false, savedAskReady: false };
 const githubPanel = node("section", undefined, "connected-panel");
 const providerPanel = node("section", undefined, "connected-panel");
 const catalogPanel = node("section", undefined, "connected-panel");
+const sessionsUI = createSessionPanel({host: byId("sessions-content"), onAvailable: () => {
+  if (!connectedUI.sessionsReady) { exposeSessions(); if (state.route === "settings") renderSettings(); }
+}});
+const executionUI = createExecutionSettings({isVisible: () => state.route === "settings", onAvailable: () => { connectedUI.executionReady = true; }});
 const contextUI = createContextPanel({request: featureRequest, isVisible: () => state.route === "repositories"});
 window.addEventListener("hashchange", () => { if (state.route === "repositories") contextUI.refresh(); });
 function renderSettings() {
   const focused = document.activeElement;
-  const restore = inside(githubPanel, focused) || inside(providerPanel, focused);
+  const restore = inside(githubPanel, focused) || inside(providerPanel, focused) || inside(executionUI.element, focused);
   renderLegacySettings();
   byId("settings-content").append(githubPanel, providerPanel);
+  if (connectedUI.executionReady) byId("settings-content").append(executionUI.element);
   if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
 function renderRepositories() {
@@ -842,6 +859,7 @@ function renderRepositories() {
 }
 
 showRoute(false);
+sessionsUI.open();
 refreshStatus();
 
 try {
@@ -887,7 +905,7 @@ async function featureRequest(path, method = "GET", payload) {
   if (!response.ok) {
     // Never render arbitrary upstream messages or reflected secret material.
     const code = /^[a-z_]{1,64}$/.test(result?.code) ? result.code : `http_${response.status}`;
-    throw new Error(`${code}. ${response.status === 404 ? "Endpoint unavailable in this build." : "Check configuration and refresh saved state before retrying."}`);
+    const error = new Error(`${code}. ${response.status === 404 ? "Endpoint unavailable in this build." : "Check configuration and refresh saved state before retrying."}`); error.status = response.status; error.code = code; throw error;
   }
   return result;
 }
@@ -971,7 +989,7 @@ async function loadGitHub() {
     connectedUI.githubReady = true;
     output.textContent = `${data.summary.status} · ${data.summary.installations} active installations · ${data.summary.repository_count} accessible repositories`;
     githubPanel.append(node("p", "Create a GitHub App in GitHub Developer settings. Use this server’s /api/github/callback as its setup URL; keep this server on loopback. Grant metadata/read contents for discovery and indexing; write contents/pull requests are separate optional permissions. Install only on repositories you intend to share. CLI login does not configure this App. Secure persistent storage must be available."));
-    githubPanel.append(node("p", "Disconnect removes access, but does not delete retained data. New repository indexing and implementation access are independent; implementation is always explicit. No runtime or PR publication is provided by these settings."));
+    githubPanel.append(node("p", "Disconnect removes access, but does not delete retained data. New repository indexing and implementation access are independent; implementation is always explicit. Configure an execution profile separately before starting implementation. Publication authorization remains separate."));
     for (const connection of data.connections) {
       const box = node("section", undefined, "setting-box");
       box.append(node("h3", `${connection.slug} · ${connection.status}`), node("p", `App ${connection.app_id} · Last refresh ${timeLabel(connection.last_refresh_at)} · Next retry ${timeLabel(connection.next_retry_at)}${connection.last_error_code ? ` · ${connection.last_error_code}` : ""}`));
@@ -1098,6 +1116,7 @@ let providerProfiles = [];
 let providerSettings;
 let providerEditor;
 let providerLoadGeneration = 0;
+const providerSummaryText = () => connectedUI.savedAskReady ? "Profiles configure saved Ask, planning, summaries and embeddings. Execution profiles below configure repository tools separately. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only." : "Profiles configure inference, not an implementation runner. Legacy Ask continues using its startup model. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only.";
 let providerMutationPending = false;
 async function providerMutation(path, method, payload) {
   if (providerMutationPending) throw new Error("A provider update is pending. Wait for it to finish before submitting another change.");
@@ -1125,12 +1144,12 @@ async function loadProviders() {
     if (!Array.isArray(profiles.profiles) || typeof settings.settings?.local_only !== "boolean" || !settings.roles) throw new Error("Unsupported provider response.");
     providerProfiles = profiles.profiles; providerSettings = settings;
     connectedUI.providersReady = true;
-    output.textContent = "Profiles configure inference, not an implementation runner. Legacy Ask continues using its startup model. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only.";
+    output.textContent = providerSummaryText();
     const policy = node("form", undefined, "settings-form");
     const local = toggle(policy, "Local-only inference and embeddings (blocks remote destinations)", settings.settings.local_only);
     const savePolicy = submitButton(policy, "Save destination policy"); const policyStatus = notice(policy);
     policy.addEventListener("submit", event => { event.preventDefault(); perform(savePolicy, policyStatus, async () => {
-      await providerMutation("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders();
+      await providerMutation("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders(); await executionUI.refresh();
     }); });
     providerPanel.append(policy, node("p", "External source sharing requires a separate profile opt-in. Disabling local-only does not authorize source sharing. Model profiles cannot execute repository tools or publish PRs."));
     for (const profile of providerProfiles) {
@@ -1210,12 +1229,22 @@ function renderProviderEditor(profile = null) {
 }
 
 await Promise.all([loadGitHub(), loadProviders(), loadCatalog(), contextUI.refresh()]);
+// Execution discovery never holds the saved Ask workspace behind an unrelated read.
+executionUI.refresh().then(() => { if (state.route === "settings") renderSettings(); });
+// Successful list discovery makes Sessions reachable even when the legacy status
+// projection has not yet learned the modern route.
+featureRequest("/api/sessions?limit=1").then(available => { if (Array.isArray(available.items)) { exposeSessions(); if (state.route === "settings") renderSettings(); } }).catch(error => {
+  // A definitively missing API preserves the legacy navigation contract.
+  if (error.status === 404 && location.hash === "#/sessions") { history.replaceState(null, "", "#/ask"); sessionsUI.close(); showRoute(false); announce("That page is not available in this version. Showing Ask."); }
+});
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
 
 persistentAsk = await createAskPanel({host: byId("view-ask"), onMount: handle => {
   // Retire legacy content before the first saved-page/history read can wait or fail.
   persistentAsk = handle;
+  connectedUI.savedAskReady = true;
+  if (connectedUI.providersReady) providerPanel.querySelector('[role="status"]').textContent = providerSummaryText();
   byId("mode-label").textContent = "Ask & plans";
   byId("mode").title = "Model providers and destinations are configured in Settings";
   byId("mode").classList.remove("model-ready");
@@ -1223,3 +1252,5 @@ persistentAsk = await createAskPanel({host: byId("view-ask"), onMount: handle =>
   byId("show-repos").hidden = true;
   byId("history-toggle").hidden = true;
 }});
+
+if (connectedUI.savedAskReady && state.route === "settings") renderSettings();

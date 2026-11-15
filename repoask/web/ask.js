@@ -1,7 +1,8 @@
+import { limitsText } from "./sessions.js";
 // Persistent Ask consumes the frozen AskAPI; source and model output are always text.
 const el = (tag, text) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; return n; };
 const enc = encodeURIComponent;
-const destinationText = d => d && typeof d === 'object' ? `${d.kind || 'unknown'}${d.host ? ` · ${d.host}` : ''}` : 'unknown';
+const destinationText = d => d && typeof d === 'object' ? `${d.kind || 'unknown'}${d.host ? ` · ${d.host}` : d.disclosure ? ` · ${d.disclosure}` : ''}` : 'unknown';
 const coverageText = c => c && typeof c === 'object' ? [Number.isFinite(c.files) ? `${c.files} files` : null, Number.isFinite(c.chunks) ? `${c.chunks} chunks` : null, c.mode ? c.mode.replaceAll('_',' ') : null, c.partial === true ? 'partial coverage' : null].filter(Boolean).join(' · ') || 'unknown' : 'unknown';
 
 export async function createAskPanel({host, request = http, onMount = () => {}}) {
@@ -190,15 +191,34 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
   async function plan(id, versionId, token) {
     const p = await request(`/api/plans/${enc(id)}${versionId ? `?version_id=${enc(versionId)}` : ''}`); if(token!==epoch)return;
     const v=p.version, c=v.content; body.replaceChildren(el('h3',`${p.title} · version ${v.version}`),el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));
-    const generation=v.generation || {};body.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${destinationText(generation.destination)} · Usage: ${generation.usage ? JSON.stringify(generation.usage):'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
+    const generation=v.generation || {};body.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${destinationText(generation.destination)} · Usage: ${generation.usage ? Object.entries(generation.usage).filter(([key,value])=>['input_tokens','output_tokens','total_tokens'].includes(key)&&Number.isFinite(value)).map(([key,value])=>`${key.replaceAll('_',' ')} ${value}`).join(' · ') || 'unknown':'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
     if(p.conversation_id)link(body,'Conversation',`#/ask/${enc(p.conversation_id)}`);
     if(v.parent_version_id)link(body,'Previous version',`#/plans/${enc(id)}/${enc(v.parent_version_id)}`);
     link(body,'Latest version',`#/plans/${enc(id)}/${enc(p.latest_version_id)}`);
-    body.append(el('p',`Readiness: ${v.readiness.state} · Blocking: ${v.readiness.blocking_reasons.join(', ') || 'none'} · Warnings: ${v.readiness.warnings.join(', ') || 'none'}`),el('pre',JSON.stringify(v.readiness.source_freshness,null,2)));
+    body.append(el('p',`Readiness: ${v.readiness.state} · Blocking: ${v.readiness.blocking_reasons.join(', ') || 'none'} · Warnings: ${v.readiness.warnings.join(', ') || 'none'}`),el('p',`Source freshness: ${Object.entries(v.readiness.source_freshness || {}).map(([repository,value])=>`${repository}: ${String(value).replaceAll('_',' ')}`).join(' · ') || 'unknown'}`));
     if(!c){body.append(el('p','Plan content unavailable or redacted.'));return;}
-    body.append(el('p',`Scope: ${c.repositories.map(r=>`${r.repository_id} (${r.role}) @ ${r.revision} · ${r.snapshot_id}`).join('; ')}`),el('p',`Execution profile: ${c.execution_context.execution_profile_id || 'not configured'} · Publication: ${c.publication.policy} · Limits: server execution profile; not available in M1`));
+    body.append(el('p',`Scope: ${c.repositories.map(r=>`${r.repository_id} (${r.role}) @ ${r.revision} · ${r.snapshot_id}`).join('; ')}`),el('p',`Execution profile: ${c.execution_context.execution_profile_id || 'not configured'} · Publication: ${c.publication.policy}`));
     citations(body,c.citations,token);
+    const execution=v.readiness.execution;
+    const executionBox=el('section');executionBox.className='setting-box';executionBox.append(el('h4','Execution preflight for this saved version'));
+    if(execution){
+      executionBox.append(el('p',`Profile ${execution.profile_id || 'unknown'} · Immutable version ${execution.profile_version_id || 'unknown'}`),el('p',`Image ${execution.image_id || 'unknown'} · CLI ${execution.cli_version || 'unknown'} · Destination ${destinationText(execution.destination)}`),el('p',limitsText(execution.limits)),el('p',`Verified capabilities: ${Object.entries(execution.capabilities || {}).filter(([,value])=>value===true).map(([key])=>key.replaceAll('_',' ')).join(', ') || 'none reported'}`));
+    }else executionBox.append(el('p','Execution preflight is unavailable. Review server readiness below; configure and test an execution profile in Settings.'));
+    body.append(executionBox);
     const edited=structuredClone(c); const readers=[];
+    const profileLabel=el('label','Execution profile for the next immutable version');const profileSelect=el('select');profileSelect.disabled=true;profileLabel.append(profileSelect);body.append(profileLabel);
+    const profileStatus=el('p','Loading execution profiles…');body.append(profileStatus);
+    const publicationLabel=el('label','Publication policy for the next immutable version');const publicationSelect=el('select');
+    for(const [value,text] of [['manual_draft','Manual draft PR — explicitly choose publication after review'],['on_success_draft','Automatic draft PR after success — authorizes a remote branch and draft PR']]){const option=el('option',text);option.value=value;publicationSelect.append(option);}publicationSelect.value=c.publication.policy;publicationLabel.append(publicationSelect);body.append(publicationLabel);
+    publicationSelect.addEventListener('change',()=>{edited.publication.policy=publicationSelect.value;draft=true;say('Publication policy changed in draft. Save an immutable version before starting.');});
+    body.append(el('p',c.publication.policy==='on_success_draft'?'This saved version authorizes a remote branch and draft pull request after the server confirms the required success and publication checks. Publication capability and policy are rechecked by the server.':'This saved version requires an explicit publication action after review. Starting implementation alone does not authorize a remote branch or pull request.'));
+
+    const unassigned=el('option','Unassigned');unassigned.value='';profileSelect.append(unassigned);
+    const selectedProfile=c.execution_context.execution_profile_id;
+    if(selectedProfile){const opt=el('option',`Saved profile ${selectedProfile}`);opt.value=selectedProfile;profileSelect.append(opt);}profileSelect.value=selectedProfile || '';
+    profileSelect.addEventListener('change',()=>{edited.execution_context.execution_profile_id=profileSelect.value || null;draft=true;profileStatus.textContent='Profile changed in draft. Save a new immutable version to recalculate execution readiness.';});
+    // A failed or late profile read must not discard the saved plan or user edits.
+    (async()=>{try{let cursor=null;const seen=new Set(selectedProfile?[selectedProfile]:[]);do{const page=await request(`/api/execution-profiles?limit=100${cursor?`&cursor=${enc(cursor)}`:''}`);if(token!==epoch)return;if(!Array.isArray(page.items))throw new Error('Unsupported execution profile response.');for(const profile of page.items){if(seen.has(profile.id)){const existing=[...profileSelect.querySelectorAll('option')].find(o=>o.value===profile.id);if(existing)existing.textContent=`${profile.name} · v${profile.version.version} · test ${profile.check?.status || 'not tested'}`;continue;}seen.add(profile.id);const option=el('option',`${profile.name} · v${profile.version.version} · test ${profile.check?.status || 'not tested'}`);option.value=profile.id;profileSelect.append(option);}cursor=page.next_cursor;}while(cursor);if(token!==epoch)return;profileSelect.disabled=false;profileStatus.textContent='Choose an execution profile, then save a new version. The server pins its exact version and rechecks policy and readiness before launch.';}catch(e){if(token===epoch)profileStatus.textContent=`Execution profile selection unavailable: ${e.message}. Saved plan fields remain editable.`;}})();
     for(const r of c.repositories) button(body,`Retain pinned base for ${r.repository_id}`,()=>{edited.execution_context.base_choices[r.repository_id]='retain';draft=true;say('Pinned base choice retained in draft; save a new version. Regenerate a plan from the conversation to use current context.');});
     for(const key of ['goal','user_request']){const f=field(body,key.replaceAll('_',' '),c[key]);readers.push(()=>edited[key]=f.value);}
     for(const key of ['requirements','risks','assumptions']){const f=field(body,`${key} (one per line)`,c[key].join('\n'));readers.push(()=>edited[key]=f.value.split('\n').filter(x=>x.trim()));}
@@ -219,7 +239,18 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     button(body,'Save immutable version',async()=>{readers.forEach(read=>read());const controls=body.querySelectorAll('textarea, input, select');controls.forEach(n=>n.disabled=true);let saved;try{saved=await request(`/api/plans/${enc(id)}/versions`,'POST',{content:edited,parent_version_id:v.id});}finally{controls.forEach(n=>n.disabled=false);}if(token!==epoch)return;draft=false;location.hash=`#/plans/${enc(id)}/${enc(saved.version.id)}`;});
     const exportDisplay=el('section');body.append(exportDisplay);
     button(body,'Export this saved version',async()=>{const result=await request(`/api/plans/${enc(id)}/export?version_id=${enc(v.id)}`);if(token!==epoch)return;if(result.content_hash!==v.content_hash || result.plan_version_id!==v.id)throw new Error('Export version/hash mismatch.');exportDisplay.replaceChildren(el('p',`Export ${result.plan_version_id} · ${result.content_hash}`),el('pre',result.markdown));});
-    const start=button(body,'Start session',async()=>{if(draft)throw new Error('Save edits before starting.');const fresh=await request(`/api/plans/${enc(id)}?version_id=${enc(v.id)}`);if(token!==epoch)return;if(fresh.version.readiness.state!=='ready'||fresh.version.content_hash!==v.content_hash)throw new Error('Readiness changed; reload the saved version.');if(!launchKeys.has(v.id)){let key;try{key=window.sessionStorage?.getItem(`ask-launch-${v.id}`);}catch{}key ||= globalThis.crypto.randomUUID();launchKeys.set(v.id,key);try{window.sessionStorage?.setItem(`ask-launch-${v.id}`,key);}catch{}}const result=await request('/api/sessions','POST',{plan_version_id:v.id,content_hash:v.content_hash,idempotency_key:launchKeys.get(v.id)});if(token!==epoch)return;if(!result.session_id)throw new Error('Session ID missing.');location.hash=`#/sessions/${enc(result.session_id)}`;});start.disabled=v.readiness.state!=='ready';start.title=v.readiness.blocking_reasons.join(', ');const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);reasons.id='ask-launch-reasons';body.append(reasons);start.setAttribute('aria-describedby',reasons.id);
+    const start=button(body,'Start session',async()=>{
+      if(draft)throw new Error('Save edits before starting.');
+      const fresh=await request(`/api/plans/${enc(id)}?version_id=${enc(v.id)}`);if(token!==epoch)return;
+      if(fresh.version.readiness.state!=='ready'||fresh.version.content_hash!==v.content_hash)throw new Error('Readiness changed; reload the saved version.');
+      if(!launchKeys.has(v.id)){let key;try{key=window.sessionStorage?.getItem(`ask-launch-${v.id}`);}catch{}key ||= globalThis.crypto.randomUUID();launchKeys.set(v.id,key);try{window.sessionStorage?.setItem(`ask-launch-${v.id}`,key);}catch{}}
+      try {
+        const result=await request('/api/sessions','POST',{plan_version_id:v.id,content_hash:v.content_hash,idempotency_key:launchKeys.get(v.id)});
+        if(token!==epoch)return;if(!result.session_id)throw new Error('Session outcome unknown. Retry Start with the same saved version to reconcile.');location.hash=`#/sessions/${enc(result.session_id)}`;
+      }catch(e){if(e.status>=400&&e.status<500){launchKeys.delete(v.id);try{window.sessionStorage?.removeItem(`ask-launch-${v.id}`);}catch{}}throw e;}
+    });
+    start.disabled=v.readiness.state!=='ready';start.title=v.readiness.blocking_reasons.join(', ');
+    const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);reasons.id='ask-launch-reasons';body.append(reasons);start.setAttribute('aria-describedby',reasons.id);
   }
   async function load() {
     clearTimeout(timer); const token=++epoch; sourceEpoch++; current=null;

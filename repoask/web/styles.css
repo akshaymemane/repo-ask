@@ -20,7 +20,7 @@ body { margin: 0; background: var(--page); color: var(--text); }
 button, input, textarea { font: inherit; }
 button { color: inherit; cursor: pointer; }
 button:disabled { opacity: .48; cursor: default; }
-a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
@@ -606,3 +606,34 @@ dialog::backdrop { background: #070810be; }
 .persistent-ask article { border-bottom: 1px solid #596579; padding-block: 12px; }
 .persistent-ask :focus-visible { outline: 2px solid #87baff; outline-offset: 3px; }
 @media (max-width: 640px) { .persistent-ask { padding: 12px; } }
+
+/* Session history keeps state, source and actions readable at narrow widths. */
+.sessions-panel { display: grid; gap: 1.25rem; min-width: 0; }
+.sessions-panel > a, .sessions-panel > button { justify-self: start; }
+.session-section { min-width: 0; border: 1px solid var(--border, #333b49); border-radius: 12px; padding: 1.2rem; }
+.session-section h2 { margin-top: 0; font-size: 1.1rem; }
+.session-facts { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); gap: .5rem 1rem; }
+.session-facts dt { color: var(--text-muted, #a9b1bf); }
+.session-facts dd { margin: 0; overflow-wrap: anywhere; }
+.sessions-panel p, .sessions-panel li, .sessions-panel a { overflow-wrap: anywhere; }
+.sessions-panel ol { padding-left: 1.5rem; }
+.sessions-panel li { margin-block: .65rem; }
+.session-section a { display: inline-block; margin: .5rem 1rem .5rem 0; }
+.session-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.sessions-panel pre { max-width: 100%; max-height: 30rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: .75rem; background: #12161e; border-radius: 6px; }
+.sessions-panel details { padding: .7rem 0; border-top: 1px solid var(--border, #333b49); }
+.sessions-panel summary { cursor: pointer; overflow-wrap: anywhere; }
+.sessions-panel textarea { width: 100%; min-height: 6rem; box-sizing: border-box; }
+.sessions-panel label { display: grid; gap: .5rem; }
+.session-message + .session-message { border-top: 1px solid var(--border, #333b49); padding-top: .75rem; }
+.session-warning { color: #ffd78b; }
+.execution-settings fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; border: 1px solid var(--border, #333b49); border-radius: 8px; padding: 1rem; min-width: 0; }
+.execution-settings fieldset .setting-field { min-width: 0; }
+.execution-settings input { max-width: 100%; box-sizing: border-box; }
+@media (max-width: 700px) {
+  .session-facts { grid-template-columns: 1fr; }
+  .session-facts dd { margin-bottom: .6rem; }
+  .session-section { padding: .8rem; }
+  .execution-settings fieldset { grid-template-columns: 1fr; }
+  .primary-nav ul { flex-wrap: wrap; }
+}
