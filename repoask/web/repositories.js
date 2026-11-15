@@ -52,7 +52,10 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   notice.setAttribute("aria-live", "polite");
   const table = el("table", undefined, "repos-table");
   const more = el("p", "", "detail-muted");
-  root.append(top, banner, notice, status, table, more);
+  // The table scrolls inside its own box on narrow screens; the page never scrolls sideways.
+  const tableBox = el("div", undefined, "repos-table-box");
+  tableBox.append(table);
+  root.append(top, banner, notice, status, tableBox, more);
   host.replaceChildren(root);
 
   let filter = "All";
@@ -289,7 +292,8 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       const others = [...contexts.values()].map((c) => ({ id: c.repository_id, name: c.name, fullName: c.name, github: false, meta: null, context: c,
         inAsk: c.eligible, canChange: false, status: repoStatus(c) }));
       rows = [...github, ...others];
-      more.textContent = `Loaded ${rows.length} repositories across ${catalog.pages || context.pages || 1} pages. Filters apply to these loaded results.`;
+      const pages = catalog.pages || context.pages || 1;
+      more.textContent = `Loaded ${rows.length} ${rows.length === 1 ? "repository" : "repositories"} across ${pages} ${pages === 1 ? "page" : "pages"}. Filters apply to these loaded results.`;
       const embedding = roles.roles?.embedding;
       embeddingVersionId = embedding?.version_id ?? null;
       const keywordOnly = rows.some((row) => row.context?.active_snapshot && (row.context.active_snapshot.mode ?? row.context.active_snapshot.coverage?.mode) === "lexical_only");
