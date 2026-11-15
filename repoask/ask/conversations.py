@@ -376,6 +376,10 @@ class ConversationService:
                         if native_plan:
                             parsed=bind_plan(parsed,prompt,bindings,evidence)
                         content=self.plans.validate(parsed,run['conversation_id'])
+                        # Execution, stale-base acceptance and auto-publication require user choices.
+                        content['execution_context']['execution_profile_id']=None
+                        content['execution_context']['base_choices']={}
+                        content['publication']={'policy':'manual_draft'}
                         for c in content['citations']:
                             if c['id'] not in evidence or any(c[k]!=evidence[c['id']][k] for k in ('repository_id','snapshot_id','revision','path','start_line','end_line')):
                                 raise ValueError('Invented plan evidence.')

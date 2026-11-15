@@ -73,3 +73,19 @@ class NativePlanTests(TestCase):
         version=f.service.get(conversation)['plans'][0]['version']
         self.assertIn('blocking_questions',version['readiness']['blocking_reasons'])
         self.assertIsNone(version['content']['open_questions'][0]['answer'])
+
+
+    def test_chat_only_model_cannot_choose_execution_or_automatic_publication(self):
+        f=self.f
+        config=f.providers.get_version(f.profile['active_version_id'])['config']
+        f.providers.update_profile(f.profile['id'],{'config':{**config,'capabilities':['chat']}})
+        payload=copy.deepcopy(f.content)
+        payload['publication']={'policy':'on_success_draft'}
+        payload['execution_context']={'execution_profile_id':'model-selected','base_choices':{f.repo:'retain'}}
+        f.transport.output=payload
+        run=f.service.send(f.conv,'Plan confirmation retries','untrusted-user-choices',intent='plan');f.work()
+        self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
+        saved=f.service.get(f.conv)['plans'][0]['version']['content']
+        self.assertEqual(saved['publication'],{'policy':'manual_draft'})
+        self.assertIsNone(saved['execution_context']['execution_profile_id'])
+        self.assertEqual(saved['execution_context']['base_choices'],{})
