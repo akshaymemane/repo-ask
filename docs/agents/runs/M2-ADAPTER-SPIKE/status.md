@@ -1,11 +1,17 @@
 # M2-ADAPTER-SPIKE status
 
-Review — Codex integration/runtime engineer, /root/adapter_spike. Base4f068baa1677579718f2d9c22acffc75cee88137. Implementation commit6789421; evidence commit follows. No independent approval or root integration claimed.
+Running R1 fixes — native Codex /root/adapter_spike in assigned isolated worktree.
+Old9de6eeb review CHANGES REQUESTED; no approval/integration claimed.
 
-Final synthetic Claude2.1.311/configured claude-opus-5-5 proof passed on runtime d7d420e dependency. Exact7 trusted MCP tools/one connected broker/plugins[]/commands[] required before tool guard opened. Actual coding edit, in-container unittest and independent validation exit0; inspectable unified diff. Actual cancellation process group confirmed within4.071s including startup; zero tool starts after stop. Actual ask_user callback returned hidden synthetic answer and model acknowledged it exactly; capability promoted only after proof, callback required. Follow_up/resume/checkpoint remainfalse.
+31 focused tests passed9.485s. Required valid Event closes on every public run
+exit, including prelaunch and spawn errors. Prompt uses unnamed0600stdin file,
+not argv. Metadata commands each use fresh0700emptycwd/empty settings sources.
+Known init influence fields checked without broad future-schema claims.
 
-Caller-cwd CLAUDE.md/skill/hook and env-injected plugin canaries inactive. Every owned container stopped/discarded, zero remain. No model/test/probe processes remain. No auth files/tokens/Keychain values copied/read by product code; only nonsecret CLI status/plugin metadata used. No real repository source, account changes, package installs, pushes or publication.
+Preparing committed source/probe identity before reserved real coding/cancel/
+ask_user proof. No inference started for R1. Prior JSON manually annotated after
+its run is preserved unchanged and labelled historical; not current acceptance.
 
-Final checks:22 focused adapter tests passed32.814s; updated full baseline+runner+adapter run297 passed/30skipped235.498s (latest focused checks cover final metadata/startup-defense changes). Initial rejection and success evidence retained; see handoff for scope, API, limitations and producer feedback.
-
-Next: coordinator prepares exact-commit packet for independent Claude boundary review. Managed profiles/Linux-host proof/durable questions+HTTP/general follow-ups remain explicitly outside this spike's verified support.
+Next: coordinator reserves fourth model slot. Probe runs on committed source,
+records code_sha/source hashes, and its untouched generated JSON is committed
+before fresh Claude boundary re-review. No changes outside original scope.

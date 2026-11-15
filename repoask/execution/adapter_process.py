@@ -101,7 +101,7 @@ def _terminate_group(process: subprocess.Popen, watcher: _LeaderExit) -> bool:
 def run_stream(
     argv: list[str], *, cwd: str, env: Mapping[str, str],
     on_line: Callable[[bytes], None], timeout_seconds: float,
-    max_output_bytes: int, stop_event=None, on_started=None,
+    max_output_bytes: int, stop_event=None, on_started=None, stdin_file=None,
 ) -> ProcessOutcome:
     """Consume bounded JSON lines, discard stderr, and contain every exit path.
 
@@ -115,7 +115,7 @@ def run_stream(
     if stop_event is not None and stop_event.is_set():
         return ProcessOutcome(None, "cancelled", True, 0)
     process = subprocess.Popen(
-        argv, cwd=cwd, env=dict(env), stdin=subprocess.DEVNULL,
+        argv, cwd=cwd, env=dict(env), stdin=stdin_file if stdin_file is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True, close_fds=True,
     )

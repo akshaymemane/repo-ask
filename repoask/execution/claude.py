@@ -13,6 +13,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import threading
 from typing import Callable
 
 from .adapter_process import ProcessContainmentError, run_stream
@@ -29,8 +30,12 @@ class AdapterError(RuntimeError):
 
 
 def _number(value):
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
-        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            if math.isfinite(value) and value >= 0:
+                return value
+        except OverflowError:
+            pass
     return None
 
 
@@ -87,21 +92,30 @@ class ClaudeAdapter:
             raise AdapterError("cli_unavailable")
         self.binary = str(Path(binary).resolve())
 
+    def _metadata(self, args, *, timeout_seconds, max_output_bytes):
+        """Each read-only CLI query gets a fresh private empty cwd."""
+        lines = []
+        with tempfile.TemporaryDirectory(prefix="opendevin-preflight-") as cwd:
+            os.chmod(cwd, 0o700)
+            result = run_stream(
+                [self.binary, "--setting-sources", "", *args], cwd=cwd,
+                env=_environment(), on_line=lines.append,
+                timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+            )
+        return result, b"\n".join(lines)
+
     def preflight(self) -> dict:
         """Read-only detection. Availability does not assert successful login/inference."""
         self._check_policy()
         profile = self._check_auth_profile()
         self._disabled_plugins()
-        lines = []
         try:
-            result = run_stream([self.binary, "--version"], cwd=tempfile.gettempdir(),
-                                env=_environment(), on_line=lines.append,
-                                timeout_seconds=5, max_output_bytes=1024)
+            result, output = self._metadata(["--version"], timeout_seconds=5, max_output_bytes=1024)
         except (OSError, ProcessContainmentError):
             raise AdapterError("cli_unavailable") from None
-        if result.exit_code or result.reason != "exited" or not lines:
+        if result.exit_code or result.reason != "exited" or not output:
             raise AdapterError("cli_unavailable")
-        return {"available": True, "version": _summary(b"\n".join(lines).decode("utf-8", "replace").strip()),
+        return {"available": True, "version": _summary(output.decode("utf-8", "replace").strip()),
                 "authentication_verified": False, "authentication_reported": profile, "customization_metadata_checked": True, "capabilities": dict(self.capabilities)}
 
     @staticmethod
@@ -122,12 +136,9 @@ class ClaudeAdapter:
 
     def _check_auth_profile(self):
         # Metadata comes from the CLI itself. Never open/copy its auth storage.
-        lines = []
         try:
-            result = run_stream([self.binary, "auth", "status"], cwd=tempfile.gettempdir(),
-                                env=_environment(), on_line=lines.append,
-                                timeout_seconds=10, max_output_bytes=16384)
-            profile = json.loads(b"\n".join(lines))
+            result, output = self._metadata(["auth", "status"], timeout_seconds=10, max_output_bytes=16384)
+            profile = json.loads(output)
         except (OSError, ValueError, ProcessContainmentError):
             raise AdapterError("authentication_unverified") from None
         if result.reason != "exited" or result.exit_code != 0 or not isinstance(profile, dict) or profile.get("loggedIn") is not True:
@@ -141,12 +152,9 @@ class ClaudeAdapter:
         # Restricted mode does not suppress every installed-plugin registry entry
         # in CLI 2.1.311. Query metadata through its read-only CLI command and
         # override each entry for this invocation; never alter user settings.
-        lines = []
         try:
-            result = run_stream([self.binary, "plugin", "list", "--json"],
-                                cwd=tempfile.gettempdir(), env=_environment(),
-                                on_line=lines.append, timeout_seconds=10, max_output_bytes=65536)
-            plugins = json.loads(b"\n".join(lines))
+            result, output = self._metadata(["plugin", "list", "--json"], timeout_seconds=10, max_output_bytes=65536)
+            plugins = json.loads(output)
         except (OSError, ValueError, ProcessContainmentError):
             raise AdapterError("customization_unverified") from None
         if result.reason != "exited" or result.exit_code != 0 or not isinstance(plugins, list) or len(plugins) > 100:
@@ -193,12 +201,39 @@ class ClaudeAdapter:
         timeout_seconds: float = 180, max_turns: int = 12,
         max_budget_usd: float = 1.0, max_output_bytes: int = 524288,
     ) -> dict:
-        """Blocking single attempt. Caller holds broker guard closed until callback.
+        """Run one attempt, revoking its required shared Event on every exit.
 
-        Source consent is trusted service policy, never a model supplied argument.
-        API-key mode and interactive follow-ups intentionally remain unsupported.
-        ask_user requires the trusted broker callback; no stdin delivery is implied.
+        The trusted service keeps the broker denied until on_inventory_verified.
+        Determine user cancellation from durable stop_requested and returned status;
+        this Event is also set after successful completion and prelaunch failures.
         """
+        if not isinstance(stop_event, threading.Event):
+            raise AdapterError("invalid_stop_event")
+        try:
+            return self._run_attempt(
+                endpoint, prompt, auth_mode=auth_mode,
+                on_inventory_verified=on_inventory_verified, emit=emit,
+                synthetic=synthetic, local_only=local_only,
+                external_source_consent=external_source_consent, stop_event=stop_event,
+                on_started=on_started, timeout_seconds=timeout_seconds, max_turns=max_turns,
+                max_budget_usd=max_budget_usd, max_output_bytes=max_output_bytes,
+            )
+        except OSError:
+            raise AdapterError("cli_unavailable") from None
+        except ValueError:
+            raise AdapterError("invalid_limits") from None
+        finally:
+            stop_event.set()
+
+    def _run_attempt(
+        self, endpoint: dict, prompt: str, *, auth_mode: str,
+        on_inventory_verified: Callable[[], None], emit: Callable[[str, dict], None],
+        synthetic: bool = False, local_only: bool = True,
+        external_source_consent: bool = False, stop_event=None, on_started=None,
+        timeout_seconds: float = 180, max_turns: int = 12,
+        max_budget_usd: float = 1.0, max_output_bytes: int = 524288,
+    ) -> dict:
+        """Internal single attempt; public run owns the whole-lifecycle stop guard."""
         if auth_mode != "cli_login":
             raise AdapterError("unsupported_auth_mode")
         if any(type(value) is not bool for value in (synthetic, local_only, external_source_consent)):
@@ -207,6 +242,14 @@ class ClaudeAdapter:
             raise AdapterError("external_source_denied")
         if not isinstance(prompt, str) or not prompt.strip() or "\x00" in prompt or len(prompt.encode("utf-8", "surrogatepass")) > 32768:
             raise AdapterError("invalid_prompt")
+        if (isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or
+            not 0 < timeout_seconds <= 3600 or type(max_output_bytes) is not int or
+            not 1024 <= max_output_bytes <= 4_194_304):
+            raise AdapterError("invalid_limits")
+        try:
+            prompt.encode("utf-8")
+        except UnicodeError:
+            raise AdapterError("invalid_prompt") from None
         if (type(max_turns) is not int or not 1 <= max_turns <= 40 or
             _number(max_budget_usd) is None or not 0 < max_budget_usd <= 10):
             raise AdapterError("invalid_limits")
@@ -241,8 +284,19 @@ class ClaudeAdapter:
                                 for item in event.get("plugins", [])[:64] if isinstance(item, dict)]
                                if isinstance(event.get("plugins"), list) else [],
                     "commands_present": bool(event.get("slash_commands")),
+                    "skills_present": bool(event.get("skills")),
+                    "agents": [_summary(name)[:128] for name in event.get("agents", [])[:32]]
+                              if isinstance(event.get("agents", []), list) else [],
+                    "output_style": _summary(event.get("output_style"))[:128],
                 })
-                if event.get("plugins") or event.get("slash_commands"):
+                # These fields are optional in older CLI init schemas. When
+                # present, accept only the known inert default metadata. No
+                # agent/skill invocation tool is permitted by the exact gate.
+                builtin_agents = {"general-purpose", "statusline-setup", "Explore", "Plan", "claude-code-guide"}
+                agents = event.get("agents", [])
+                if (event.get("plugins") or event.get("slash_commands") or event.get("skills") or
+                    not isinstance(agents, list) or any(not isinstance(name, str) or name not in builtin_agents for name in agents) or
+                    ("output_style" in event and event["output_style"] != "default")):
                     raise AdapterError("unexpected_customization")
                 if (initialized or not isinstance(inventory, list) or
                     any(not isinstance(name, str) for name in inventory) or
@@ -305,16 +359,21 @@ class ClaudeAdapter:
                     }), "--no-session-persistence", "--no-chrome",
                     "--permission-mode", "dontAsk", "--permission-prompts", "none",
                     "--allowedTools", ",".join(sorted(TRUSTED_TOOLS)),
-                    "--max-turns", str(max_turns), "--max-budget-usd", str(max_budget_usd),
-                    "--", prompt]
+                    "--max-turns", str(max_turns), "--max-budget-usd", str(max_budget_usd)]
             environment = _environment()
             plugin_root = Path(root) / "plugins"
             plugin_root.mkdir(mode=0o700)
             environment["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(plugin_root)
             try:
-                outcome = run_stream(argv, cwd=cwd, env=environment, on_line=consume,
-                                     timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
-                                     stop_event=stop_event, on_started=on_started)
+                # An unnamed private file provides finite stdin without an argv
+                # disclosure, a pipe feeder thread, or a prompt pathname.
+                with tempfile.TemporaryFile(mode="w+b", dir=root) as prompt_file:
+                    os.fchmod(prompt_file.fileno(), 0o600)
+                    prompt_file.write(prompt.encode("utf-8"))
+                    prompt_file.seek(0)
+                    outcome = run_stream(argv, cwd=cwd, env=environment, on_line=consume,
+                                         timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+                                         stop_event=stop_event, on_started=on_started, stdin_file=prompt_file)
             except ProcessContainmentError:
                 return {"status": "failed", "code": "containment_failure", "exit_code": None,
                         "stop_confirmed": False, "usage": usage, "reported_cost_usd": cost,

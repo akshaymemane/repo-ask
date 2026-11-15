@@ -2,9 +2,7 @@
 import json
 import os
 from pathlib import Path
-import signal
 import socket
-import stat
 import sys
 import tempfile
 import threading
@@ -35,11 +33,17 @@ class AdapterTests(unittest.TestCase):
 
     def script(self, body):
         path = self.root / 'fake-cli'
-        path.write_text('#!' + sys.executable + '\nimport sys\n'
-            'if sys.argv[1:] == ["auth", "status"]:\n'
+        path.write_text('#!' + sys.executable + '\nimport sys, os, stat\n'
+            'if "--print" in sys.argv or sys.argv[1:3] == ["--setting-sources", ""]:\n'
+            ' assert os.listdir(".") == []\n'
+            ' assert stat.S_IMODE(os.stat(".").st_mode) == 0o700\n'
+            'metadata_args=sys.argv[1:]\n'
+            'if metadata_args[:2] == ["--setting-sources", ""]: metadata_args=metadata_args[2:]\n'
+            'if metadata_args == ["auth", "status"]:\n'
             ' print(\'{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"pro"}\')\n'
             ' sys.exit(0)\n'
-            'if sys.argv[1:] == ["plugin", "list", "--json"]:\n print("[]");sys.exit(0)\n' + body)
+            'if metadata_args == ["plugin", "list", "--json"]:\n print("[]");sys.exit(0)\n'
+            'if metadata_args == ["--version"]:\n print("2.1.311 (fixture)");sys.exit(0)\n' + body)
         path.chmod(0o700)
         return str(path)
 
@@ -53,6 +57,7 @@ class AdapterTests(unittest.TestCase):
     def run_events(self, events, extra='', **kwargs):
         binary = self.script('import json, os, sys, time\n' +
                              '\n'.join('print(' + repr(json.dumps(e)) + ', flush=True)' for e in events) + '\n' + extra)
+        kwargs.setdefault('stop_event', threading.Event())
         return ClaudeAdapter(claude_binary=binary).run(
             self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
             emit=lambda k, v: self.events.append((k, v)), on_inventory_verified=self.mark_ready,
@@ -136,7 +141,7 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
                              repr(json.dumps({'type': 'result', 'subtype': 'success'})) + ')\n')
         with patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'do-not-copy', 'NODE_OPTIONS': 'do-not-run'}):
             result = ClaudeAdapter(claude_binary=binary).run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
-                on_inventory_verified=self.mark_ready, emit=lambda *_: None)
+                on_inventory_verified=self.mark_ready, emit=lambda *_: None, stop_event=threading.Event())
         self.assertEqual(result['status'], 'completed')
 
     def test_real_source_requires_consent_and_local_only_off_before_spawn(self):
@@ -144,7 +149,7 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
         for kwargs in ({}, {'local_only': False}, {'external_source_consent': True}):
             with self.assertRaisesRegex(AdapterError, 'external_source_denied'):
                 adapter.run({}, 'source', auth_mode='cli_login', on_inventory_verified=lambda: None,
-                            emit=lambda *_: None, **kwargs)
+                            emit=lambda *_: None, stop_event=threading.Event(), **kwargs)
 
     def test_managed_policy_rejected_before_process_start(self):
         with patch('repoask.execution.claude.os.path.lexists', return_value=True):
@@ -262,6 +267,130 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
         results = [payload for kind, payload in self.events if kind == 'adapter_result']
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['status'], 'failed')
+
+
+
+    def test_success_sets_shared_event(self):
+        stop = threading.Event()
+        result = self.run_events([self.init(), {'type': 'result', 'subtype': 'success'}], stop_event=stop)
+        self.assertEqual(result['status'], 'completed')
+        self.assertTrue(stop.is_set())
+
+    def test_invalid_or_missing_stop_event_is_stable_error(self):
+        adapter = ClaudeAdapter(claude_binary=sys.executable)
+        for value in (None, object(), False):
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(AdapterError, 'invalid_stop_event'):
+                    adapter.run({}, 'fixture', auth_mode='cli_login', synthetic=True,
+                                on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=value)
+
+    def test_prelaunch_policy_and_argument_errors_close_event_without_spawning(self):
+        adapter = ClaudeAdapter(claude_binary=sys.executable)
+        cases = [
+            ({'auth_mode': 'api_key'}, 'unsupported_auth_mode'),
+            ({'synthetic': 'false'}, 'invalid_source_policy'),
+            ({'synthetic': False}, 'external_source_denied'),
+            ({'prompt': ''}, 'invalid_prompt'),
+            ({'prompt': '\ud800'}, 'invalid_prompt'),
+            ({'max_turns': 0}, 'invalid_limits'),
+            ({'max_budget_usd': float('nan')}, 'invalid_limits'),
+            ({'timeout_seconds': 0}, 'invalid_limits'),
+            ({'max_output_bytes': 1}, 'invalid_limits'),
+        ]
+        for changes, code in cases:
+            with self.subTest(code=code, changed=next(iter(changes))):
+                stop = threading.Event()
+                kwargs = dict(endpoint={}, prompt='fixture', auth_mode='cli_login', synthetic=True,
+                              on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+                kwargs.update(changes)
+                with patch('repoask.execution.claude.run_stream') as process:
+                    with self.assertRaisesRegex(AdapterError, code):
+                        adapter.run(**kwargs)
+                    process.assert_not_called()
+                self.assertTrue(stop.is_set())
+
+    def test_prelaunch_dependency_errors_close_event(self):
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        cases = [('_check_policy', 'unsupported_managed_policy'),
+                 ('_check_auth_profile', 'authentication_required'),
+                 ('_check_auth_profile', 'authentication_unverified'),
+                 ('_check_auth_profile', 'unsupported_auth_profile'),
+                 ('_disabled_plugins', 'customization_unverified'),
+                 ('_endpoint', 'invalid_broker_endpoint')]
+        for method, code in cases:
+            with self.subTest(code=code):
+                stop = threading.Event()
+                with patch.object(adapter, method, side_effect=AdapterError(code)):
+                    with self.assertRaisesRegex(AdapterError, code):
+                        adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                                    on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+                self.assertTrue(stop.is_set())
+
+    def test_spawn_and_helper_limit_errors_are_stable_and_close_event(self):
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        for error, code in ((OSError('private diagnostic'), 'cli_unavailable'),
+                            (ValueError('private diagnostic'), 'invalid_limits')):
+            with self.subTest(code=code):
+                stop = threading.Event()
+                with patch.object(adapter, '_check_auth_profile'), patch.object(adapter, '_disabled_plugins', return_value={}), patch(
+                        'repoask.execution.claude.run_stream', side_effect=error):
+                    with self.assertRaisesRegex(AdapterError, code):
+                        adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                                    on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+                self.assertTrue(stop.is_set())
+
+    def test_actual_popen_failure_is_stable_and_closes_event(self):
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        stop = threading.Event()
+        with patch.object(adapter, '_check_auth_profile'), patch.object(adapter, '_disabled_plugins', return_value={}), patch(
+                'repoask.execution.adapter_process.subprocess.Popen', side_effect=FileNotFoundError('private diagnostic')):
+            with self.assertRaisesRegex(AdapterError, 'cli_unavailable'):
+                adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                            on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+        self.assertTrue(stop.is_set())
+
+    def test_prompt_is_private_finite_stdin_not_argv_or_environment(self):
+        prompt = 'PRIVATE_SOURCE_MARKER_' + 'x' * 12000
+        body = ('import json, os, sys, stat\n'
+                'assert "PRIVATE_SOURCE_MARKER_" not in " ".join(sys.argv)\n'
+                'assert "PRIVATE_SOURCE_MARKER_" not in " ".join(os.environ.values())\n'
+                'assert stat.S_ISREG(os.fstat(0).st_mode)\n'
+                'assert stat.S_IMODE(os.fstat(0).st_mode) == 0o600\n'
+                'assert sys.stdin.read() == ' + repr(prompt) + '\n'
+                'print(' + repr(json.dumps(self.init())) + ')\n'
+                'print(' + repr(json.dumps({'type': 'result', 'subtype': 'success'})) + ')\n')
+        stop = threading.Event()
+        result = ClaudeAdapter(claude_binary=self.script(body)).run(self.endpoint, prompt,
+            auth_mode='cli_login', synthetic=True, on_inventory_verified=self.mark_ready,
+            emit=lambda *_: None, stop_event=stop)
+        self.assertEqual(result['status'], 'completed')
+        self.assertTrue(stop.is_set())
+
+    def test_metadata_queries_use_fresh_private_empty_directories(self):
+        # The fixture asserts empty cwd/mode before answering every command.
+        adapter = ClaudeAdapter(claude_binary=self.script('raise AssertionError("unexpected inference")'))
+        actual = __import__('repoask.execution.claude', fromlist=['run_stream']).run_stream
+        directories = []
+        def observe(*args, **kwargs):
+            directories.append(kwargs['cwd'])
+            self.assertNotEqual(kwargs['cwd'], tempfile.gettempdir())
+            return actual(*args, **kwargs)
+        with patch('repoask.execution.claude.run_stream', side_effect=observe):
+            result = adapter.preflight()
+        self.assertTrue(result['available'])
+        self.assertEqual(len(directories), 3)
+        self.assertEqual(len(set(directories)), 3)
+        self.assertTrue(all(not Path(path).exists() for path in directories))
+
+    def test_unexpected_init_influence_fields_do_not_open_gate(self):
+        for field, value in [('skills', ['custom']), ('agents', ['custom']), ('output_style', 'explanatory')]:
+            with self.subTest(field=field):
+                event = self.init()
+                event[field] = value
+                self.ready = False
+                with self.assertRaisesRegex(AdapterError, 'unexpected_customization'):
+                    self.run_events([event])
+                self.assertFalse(self.ready)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,9 @@
+> R1 review: CHANGES REQUESTED for9de6eeb. The earlier verification below is
+> historical development evidence, not acceptance for the revised source. The
+> prior JSON had manual post-run capability annotations and did not identify the
+> final source. It is preserved unchanged under historical/. See
+> review-r1-resolution.md; new committed-source proof is pending.
+
 # Builder handoff — M2-ADAPTER-SPIKE
 
 ## Identity
@@ -18,7 +24,7 @@ Implemented `repoask/execution/claude.py`, `repoask/execution/adapter_process.py
 - Normal CLI login only, selected explicitly. CLI `auth status` supplies only metadata; identity fields are discarded, and no credential files/tokens/Keychain values are read or copied by product code. Personal first-party pro/max/ultra profiles only; known local managed policy paths and other auth profiles are rejected. API-key auth is explicitly unsupported.
 - No model or reasoning override. Real source is rejected unless local-only is off and explicit external-source consent is true. All real probes used synthetic fixture source only.
 - Launch uses a fresh trusted empty cwd, `--restricted`, empty builtins, strict single MCP configuration, disabled slash commands, no persistence, empty setting sources, unattended denial, trusted explicit settings, fresh plugin cache, and constrained environment. No host command/file tool fallback.
-- Exact seven trusted MCP names and one connected `opendevin` server required before opening the guard. Additional server metadata is harmless; additional servers/tools/plugins/commands fail closed. Unknown future defaults fail closed.
+- Exact seven trusted MCP names and one connected `opendevin` server required before opening the guard. Additional server metadata is harmless; additional servers/tools/plugins/commands fail closed. The exact tools/server gate fails closed; optional init metadata checks apply only to fields observed in the supported schema.
 - CLI plugin-list metadata supplies per-invocation `enabledPlugins:false` overrides; no plugin/account settings change. Known built-ins `cc-plugin-agents-md@builtin` and `cc-plugin-plugin-authoring@builtin` are explicitly disabled. The security guard is never disabled.
 - Host CLI process group owned per attempt. Non-reaping Darwin kqueue/Linux waitid supervision retains the leader until group termination, including descendants redirecting every pipe. Output is bounded before buffering; stderr discarded. Cancellation/deadlines/output limits revoke the shared guard before termination. Unknown usage/cost remain null.
 - Events allow assistant summaries, tool names, final classification and numeric usage only. Tool inputs/results, private thinking, API error bodies, hook/progress messages and identity fields are discarded. Only final process exit can produce a completed result.
