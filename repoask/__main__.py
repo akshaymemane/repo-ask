@@ -42,6 +42,7 @@ ASSETS = {
     "/repositories.js": ("repositories.js", "text/javascript; charset=utf-8"),
     "/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
     "/settings-models.js": ("settings-models.js", "text/javascript; charset=utf-8"),
+    "/setup.js": ("setup.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
