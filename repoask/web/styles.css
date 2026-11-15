@@ -795,3 +795,22 @@ dialog.modal::backdrop { background: #05060899; }
 .composer-send { min-width: 34px; min-height: 34px; border-radius: 999px; padding: 0 10px; }
 .composer-error { color: var(--danger); font-size: 12px; margin-top: var(--space-1); }
 .composer-error:empty { display: none; }
+
+/* ---- Chat thread ---- */
+.chat-thread { width: min(100%, 760px); margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+.msg-user { align-self: flex-end; max-width: 80%; padding: 9px 13px; border-radius: 12px; background: var(--raised); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-assistant { position: relative; line-height: 1.6; }
+.msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-text code { padding: 1px 5px; border-radius: 5px; background: var(--raised); font-size: .9em; }
+.msg-pending, .msg-muted, .thread-step, .thread-event { color: var(--muted); font-size: 13px; }
+.msg-error { color: var(--danger); }
+.msg-details { color: var(--muted); font-size: 12px; margin-top: var(--space-1); }
+.cite-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-2); }
+.cite { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); }
+.cite:hover { border-color: var(--accent); }
+.link-button { min-height: 0; padding: 0; color: var(--accent); text-decoration: underline; }
+.thread-event { text-align: center; }
+.thread-card, .plan-card { border: 1px solid var(--line); border-radius: 10px; padding: var(--space-3); background: var(--surface); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.thread-card-title, .plan-card-title { flex-basis: 100%; font-weight: 600; }
+.plan-card-stale { flex-basis: 100%; color: var(--warning); font-size: 13px; }
+.plan-card-actions { display: flex; gap: var(--space-2); }
