@@ -1,17 +1,24 @@
-# M2-ADAPTER-SPIKE status
+# M2-ADAPTER-SPIKE R1 status
 
-Running R1 fixes — native Codex /root/adapter_spike in assigned isolated worktree.
-Old9de6eeb review CHANGES REQUESTED; no approval/integration claimed.
+Review candidate — native Codex /root/adapter_spike, assigned isolated worktree.
+Source commit73a682f8a4a1b9139972005ac86992ea218c18f4. Old9de6eeb received
+CHANGES REQUESTED; current candidate still needs fresh independent approval.
 
-31 focused tests passed9.485s. Required valid Event closes on every public run
-exit, including prelaunch and spawn errors. Prompt uses unnamed0600stdin file,
-not argv. Metadata commands each use fresh0700emptycwd/empty settings sources.
-Known init influence fields checked without broad future-schema claims.
+31 focused tests passed9.485s. Full307 tests run/30skipped, OK87.438s.
+Required valid Event closes on every public run exit including prelaunch/spawn
+errors. Prompt uses unnamed0600stdin, not argv. Metadata commands each use a
+fresh0700emptycwd and empty setting sources. Known init influence fields checked;
+exact seven-tool/single-broker inventory gate unchanged.
 
-Preparing committed source/probe identity before reserved real coding/cancel/
-ask_user proof. No inference started for R1. Prior JSON manually annotated after
-its run is preserved unchanged and labelled historical; not current acceptance.
+Actual frozen-source probe passed coding/container unittest/diff, cancellation
+confirmed0.115s afterrequest, and ask_user callback+exact model acknowledgment.
+CLI2.1.311/configured claude-opus-5-5; no overrides. All3 actual ps inspections
+verified prompt marker absentargv, all Events set, source hashes unchanged,
+canariesinactive, ownedcontainers0. GeneratedJSON committed untouched; SHA256
+68f0525c9f398ffd01afa4217d3f18eeef6416046e8bed92e970c6bed9555621.
+Prior manuallyannotated JSON remains unchanged in labelled historical/.
 
-Next: coordinator reserves fourth model slot. Probe runs on committed source,
-records code_sha/source hashes, and its untouched generated JSON is committed
-before fresh Claude boundary re-review. No changes outside original scope.
+No model/test/probe processes or containers remain. Modelslot released to root.
+No auth copies/account changes/package installs/real source/GitHub writes.
+Consumers notified of required Event/stable errors/stdin implementation; public
+kwargs otherwise unchanged. Next: root exact-final-SHA Claude boundary re-review.

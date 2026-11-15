@@ -1,19 +1,13 @@
-# Agent self-evaluation
+# R1 self-evaluation
 
-Summary:4.4/5; submit for independent boundary review.
+Summary4.2/5; submit for independent re-review, not author approval.
 
-| Axis | Score | Evidence and improvement |
+| Axis | Score | Evidence / concrete limitation |
 | --- | --- | --- |
-| Accuracy |4| Actual CLI/Docker coding, stop and hidden-answer acknowledgment recorded; unknown usage stays null. Error classification uses bounded known CLI text variants; structured upstream error codes would improve future compatibility. |
-| Completeness |4| Assigned source/privacy/tool/process boundaries and real spike scenarios covered. Long human waits, HTTP answer delivery and restart of pending questions are session-service integration work, not established by the immediate synthetic callback. |
-| Clarity |5| Handoff lists exact run/callback/result API, Event lifetime, real versus fixture evidence and unsupported capabilities. |
-| Actionability |5| Scoped implementation commit, executable explicit probe,22 focused tests and exact review destination are ready for coordinator consumption. |
-| Conciseness |4| Durable rejection evidence explains why flags changed, but several small historical JSON files could later be indexed into one concise run manifest. |
+| Accuracy |4| New proof identifies committed source73a682f and unchanged hashes; JSON is untouched and its digest recorded. Earlier manual annotations are disclosed as historical. CLI error text variants still use bounded classification heuristics. |
+| Completeness |4| Both majors and privacy/preflight/init follow-ups addressed;31 focused checks plus real stdin coding/cancel/ask proof. Durable human waits/restart and Linux-host behavior remain unproven outside the spike. |
+| Clarity |4| Handoff distinguishes source/evidence commits, historical claims and current proof. Consumers must respect Event closure on normal completion as well as cancellation. |
+| Actionability |5| Committed source, reproducible frozen-source probe, generated evidence hash and explicit consumer API are available for exact-commit review. |
+| Conciseness |4| Historical JSON files remain for audit; a labelled index avoids treating them as current acceptance, but retains several development attempts. |
 
-Critical issues (score<=2):none. No axis scored<=3.
-
-Self-check: the assessment should match the coordinator's needs because it distinguishes passing real execution from pending independent approval and later durable-session functionality.
-
-Top improvements: no required rework within assigned scope. Next integration owners should test bounded user waits/stop/restart and add Linux-host proof before broadening capability claims.
-
-Verdict: deliver as a review candidate; author approval is not independent review.
+Critical issues(score<=2):none. No axis<=3. No extra work is inferred from the remaining limitations. Next owners should test durable question waits/stop/restart before broader session claims. The coordinator should be able to reproduce each current claim from the exact source and untouched evidence.
