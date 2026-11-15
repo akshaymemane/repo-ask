@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-14T18:11:01.968855+00:00",
+  "updated": "2026-11-15T04:00:09.135104+00:00",
   "phase": "M1_review_recovery",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -466,7 +466,7 @@
       "id": "M2-RUNNER-SPIKE",
       "milestone": "M2",
       "title": "Container/event/state ownership proof",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": [
         "F05",
         "F12"
@@ -489,13 +489,13 @@
       "base_sha": "4f068baa1677579718f2d9c22acffc75cee88137",
       "branch": "task/m2-runner-spike",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-runner-spike",
-      "reviewer_session": "fresh Codex boundary reviewer pending",
+      "reviewer_session": "native /root/review_runner finalreview",
       "handoff": "docs/agents/runs/M2-RUNNER-SPIKE/handoff.md",
-      "heartbeat_at": "2026-11-14T18:11:01.968855+00:00",
-      "submitted_sha": "dae233de8df0bbb959466865f8d552d504b3d6b3",
-      "integration_sha": null,
+      "heartbeat_at": "2026-11-14T18:34:04.076534+00:00",
+      "submitted_sha": "d7d420eb7ca9d5b12ac0c78706fbaed58b22361c",
+      "integration_sha": "797009b",
       "blocker": null,
-      "next_action": "Claude completed runner/broker/MCP withrealDockerandprotocolproof. FreshCodex boundaryreview androotrealDockerchecks now; additiveinterfaceacceptancepending.",
+      "next_action": "IndependentCodexapproved d7d420e; root65focused+5realDockerfinalpass. Rootacceptedadditivebrokerhelpers/excluded_paths/runtime_root; adapterfinalproofanddurableSessionsnext.",
       "completion_depends_on": [
         "M1-INTEGRATE"
       ]
@@ -522,17 +522,17 @@
         "Actual adapter startup/output/cancel/auth evidence",
         "Licensing and unsupported resume behavior documented"
       ],
-      "owner_session": "native Codex adapter_spike (launch now)",
+      "owner_session": "Codex coordinator successor on same isolated worktree after author stopped",
       "base_sha": "4f068baa1677579718f2d9c22acffc75cee88137",
       "branch": "task/m2-adapter-spike",
       "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-spike",
       "reviewer_session": "Claude boundary reviewer pending",
       "handoff": "docs/agents/runs/M2-ADAPTER-SPIKE/handoff.md",
-      "heartbeat_at": "2026-11-14T12:18:34.234803+00:00",
+      "heartbeat_at": "2026-11-14T18:53:22.823295+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Implement adapter against4f068 fixedbrokercontract; real inference only with reserved agent slot, no pretending mocksuccess is acceptance",
+      "next_action": "FreshClaude reviewfoundall-exitstopEvent/stableerrorgaps +proofSHA mismatch. Coordinatorfixesstdinprivacy/privatepreflightcwd, thenregeneratesuntouchedproofatfinalsourcecommit andreroutesreview. No rootintegrationyet.",
       "completion_depends_on": [
         "M1-INTEGRATE",
         "M2-RUNNER-SPIKE"
@@ -542,7 +542,7 @@
       "id": "M2-SESSIONS",
       "milestone": "M2",
       "title": "Session orchestration, runner and replayable events",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F05",
         "F12"
@@ -550,8 +550,7 @@
       "planned_persona": "runtime",
       "planned_harness": "codex",
       "depends_on": [
-        "M2-RUNNER-SPIKE",
-        "M2-ADAPTER-SPIKE"
+        "M2-RUNNER-SPIKE"
       ],
       "proposed_write_scope": [
         "repoask/sessions/",
@@ -561,24 +560,28 @@
         "Pinned plan, resource limits and stop/recovery verified",
         "No duplicate runner on restart"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "owner_session": "6ac8a9af-febc-439f-926a-3a06f1d6b9de",
+      "base_sha": "28343c3a6a5223bb6195678d2d55203692cdbc14",
+      "branch": "task/m2-sessions",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-sessions",
+      "reviewer_session": "fresh Codex boundary reviewer pending",
+      "handoff": "docs/agents/runs/M2-SESSIONS/handoff.md",
+      "heartbeat_at": "2026-11-15T03:59:01.577836+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
-      "completion_depends_on": []
+      "next_action": "IndependentCodex37a review7confirmedmajors+F05gaps. Authorfixesprivacy/stop/purge/retry plusmessages/readonly/modes/recovery underexplicitRunnerextension; candidateprofile+adapterdeps only; UIfixture-firstparallel.",
+      "completion_depends_on": [
+        "M2-ADAPTER-SPIKE",
+        "M2-PROFILES",
+        "M1-INTEGRATE"
+      ]
     },
     {
       "id": "M2-SESSION-UI",
       "milestone": "M2",
       "title": "Session activity, diff, validation and follow-up interface",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F05",
         "F11",
@@ -588,7 +591,6 @@
       "planned_harness": "claude",
       "depends_on": [
         "M2-RUNNER-SPIKE",
-        "M2-ADAPTER-SPIKE",
         "M1-ASK-UI"
       ],
       "proposed_write_scope": [
@@ -600,20 +602,21 @@
         "Real session service connected before review",
         "PR preview/publication action and failure status use real F06 service"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": null,
+      "owner_session": "native Codex session_ui launching",
+      "base_sha": "94ccc6e9cb53e859b662efba7f8a802bfe6591ea",
+      "branch": "task/m2-session-ui",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-session-ui",
+      "reviewer_session": "freshClaude quality reviewer pending",
+      "handoff": "docs/agents/runs/M2-SESSION-UI/handoff.md",
+      "heartbeat_at": "2026-11-15T04:00:09.135104+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "Fixture-firstSession/profileUIagainstfrozenpublicDTOs; backend37aR1bugsfixongoing, finalrealserviceandbrowseracceptancegatesintegration. PublicationUIwaitsF06contract.",
       "completion_depends_on": [
         "M2-SESSIONS",
-        "M2-PRS"
+        "M2-PROFILES",
+        "M2-ADAPTER-SPIKE"
       ]
     },
     {
@@ -834,7 +837,7 @@
       "id": "M1-INTEGRATE",
       "milestone": "M1",
       "title": "Wire catalog, providers, retrieval and Ask into application",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F01",
         "F02",
@@ -870,11 +873,11 @@
       "worktree": null,
       "reviewer_session": null,
       "handoff": null,
-      "heartbeat_at": null,
+      "heartbeat_at": "2026-11-14T18:55:48.881581+00:00",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Shape integration task after dependency handoffs; independent review still required"
+      "next_action": "230Python/60UI baselineevidence,realcitedlocalanswerpass; fullrealmodelplanstillinvalid_output; realheaderwaitcancelcandidate d2a4802 pendingClaude review. Finalacceptanceandtransportintegrationremain."
     },
     {
       "id": "M2-INTEGRATE",
@@ -1124,6 +1127,152 @@
       "submitted_sha": "b9ea72c269e09bccd20395875cddd08b8a7b404b",
       "heartbeat_at": "2026-11-14T12:19:05.179614+00:00",
       "integration_sha": "45a283c"
+    },
+    {
+      "id": "M1-TRANSPORT-CANCEL",
+      "base_sha": "797009ba899740e477db3b88eacdb90fb80cb3e7",
+      "owner": "Codex provider integration engineer",
+      "exclusive_paths": [
+        "repoask/providers/transport.py",
+        "tests/test_provider_transport_cancel.py",
+        "docs/agents/runs/M1-TRANSPORT-CANCEL/**"
+      ],
+      "requirements": [
+        "F07 AI04 cancellation",
+        "F12 boundedgracefulshutdown"
+      ],
+      "acceptance": [
+        "Actual localTCP nonstream responseheaderwait cancels under2s, closesownedconnection",
+        "Actualbodyread cancellation andoverallrequestdeadline bounded",
+        "Preserveproxyignore, TLSverification, noredirect,nohiddenretry, bytecaps, redactederrors",
+        "No orphanrequestthreads/sockets afterreturn",
+        "Existingprovider69checks pass plusmeaningfulnewnetworkchecks"
+      ],
+      "reviewer": "independent Claude boundary reviewer",
+      "handoff": "docs/agents/runs/M1-TRANSPORT-CANCEL/handoff.md",
+      "state": "integrated",
+      "milestone": "M1",
+      "depends_on": [
+        "M1-PROVIDERS"
+      ],
+      "branch": "task/m1-transport-cancel",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-transport-cancel",
+      "next_action": "FreshClaudeapproved;root17realTCP/TLSnetworkpassed. Header/TLS/bodycancellationjoinedwatchers nowintegrated; DNS/connectestablishment remainsdocumentedtimeoutbound. Userappalreadyrunningoldmodulesleftavailable.",
+      "submitted_sha": "d2a4802451bf448721853ab098b453233311b164",
+      "integration_sha": "5866fbe4879f5e64635ff7ddefa734bbf4471b4f",
+      "heartbeat_at": "2026-11-15T03:43:00.146964+00:00"
+    },
+    {
+      "id": "M2-PROFILES",
+      "base_sha": "28343c3a6a5223bb6195678d2d55203692cdbc14",
+      "owner": "native Codex platform",
+      "exclusive_paths": [
+        "repoask/execution/profiles.py",
+        "tests/test_execution_profiles.py",
+        "docs/agents/runs/M2-PROFILES/**"
+      ],
+      "requirements": [
+        "F07 AI10,11,12",
+        "F12 OP02,04,08"
+      ],
+      "inputs": [
+        "docs/contracts/m2-sessions.md",
+        "docs/contracts/m2-execution-spike.md",
+        "repoask/platform/execution_schema.py",
+        "repoask/platform/session_schema.py"
+      ],
+      "acceptance": [
+        "ExactfrozenSQL/APIcontracts, source/grant/stop/budgetfences outside model",
+        "Meaningfuldurability/failure/privacy/restart/idempotencychecks",
+        "Realprotocol/runner/adapterintegrationwhereauthorized; nofakeinferenceclaims",
+        "Scopedcommit/handoff andfreshoppositeharness exactreview"
+      ],
+      "candidate_dependencies": {
+        "adapter": [
+          "6789421",
+          "9de6eeb20208919c578e446052ca129a38f50480"
+        ]
+      },
+      "reviewer": "fresh oppositeharness independentreview",
+      "handoff": "docs/agents/runs/M2-PROFILES/handoff.md",
+      "state": "running",
+      "milestone": "M2",
+      "depends_on": [
+        "M2-RUNNER-SPIKE"
+      ],
+      "completion_depends_on": [
+        "M2-ADAPTER-SPIKE"
+      ],
+      "branch": "task/m2-profiles",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-profiles",
+      "next_action": "Implementversionedexecutionprofilesandasyncsyntheticpreflight; rootownsmigrations/API"
+    },
+    {
+      "id": "UI-REDESIGN",
+      "milestone": "M2",
+      "title": "Conversation-first UI/UX redesign across all pages",
+      "state": "running",
+      "feature_ids": [
+        "F11",
+        "F01",
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F07"
+      ],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": [
+        "M2-SESSION-UI",
+        "M1-ASK-UI",
+        "M1-CATALOG-UI",
+        "M1-INDEX-UI"
+      ],
+      "proposed_write_scope": [
+        "repoask/web/",
+        "tests/ui/"
+      ],
+      "acceptance_outline": [
+        "Spec docs/superpowers/specs/2026-11-15-ui-redesign-design.md",
+        "Plan docs/superpowers/plans/2026-11-15-ui-redesign.md tasks 1-18 complete with UI and targeted Python tests green",
+        "Real-browser acceptance recorded in docs/agents/runs/UI-REDESIGN/acceptance.md",
+        "Independent whole-branch review before integration"
+      ],
+      "owner_session": "Claude native executor (user-authorized 2026-11-15)",
+      "base_sha": "d3c0681520a00c3267afadcceeca79d9f118dca9",
+      "branch": "task/ui-redesign",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-ui-redesign",
+      "reviewer_session": null,
+      "handoff": "docs/agents/runs/UI-REDESIGN/acceptance.md",
+      "heartbeat_at": "2026-11-15T06:30:00+00:00",
+      "submitted_sha": null,
+      "integration_sha": null,
+      "blocker": null,
+      "next_action": "Native execution of plan tasks 1-18; then fresh whole-branch review.",
+      "write_scope": [
+        "repoask/web/**",
+        "tests/ui/**",
+        "tests/test_web_assets.py",
+        "tests/test_provider_discovery.py",
+        "tests/test_github_manifest.py",
+        "tests/test_saved_api_boundary.py",
+        "tests/test_context_api.py",
+        "repoask/__main__.py (ASSETS, /api/workspace mode, public_base_url only)",
+        "repoask/context_api.py",
+        "repoask/api.py",
+        "repoask/providers/discovery.py",
+        "repoask/providers/__init__.py",
+        "repoask/github/client.py",
+        "repoask/github/service.py",
+        "docs/contracts/m1-services.md",
+        "README.md",
+        "docs/agents/runs/UI-REDESIGN/**",
+        "docs/superpowers/**"
+      ],
+      "completion_depends_on": [
+        "M2-SESSIONS"
+      ]
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
