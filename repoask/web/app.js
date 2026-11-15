@@ -1,5 +1,6 @@
 import { createAskPanel } from "./ask.js";
 import { createRepositoriesPage } from "./repositories.js";
+import { createSettingsPage } from "./settings.js";
 import { createSessionPanel, createExecutionSettings } from "./sessions.js";
 import { createShell } from "./shell.js";
 import { createSidePanel } from "./panel.js";
@@ -399,6 +400,7 @@ function routeFromHash() {
   if (hash === "" || hash === "#" || hash === "#/") return "ask";
   if (/^#\/(ask|plans)\/[^/]+(?:\/[^/]+)?$/.test(hash)) return "ask";
   if (/^#\/sessions\/[^/]+$/.test(hash)) return "sessions";
+  if (/^#\/settings\/(github|models|agent|privacy|health)(?:\?github=[a-z_]{1,64})?$/.test(hash)) return "settings";
   const match = /^#\/([a-z]+)(?:\?github=[a-z_]{1,64})?$/.exec(hash);
   return match && Object.hasOwn(ROUTES, match[1]) ? match[1] : null;
 }
@@ -743,8 +745,9 @@ function healthCard(data) {
   return card("Health", status, ...lines);
 }
 
+const healthHost = node("div", undefined, "health-host");
 function renderLegacySettings() {
-  const root = byId("settings-content");
+  const root = connectedSettings() ? healthHost : byId("settings-content");
   const { workspace, health } = state.status;
   const parts = [];
   if (workspace.kind === "loading") {
@@ -850,12 +853,27 @@ const sessionsUI = createSessionPanel({host: byId("sessions-content"), onAvailab
 const executionUI = createExecutionSettings({isVisible: () => state.route === "settings", onAvailable: () => { connectedUI.executionReady = true; }});
 let reposPage = null;
 window.addEventListener("hashchange", () => { if (state.route === "repositories" && reposPage) reposPage.refresh(); });
+function connectedSettings() { return connectedUI.githubReady || connectedUI.providersReady; }
+let settingsPage = null;
+function settingsSection() {
+  const match = /^#\/settings\/([a-z]+)/.exec(location.hash);
+  return match ? match[1] : "github";
+}
 function renderSettings() {
   const focused = document.activeElement;
   const restore = inside(githubPanel, focused) || inside(providerPanel, focused) || inside(executionUI.element, focused);
   renderLegacySettings();
-  byId("settings-content").append(githubPanel, providerPanel);
-  if (connectedUI.executionReady) byId("settings-content").append(executionUI.element);
+  if (!connectedSettings()) {
+    byId("settings-content").append(githubPanel, providerPanel);
+    if (connectedUI.executionReady) byId("settings-content").append(executionUI.element);
+  } else {
+    settingsPage ||= createSettingsPage({ host: byId("settings-content"), request: featureRequest,
+      sections: { github: githubPanel, models: providerPanel, agent: null, health: healthHost } });
+    settingsPage.mount();
+    const code = (/[?&]github=([a-z_]{1,64})/.exec(location.hash) || [])[1] || "";
+    settingsPage.setAgent(connectedUI.executionReady ? executionUI.element : null);
+    settingsPage.show(settingsSection(), { code });
+  }
   if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
 function renderRepositories() {

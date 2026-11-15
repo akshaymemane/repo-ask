@@ -40,6 +40,7 @@ ASSETS = {
     "/thread.js": ("thread.js", "text/javascript; charset=utf-8"),
     "/code-viewer.js": ("code-viewer.js", "text/javascript; charset=utf-8"),
     "/repositories.js": ("repositories.js", "text/javascript; charset=utf-8"),
+    "/settings.js": ("settings.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
@@ -74,7 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'self'; style-src 'self'; "
-            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://github.com",
         )
         for name, value in (extra_headers or {}).items():
             if name in {"Location", "Retry-After"} and "\r" not in str(value) and "\n" not in str(value):

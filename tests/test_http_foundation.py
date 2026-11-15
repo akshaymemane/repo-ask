@@ -61,6 +61,7 @@ class FoundationHTTPTests(unittest.TestCase):
         self.assertFalse(summary['storage']['persistent'])
         self.assertEqual(summary['secrets']['available'], False)
         self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertIn("form-action 'self' https://github.com", headers['Content-Security-Policy'])
         status, health, _ = self.request('/api/health')
         self.assertEqual(status, 200)
         self.assertEqual(health['components']['jobs']['workers_running'], 0)
