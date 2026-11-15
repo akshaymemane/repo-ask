@@ -39,6 +39,7 @@ ASSETS = {
     "/composer.js": ("composer.js", "text/javascript; charset=utf-8"),
     "/thread.js": ("thread.js", "text/javascript; charset=utf-8"),
     "/code-viewer.js": ("code-viewer.js", "text/javascript; charset=utf-8"),
+    "/repositories.js": ("repositories.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 

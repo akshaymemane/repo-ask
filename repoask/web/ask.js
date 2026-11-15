@@ -11,6 +11,7 @@ const destinationText = d => d && typeof d === 'object' ? `${d.kind || 'unknown'
 const coverageText = c => c && typeof c === 'object' ? [Number.isFinite(c.files) ? `${c.files} files` : null, Number.isFinite(c.chunks) ? `${c.chunks} chunks` : null, c.mode ? c.mode.replaceAll('_',' ') : null, c.partial === true ? 'partial coverage' : null].filter(Boolean).join(' · ') || 'unknown' : 'unknown';
 
 const NO_SHELL = {setHeader() {}, setRecent() {}};
+const onAskRoute = () => /^(#?\/?|#\/(ask|plans)(\/.*)?)$/.test(location.hash);
 export function titleFrom(text) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   if (clean.length <= 60) return clean;
@@ -29,6 +30,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   const panel = el('main'); panel.className = 'persistent-ask';
   const title=el('h1','Ask · saved planning');title.id='persistent-ask-title';title.setAttribute('tabindex','-1');panel.setAttribute('aria-labelledby',title.id);
   const status = el('p'); status.setAttribute('role', 'status');
+  const header = value => { if (onAskRoute()) shell.setHeader(value); };
   const knownNames = new Map(), scopeEvents = new Map(), staleScope = new Map(); let composerHandle = null;
   const pendingNotice=el('div');
   const body = el('div'); const source = el('aside'); source.setAttribute('aria-label', 'Snapshot source');
@@ -147,7 +149,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const c = await request(`/api/conversations/${enc(id)}`); if (token !== epoch) return;
     current = c;
     const chips = await repoNames(c.repository_ids || [], token); if (token !== epoch) return;
-    shell.setHeader({title: c.title || 'Untitled conversation', pills: chips.map(chip => ({text: chip.name}))});
+    header({title: c.title || 'Untitled conversation', pills: chips.map(chip => ({text: chip.name}))});
     const heading = el('h3', c.title || 'Untitled conversation'); heading.className = 'conversation-title';
     body.replaceChildren(heading);
     for (const chip of chips.filter(chip => chip.missing)) body.append(el('p', `${chip.id} · repository context unavailable. It stays in scope; remove it or reload.`));
@@ -156,7 +158,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     body.append(info);
     request('/api/settings/model-roles').then(settings => { if (token !== epoch) return; const r = settings.roles?.ask || {};
       info.append(el('p', `Answering model: ${r.model || 'unknown'} · ${destinationText(r.destination)} · local-only ${settings.settings?.local_only === true ? 'on' : settings.settings?.local_only === false ? 'off' : 'unknown'}`));
-      if (r.model) shell.setHeader({title: c.title || 'Untitled conversation', pills: [...chips.map(chip => ({text: chip.name})), {text: `${r.model} · ${r.destination?.kind || 'unknown'}`, tone: 'ok'}]}); }, () => {});
+      if (r.model) header({title: c.title || 'Untitled conversation', pills: [...chips.map(chip => ({text: chip.name})), {text: `${r.model} · ${r.destination?.kind || 'unknown'}`, tone: 'ok'}]}); }, () => {});
     let cursor = c.messages_next_cursor;
     const more = button(body, 'Load more saved messages', async () => { const page = await request(`/api/conversations/${enc(id)}/messages?cursor=${enc(cursor)}`); if(token!==epoch)return; c.messages = [...page.items, ...c.messages]; cursor = page.next_cursor; more.hidden = !cursor; draw(); }); more.hidden = !cursor;
     const threadHost = el('div'); threadHost.className = 'chat-thread'; body.append(threadHost);
@@ -184,7 +186,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       scopeEvents.set(id, events);
       if (added.length && plans.length) { stale = {planId: plans.at(-1).id, addedNames: [...(stale?.addedNames || []), ...added.map(chip => chip.name)]}; staleScope.set(id, stale); }
       composer.setChips(after);
-      shell.setHeader({title: c.title || 'Untitled conversation', pills: after.map(chip => ({text: chip.name}))});
+      header({title: c.title || 'Untitled conversation', pills: after.map(chip => ({text: chip.name}))});
       rememberRepositories(c.repository_ids);
       draw();
     }
@@ -245,7 +247,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     if(active) timer=setTimeout(poll,1500);
   }
   function landing() {
-    shell.setHeader({title: 'Ask'});
+    header({title: 'Ask'});
     const heading = el('h3', 'What are we working on?'); heading.className = 'landing-title';
     body.replaceChildren(heading);
     const composer = createComposer({request, draftKey: 'ask-draft:new', label: 'Question or planning request',

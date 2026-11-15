@@ -121,3 +121,12 @@ test('failed exclusion save restores editing and retains submitted draft',async(
  assert.equal(button(root,'Discard local exclusion edits').disabled,false);
  assert.match(visibleText(root),/Save failed/);
 });
+
+test('repositoryId narrows the panel to one repository read from its own context endpoint',async()=>{
+ const calls=[];const browser=createBrowser('<!doctype html><html><body></body></html>',{respond(){}});install(browser);
+ const request=async(path)=>{calls.push(path);if(path==='/api/repositories/demo%3Aone/context')return structuredClone(initial);if(path==='/api/settings/model-roles')return roles;return {};};
+ const panel=createContextPanel({request,isVisible:()=>true,repositoryId:'demo:one'});browser.document.body.append(panel.element);await panel.refresh();
+ assert.ok(calls.includes('/api/repositories/demo%3Aone/context'));assert.equal(calls.some(p=>p.startsWith('/api/context/repositories')),false);
+ assert.match(visibleText(panel.element),/Example/);assert.ok(button(panel.element,'Reindex Example'));
+ assert.equal(button(panel.element,'Next context page'),undefined);
+});

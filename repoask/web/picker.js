@@ -114,7 +114,7 @@ export function openRepoPicker({ request, selected = [], trigger }) {
     timer = setTimeout(() => load(false), 200);
   });
   modal.root.addEventListener("keydown", (event) => {
-    const boxes = list.querySelectorAll('input[type="checkbox"]').filter((box) => !box.disabled);
+    const boxes = [...list.querySelectorAll('input[type="checkbox"]')].filter((box) => !box.disabled);
     const index = boxes.indexOf(document.activeElement);
     if (event.key === "ArrowDown" && boxes.length) {
       event.preventDefault();
