@@ -29,7 +29,8 @@ export function createSidePanel(host) {
       const button = make("button", tab.title, "side-tab");
       button.type = "button";
       button.setAttribute("role", "tab");
-      button.setAttribute("aria-selected", String(id === active));
+      button.setAttribute("aria-selected", String(id === active)); button.setAttribute("tabindex", id===active ? "0" : "-1");
+      button.addEventListener("keydown",event=>{const ids=[...tabs.keys()],at=ids.indexOf(id);let next;if(event.key==='ArrowRight')next=(at+1)%ids.length;else if(event.key==='ArrowLeft')next=(at+ids.length-1)%ids.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=ids.length-1;else return;event.preventDefault();active=ids[next];render();[...tabList.querySelectorAll("button")][next]?.focus();});
       button.addEventListener("click", () => { active = id; render(); });
       tabList.append(button);
     }
@@ -39,12 +40,12 @@ export function createSidePanel(host) {
   }
 
   const api = {
-    openTab({ id, title, render: draw }) {
+    openTab({ id, title, render: draw, canClose = null }) {
       const opener = document.activeElement;
       let inside = false;
       for (let node = opener; node; node = node.parentNode) if (node === host) inside = true;
       if (!inside && opener && opener !== document.body && opener.isConnected) returnFocus = opener;
-      tabs.set(id, { title, render: draw });
+      tabs.set(id, { title, render: draw, canClose });
       active = id;
       host.hidden = false;
       render();
@@ -52,13 +53,15 @@ export function createSidePanel(host) {
       (selected ?? closeAll).focus();
     },
     closeTab(id) {
+      if(tabs.get(id)?.canClose && !tabs.get(id).canClose())return false;
       tabs.delete(id);
       if (!tabs.size) return api.close();
       if (active === id) active = [...tabs.keys()].at(-1);
       render();
     },
-    close() {
-      if (host.hidden) return;
+    close({force=false} = {}) {
+      if (host.hidden) return true;
+      if(!force && [...tabs.values()].some(tab=>tab.canClose && !tab.canClose()))return false;
       tabs.clear();
       active = null;
       host.hidden = true;

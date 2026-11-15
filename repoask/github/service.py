@@ -121,11 +121,14 @@ class GitHubService:
     def finish_manifest(self, state, code):
         key = hashlib.sha256(state.encode()).hexdigest() if isinstance(state, str) and 1 <= len(state) <= 200 else None
         with self.manifest_lock:
-            expires = self.manifest_states.pop(key, None) if key else None
-        if expires is None or expires <= self.clock():
-            raise GitHubError('manifest_state_invalid')
-        # GitHub's code is single use: check storage before spending it.
-        self._require_key_storage()
+            expires = self.manifest_states.get(key) if key else None
+            if expires is None or expires <= self.clock():
+                raise GitHubError('manifest_state_invalid')
+            # A locked vault must not consume the browser's retryable callback.
+            # Check and claim under one lock so concurrent callbacks cannot both
+            # spend GitHub's single-use conversion code after storage recovers.
+            self._require_key_storage()
+            self.manifest_states.pop(key)
         app = self.client.convert_manifest(code)
         try:
             return self.configure(app['id'], app['slug'], app['pem'])

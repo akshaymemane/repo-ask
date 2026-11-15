@@ -1,6 +1,7 @@
 // First-run checklist shown on the Ask landing page until GitHub, repositories and a model are set.
 import { button, el } from "./ui.js";
 import { STORAGE_NEEDED, startInstall, startManifest } from "./settings.js";
+import { readRepositoryPages } from "./repo-source.js";
 import { useDiscoveredModel } from "./settings-models.js";
 
 const enc = encodeURIComponent;
@@ -23,7 +24,7 @@ export async function renderSetup(host, { request, onDone = () => {}, submitForm
   try {
     [connections, catalog, roles, discovered] = await Promise.all([
       request("/api/github/connections"),
-      request("/api/repositories?limit=100"),
+      readRepositoryPages(request, "/api/repositories?limit=100"),
       request("/api/settings/model-roles"),
       request("/api/provider-profiles/discover").catch(() => ({ reachable: false, models: [] })),
     ]);

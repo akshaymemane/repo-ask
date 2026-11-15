@@ -19,12 +19,17 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   b.window.confirm=()=>true;
   await import(new URL('../../repoask/web/app.js?ask-real-services',import.meta.url));await settle();
   const panel=b.document.querySelector('.persistent-ask');assert.ok(panel);assert.ok(b.document.getElementById('question'));assert.equal(b.document.getElementById('thread').parentNode.hidden,true);
-  const button=text=>panel.querySelectorAll('button').find(x=>x.textContent===text);
-  const field=label=>panel.querySelectorAll('label').find(x=>x.textContent.startsWith(label)).querySelector('textarea');
-  assert.match(visibleText(panel),/implementation_not_permitted/);
+  // The plan editor lives in the side panel; the Ask page keeps only a summary.
+  const side=b.document.getElementById('side-panel');
+  const button=text=>[...panel.querySelectorAll('button'),...side.querySelectorAll('button')].find(x=>x.textContent===text);
+  const field=label=>[...panel.querySelectorAll('label'),...side.querySelectorAll('label')].find(x=>x.textContent.startsWith(label)).querySelector('textarea');
+  const planTab=()=>side.querySelectorAll('[role="tab"]').find(x=>x.textContent===seed.plan.title)?.click();
+  assert.equal(side.hidden,false);assert.match(visibleText(panel),/The editor is open in the details panel/);
+  assert.match(visibleText(side),/implementation_not_permitted/);
   assert.equal(button('Start session').disabled,true);
-  button(panel.querySelectorAll('button').find(x=>x.textContent.includes('worker.py:1')).textContent).click();await settle();
-  assert.match(visibleText(b.document.getElementById('side-panel')),/def deliver/);assert.equal(b.document.getElementById('side-panel').hidden,false);
+  side.querySelectorAll('button').find(x=>x.textContent.includes('worker.py:1')).click();await settle();
+  assert.match(visibleText(side),/def deliver/);assert.equal(side.hidden,false);
+  planTab();await settle();
   input(field('goal'),'Human edited goal');input(field('requirements'),'Preserve mail\nBound retries');
   button('Add step').click();await settle();
   input(field('2. title'),'Observe retries');input(field('2. description'),'Record attempt count');
@@ -34,8 +39,8 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   assert.deepEqual(latest.version.content.requirements,['Preserve mail','Bound retries']);
   assert.equal(call(`/api/plans/${seed.plan.id}?version_id=${seed.plan.version.id}`).body.version.content.goal,'Bound delivery retries');
   assert.equal(call(`/api/plans/${seed.plan.id}/versions`,'POST',{content:latest.version.content,parent_version_id:seed.plan.version.id}).status,409);
-  button('Export this saved version').click();await settle();assert.match(visibleText(panel),new RegExp(latest.version.content_hash));assert.match(visibleText(panel),/Human edited goal/);
-  const old=panel.querySelectorAll('a').find(x=>x.textContent==='Previous version');old.click();await settle(30);assert.equal(field('goal').value,'Bound delivery retries');
+  button('Export this saved version').click();await settle();assert.match(visibleText(side),new RegExp(latest.version.content_hash));assert.match(visibleText(side),/Human edited goal/);
+  const old=side.querySelectorAll('a').find(x=>x.textContent==='Previous version');old.click();await settle(30);assert.equal(field('goal').value,'Bound delivery retries');
   b.window.location.hash=`#/ask/${seed.conversation.id}`;await settle(30);assert.match(visibleText(panel),/Durable UI test/);
   input(field('Question or planning request'),'How does mail delivery work?');button('Ask').click();await settle(30);
   const c=call(`/api/conversations/${seed.conversation.id}`).body;assert.equal(c.messages.filter(x=>x.role==='user').length,1);assert.equal(c.runs.length,1);
@@ -92,4 +97,23 @@ test('ready launch uses reserved version/hash/idempotency body and only server s
  }});install(b);const ui=await createAskPanel({host:b.document.getElementById('view-ask')});
  const start=ui.panel.querySelectorAll('button').find(x=>x.textContent==='Start session');start.click();await settle();start.click();await settle();
  assert.equal(b.window.location.hash,'#/sessions/server-session');assert.deepEqual(submitted[0],submitted[1]);assert.deepEqual(Object.keys(submitted[0]).sort(),['content_hash','idempotency_key','plan_version_id']);assert.equal(submitted[0].plan_version_id,'v');
+});
+
+test('any visible plan edit blocks Start until saved or explicitly discarded',async()=>{
+ const content={goal:'Goal',user_request:'Request',repositories:[],citations:[],findings:[],requirements:['R'],steps:[{title:'Old step',description:'D',paths:[],citation_ids:[]}],validation:[],risks:[],assumptions:[],open_questions:[],execution_context:{execution_profile_id:null,base_choices:{}},publication:{policy:'manual_draft'}};
+ const p={id:'p',title:'Plan',latest_version_id:'v',version:{id:'v',version:1,content_hash:'hash',content,readiness:{state:'ready',blocking_reasons:[],warnings:[],source_freshness:{}}}};
+ const submitted=[];const b=createBrowser(html,{hash:'#/plans/p/v',respond:(m,u,o)=>{
+  if(u==='/api/conversations')return {items:[]};if(u.startsWith('/api/plans/p'))return p;
+  if(u==='/api/sessions'){submitted.push(JSON.parse(o.body));return {session_id:'s',state:'queued'};}
+  return {status:404,body:{}};
+ }});install(b);b.window.confirm=()=>true;const ui=await createAskPanel({host:b.document.getElementById('view-ask')});await settle();
+ const start=()=>ui.panel.querySelectorAll('button').find(x=>x.textContent==='Start session');
+ assert.equal(start().disabled,false);
+ // A step row field previously mutated the plan without marking it dirty.
+ input(ui.panel.querySelectorAll('label').find(x=>x.textContent.startsWith('1. title')).querySelector('textarea'),'Edited step');
+ assert.equal(start().disabled,true);assert.match(visibleText(ui.panel),/Unsaved plan edits/);
+ start().disabled=false;start().click();await settle();assert.equal(submitted.length,0);
+ ui.panel.querySelectorAll('button').find(x=>x.textContent==='Discard plan edits').click();await settle(20);
+ assert.equal(ui.panel.querySelectorAll('label').find(x=>x.textContent.startsWith('1. title')).querySelector('textarea').value,'Old step');
+ assert.equal(start().disabled,false);start().click();await settle();assert.equal(submitted.length,1);
 });

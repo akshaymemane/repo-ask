@@ -104,6 +104,15 @@ test("a plan made before the scope changed offers Regenerate", async () => {
   assert.deepEqual(calls, [["onRegenerate", "plan_1"]]);
 });
 
+test("removing a repository also stales the plan and blocks Start until it is regenerated", async () => {
+  const { host, render } = await setup();
+  render({ plans: [{ id: "plan_1", title: "Doc", version: 1, steps: 2, ready: true, reason: "", created_at: NOW - 9000 }],
+    staleScopeSincePlan: { planId: "plan_1", addedNames: [], removedNames: ["edgemesh"] } });
+  const card = host.querySelector(".plan-card");
+  assert.match(visibleText(card), /Made before edgemesh was removed · Regenerate/);
+  assert.equal(card.querySelectorAll("button").find((x) => x.textContent === "Start session").disabled, true);
+});
+
 test("scope events appear in time order between messages", async () => {
   const { host, render } = await setup();
   render({ messages: [user({ created_at: NOW - 30000 }), answer({ created_at: NOW - 20000 })], scopeEvents: [{ kind: "added", name: "cube-workbench", at: NOW - 25000 }] });
