@@ -31,6 +31,8 @@ from .execution_schema import EXECUTION_SQL
 from .session_schema import SESSION_SQL
 MIGRATIONS += (Migration(9, "execution_profiles", EXECUTION_SQL),
                Migration(10, "implementation_sessions", SESSION_SQL))
+from .publication_schema import PUBLICATION_SQL
+MIGRATIONS += (Migration(11, "draft_publications", PUBLICATION_SQL),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 
