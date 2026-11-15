@@ -8,7 +8,7 @@ const url = pathToFileURL(fileURLToPath(new URL("../../repoask/web/setup.js", im
 let loads = 0;
 const repo = (id, name, over = {}) => ({ id, name, full_name: `akshaymemane/${name}`, index_enabled: false, implementation_enabled: false, ...over });
 
-async function setup({ connected = true, repos = [repo("gh:1", "rcnl-app"), repo("gh:2", "central-deploy-manager")], askProfile = null, discover = { reachable: true, models: [{ name: "llama3.2:latest", embedding: false }, { name: "nomic-embed-text:latest", embedding: true }] }, fail = false } = {}) {
+async function setup({ configured = false, connected = true, repos = [repo("gh:1", "rcnl-app"), repo("gh:2", "central-deploy-manager")], askProfile = null, discover = { reachable: true, models: [{ name: "llama3.2:latest", embedding: false }, { name: "nomic-embed-text:latest", embedding: true }] }, fail = false } = {}) {
   const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
   install(b);
   loads += 1;
@@ -18,7 +18,8 @@ async function setup({ connected = true, repos = [repo("gh:1", "rcnl-app"), repo
   const request = async (path, method = "GET", body) => {
     calls.push([method, path, body]);
     if (fail) throw Object.assign(new Error("not_found. Endpoint unavailable in this build."), { status: 404 });
-    if (path === "/api/github/connections") return { connections: connected ? [{ id: "ghc", status: "connected" }] : [] };
+    if (path === "/api/github/connections") return { connections: connected ? [{ id: "ghc", status: "connected" }] : configured ? [{ id: "ghc", status: "configured", slug: "opendevin-99fc7a" }] : [] };
+    if (path === "/api/github/connect") return { install_url: "https://github.com/apps/opendevin-99fc7a/installations/new?state=s", expires_at: 1 };
     if (path.startsWith("/api/repositories?")) return { items: repos, next_cursor: null };
     if (method === "PATCH" && path.startsWith("/api/repositories/")) return { ...body };
     if (path === "/api/settings/model-roles" && method === "GET") return { roles: { ask: { profile_id: askProfile } }, settings: {} };
@@ -33,9 +34,10 @@ async function setup({ connected = true, repos = [repo("gh:1", "rcnl-app"), repo
   const host = b.document.getElementById("host");
   let done = 0;
   const submitted = [];
-  await mod.renderSetup(host, { request, onDone: () => { done += 1; }, submitForm: (form) => submitted.push(form) });
+  const navigated = [];
+  await mod.renderSetup(host, { request, onDone: () => { done += 1; }, submitForm: (form) => submitted.push(form), navigate: (href) => navigated.push(href) });
   await settle();
-  return { b, mod, host, calls, done: () => done, submitted };
+  return { b, mod, host, calls, done: () => done, submitted, navigated };
 }
 
 const btn = (host, text) => host.querySelectorAll("button").find((x) => x.textContent === text);
@@ -89,4 +91,12 @@ test("a finished setup renders nothing and calls onDone; a failing server render
   assert.equal(doneSetup.done(), 1);
   const broken = await setup({ fail: true });
   assert.equal(visibleText(broken.host), "");
+});
+
+test("a created but uninstalled App offers Install, never a second Connect", async () => {
+  const { host, navigated } = await setup({ connected: false, configured: true, repos: [] });
+  assert.equal(btn(host, "Connect GitHub"), undefined);
+  btn(host, "Install on your repositories").click();
+  await settle();
+  assert.deepEqual(navigated, ["https://github.com/apps/opendevin-99fc7a/installations/new?state=s"]);
 });

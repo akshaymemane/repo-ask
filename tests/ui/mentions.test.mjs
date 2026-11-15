@@ -97,3 +97,27 @@ test("repositories already chosen are not offered", async () => {
   await type(textarea, "@rc");
   assert.deepEqual(b.document.querySelectorAll('[role="option"]').map((o) => o.querySelector("strong").textContent), ["rcnl-tools"]);
 });
+
+test("indexed matches past the first unindexed ones are still offered; no match says so", async () => {
+  const b = createBrowser("<!doctype html><html><body><div><textarea id=t></textarea></div></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const { attachMentions } = await import(`${url}?m=large`);
+  const limits = [];
+  const unindexed = Array.from({ length: 10 }, (_, i) => ctx(100 + i, `rcnl-old-${i}`, { status: "metadata_only", active_snapshot: null }));
+  const request = async (path) => {
+    if (!path.startsWith("/api/context")) return { items: [] };
+    const q = new URL(path, "http://x").searchParams;
+    limits.push(Number(q.get("limit")));
+    return q.get("query") === "zzz" ? { items: [], next_cursor: null } : { items: [...unindexed, ctx(1, "rcnl-app")], next_cursor: null };
+  };
+  const textarea = b.document.getElementById("t");
+  attachMentions(textarea, { request, onPick: () => {} });
+  await type(textarea, "@rcnl");
+  assert.ok(limits[0] >= 25, "asks for a wider page than it shows");
+  assert.deepEqual(b.document.querySelectorAll('[role="option"]').map((o) => o.querySelector("strong").textContent), ["rcnl-app"]);
+  await type(textarea, "@zzz");
+  const menu = b.document.querySelector('[role="listbox"]');
+  assert.equal(menu.hidden, false);
+  assert.match(visibleText(menu), /No indexed repositories match/);
+  assert.equal(keydown(textarea, "Enter").defaultPrevented, false, "Enter is not swallowed when there is nothing to pick");
+});

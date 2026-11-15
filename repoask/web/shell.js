@@ -12,7 +12,7 @@ export function createShell({ document }) {
   return {
     page: byId("page"),
     setRoute(route) {
-      for (const link of byId("rail-nav").querySelectorAll("a")) {
+      for (const link of byId("rail-nav").querySelectorAll("a[data-route]")) {
         if (link.dataset.route === route) link.setAttribute("aria-current", "page");
         else link.removeAttribute("aria-current");
       }

@@ -138,3 +138,37 @@ class ManifestTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ManifestPreconditionTests(ManifestTests):
+    def test_begin_refuses_without_persistent_storage(self):
+        memory = Platform.open(None); self.addCleanup(memory.close)
+        service = GitHubService(memory.store, memory.jobs, SecretService(memory.store, self.vault, clock=lambda: self.now), transport=self.remote, clock=lambda: self.now)
+        self.assertFalse(service.can_configure())
+        with self.assertRaises(GitHubError) as e:
+            service.begin_manifest(public_base_url='http://127.0.0.1:8765')
+        self.assertEqual(e.exception.code, 'persistence_required')
+
+    def test_finish_checks_secret_store_before_spending_the_code(self):
+        start = self.begin()
+        self.vault.status = lambda: BackendStatus('test-only', False, 'locked')
+        with self.assertRaises(GitHubError) as e:
+            self.service.finish_manifest(start['state'], 'abc')
+        self.assertEqual(e.exception.code, 'secret_store_unavailable')
+        self.assertFalse(any(r.path.startswith('/app-manifests/') for r in self.remote.requests))
+
+    def test_configure_failure_after_conversion_says_the_key_was_not_saved(self):
+        start = self.begin()
+        original = self.remote.__call__
+        def failing(request):
+            if request.path == '/app':
+                return Response(503, {}, {})
+            return original(request)
+        self.service.client.transport = failing
+        with self.assertRaises(GitHubError) as e:
+            self.service.finish_manifest(start['state'], 'abc')
+        self.assertEqual(e.exception.code, 'manifest_key_not_saved')
+
+    def test_connections_route_reports_whether_setup_can_store_a_key(self):
+        api = FeatureAPI(self.platform, self.service, None)
+        self.assertIs(api.dispatch('GET', '/api/github/connections', '').body['can_configure'], True)

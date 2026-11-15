@@ -93,7 +93,9 @@ test("side panel opens tabs, closes on Escape and restores focus", async () => {
   const opener = b.document.createElement("button");
   b.document.body.append(opener);
   opener.focus();
-  const host = b.document.getElementById("side-panel");
+  const host = b.document.createElement("aside");
+  host.hidden = true;
+  b.document.body.append(host);
   const panel = createSidePanel(host);
   panel.openTab({ id: "f1", title: "api.ts", render: (body) => body.append("first file") });
   panel.openTab({ id: "f2", title: "routes.ts", render: (body) => body.append("second file") });
@@ -119,4 +121,38 @@ test("the page header follows the route, not the Ask module", async () => {
   b.window.location.hash = "#/settings";
   await settle();
   assert.equal(b.document.getElementById("page-header-title").textContent, "Settings");
+});
+
+test("status refreshes and route changes leave Recent conversations visible", async () => {
+  const api = { ...legacyApi(), "GET /api/workspace": { status: 200, body: fixtures.workspace.demo_memory }, "GET /api/health": { status: 200, body: fixtures.health.demo_memory } };
+  const b = await boot({ api });
+  const { createShell } = await import(`${shellUrl}?s=recent`);
+  createShell({ document: b.document }).setRecent([{ href: "#/ask/c1", title: "Deploy flow", meta: "now" }], { heading: "Recent" });
+  b.window.location.hash = "#/settings";
+  await settle();
+  b.window.location.hash = "#/repositories";
+  await settle();
+  const link = b.document.querySelector('#recent-list a[href="#/ask/c1"]');
+  assert.equal(link.closest("li").hidden, false);
+});
+
+test("opening the panel moves focus into it; Escape anywhere closes it and returns to the latest opener", async () => {
+  const b = await boot({ api: legacyApi() });
+  const { createSidePanel } = await import(`${panelUrl}?p=focus`);
+  const host = b.document.createElement("aside");
+  host.hidden = true;
+  b.document.body.append(host);
+  const panel = createSidePanel(host);
+  const first = b.document.createElement("button"), second = b.document.createElement("button");
+  b.document.body.append(first, second);
+  first.focus();
+  panel.openTab({ id: "a", title: "a.ts", render: (body) => body.append("A") });
+  let within = false;
+  for (let node = b.document.activeElement; node; node = node.parentNode) if (node === host) within = true;
+  assert.ok(within, "focus moved into the panel");
+  second.focus();
+  panel.openTab({ id: "b", title: "b.ts", render: (body) => body.append("B") });
+  keydown(b.document.body, "Escape");
+  assert.equal(panel.isOpen(), false);
+  assert.equal(b.document.activeElement, second);
 });

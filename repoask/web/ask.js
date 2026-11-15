@@ -124,13 +124,19 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       return {id, name, missing: !value};
     });
   }
+  // Returns {updated, base}: base is the server scope the edit was applied to (fresh after a conflict).
   async function updateScope(c, ids) {
-    const patch = revision => request(`/api/conversations/${enc(c.id)}`, 'PATCH', {repository_ids: ids, expected_revision: revision});
-    try { return await patch(c.scope_revision); }
+    const patch = (revision, next) => request(`/api/conversations/${enc(c.id)}`, 'PATCH', {repository_ids: next, expected_revision: revision});
+    try { return {updated: await patch(c.scope_revision, ids), base: c.repository_ids || []}; }
     catch (error) {
       if (error.status !== 409) throw error;
+      // Re-apply only this edit on top of the other tab's change.
+      const mine = c.repository_ids || [];
+      const added = ids.filter(id => !mine.includes(id)), removed = mine.filter(id => !ids.includes(id));
       const fresh = await request(`/api/conversations/${enc(c.id)}`);
-      try { return await patch(fresh.scope_revision); }
+      const base = fresh.repository_ids || [];
+      const next = [...base.filter(id => !removed.includes(id)), ...added.filter(id => !base.includes(id))];
+      try { return {updated: await patch(fresh.scope_revision, next), base}; }
       catch (again) { if (again.status === 409) throw new Error("Someone changed this conversation's repositories. Reload to see the latest."); throw again; }
     }
   }
@@ -170,15 +176,24 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       onViewPlan: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
       onStartSession: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
       onRegenerate: () => { if (composer.value.trim()) return [...composer.root.querySelectorAll('button')].find(b => b.textContent === 'Generate plan')?.click(); say('Describe the change again, then choose Generate plan to make a new version with the current repositories.'); composer.focus(); },
-      onRetry: async runId => { await request(`/api/answer-runs/${enc(runId)}/retry`, 'POST', {}); if (token === epoch) { await load(); composerHandle?.focus(); } },
-      onPickRoute: async repositoryId => { routing = null; await scopeTo([repositoryId]); if (pendingQuestion) { const q = pendingQuestion; pendingQuestion = null; await send(q.text, q.intent); composer.setValue(''); } },
+      onRetry: async runId => { try { await request(`/api/answer-runs/${enc(runId)}/retry`, 'POST', {}); if (token === epoch) { await load(); composerHandle?.focus(); } } catch (error) { if (token === epoch) say(error); } },
+      onPickRoute: async repositoryId => {
+        const keep = {routing, pendingQuestion};
+        try {
+          await scopeTo([repositoryId]); routing = null;
+          if (pendingQuestion) { const q = pendingQuestion; pendingQuestion = null; await send(q.text, q.intent); composer.setValue(''); }
+        } catch (error) {
+          if (token !== epoch) return;
+          ({routing, pendingQuestion} = keep); draw(); say(error);
+        }
+      },
       onChooseRepos: () => [...composer.root.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Add repositories')?.click(),
     };
     const draw = () => renderThread(threadHost, {now: Date.now(), messages: c.messages || [], runs: c.runs || [], plans, routing, scopeEvents: events, staleScopeSincePlan: stale}, handlers);
     let pendingQuestion = null;
     async function scopeTo(ids) {
-      const before = new Map((await repoNames(c.repository_ids || [], token)).map(chip => [chip.id, chip.name]));
-      const updated = await updateScope(c, ids); if (token !== epoch) return;
+      const {updated, base} = await updateScope(c, ids); if (token !== epoch) return;
+      const before = new Map((await repoNames(base, token)).map(chip => [chip.id, chip.name])); if (token !== epoch) return;
       Object.assign(c, {scope_revision: updated.scope_revision, repository_ids: updated.repository_ids});
       const after = await repoNames(c.repository_ids, token); if (token !== epoch) return;
       const added = after.filter(chip => !before.has(chip.id)), removed = [...before].filter(([key]) => !c.repository_ids.includes(key));
@@ -241,7 +256,13 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
           const editing=['INPUT','TEXTAREA','SELECT'].includes(focused?.tagName) || focused?.isContentEditable;
           const within=inside(body,focused);
           if(!draft && !editing){await load();if(within && token+1===epoch){const heading=body.querySelector('h3');if(heading){heading.setAttribute('tabindex','-1');heading.focus();}}}
-          else say('Generation finished. Reload saved conversation to see the result; your edits are preserved.');
+          else {
+            // Keep the message box (and anything typed) in place; only refresh the thread.
+            const fresh=await request(`/api/conversations/${enc(id)}`);if(token!==epoch)return;
+            Object.assign(c,{messages:fresh.messages,runs:fresh.runs,plans:fresh.plans,messages_next_cursor:fresh.messages_next_cursor});
+            composer.setBusy(activeRuns().length>0);draw();
+            enrichPlans(c,token).then(list=>{if(token!==epoch)return;plans=list;draw();});
+          }
         }
       } catch(e){if(token===epoch)say(`Status unavailable: ${e.message}. Reload saved conversation to reconnect.`);}
     }

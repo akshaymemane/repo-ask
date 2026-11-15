@@ -171,3 +171,23 @@ test("large catalogs say only the first 100 are shown", async () => {
   const { host } = await setup({ "GET /api/repositories": ({ catalog }) => ({ items: catalog, next_cursor: "more" }) });
   assert.match(visibleText(host), /Showing the first 100 repositories\. Search to find others\./);
 });
+
+test("two switches on one row save in order and the second keeps the first change", async () => {
+  const bodies = [];
+  let inFlight = 0, overlapped = false;
+  const { b, host } = await setup({ "PATCH /api/repositories/gh%3A1": async ({ body }) => {
+    inFlight += 1; if (inFlight > 1) overlapped = true;
+    bodies.push(body); await wait(15); inFlight -= 1;
+    return { ...catalogItem("gh:1", "rcnl-app"), ...body };
+  } });
+  globalThis.localStorage.setItem("od.allowConfirmed", JSON.stringify(["gh:1"]));
+  switchIn(row(host, "rcnl-app"), "Use in Ask").click();
+  switchIn(row(host, "rcnl-app"), "Allow changes").click();
+  await wait(60); await settle();
+  assert.equal(overlapped, false, "saves on one row never overlap");
+  assert.ok(bodies.every((b) => b.index_enabled === false), "no save puts Use in Ask back");
+  assert.deepEqual(bodies.at(-1), { index_enabled: false, implementation_enabled: true });
+  assert.equal(switchIn(row(host, "rcnl-app"), "Use in Ask").getAttribute("aria-checked"), "false");
+  assert.equal(switchIn(row(host, "rcnl-app"), "Allow changes").getAttribute("aria-checked"), "true");
+  assert.ok(b);
+});

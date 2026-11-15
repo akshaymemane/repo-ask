@@ -83,8 +83,20 @@ class GitHubService:
             self.secrets.revoke(old)
         return self._public_connection(self._one('github_connections', ident))
 
+    def can_configure(self):
+        """True when a created App's private key can actually be kept (persistent store and secure vault)."""
+        return bool(self.store.persistent) and bool(self.secrets.status().available)
+
+    def _require_key_storage(self):
+        if not self.store.persistent:
+            raise GitHubError('persistence_required')
+        if not self.secrets.status().available:
+            raise GitHubError('secret_store_unavailable')
+
     def begin_manifest(self, *, public_base_url, organization=None):
         """Prepare a GitHub App manifest; the state is in-memory, single use and expires in 10 minutes."""
+        # Refuse up front: a created App whose key cannot be stored is orphaned on GitHub.
+        self._require_key_storage()
         parts = urlsplit(public_base_url) if isinstance(public_base_url, str) else None
         if parts is None or parts.scheme != 'http' or parts.hostname not in ('127.0.0.1', 'localhost') \
                 or parts.path not in ('', '/') or parts.query or parts.username:
@@ -112,8 +124,13 @@ class GitHubService:
             expires = self.manifest_states.pop(key, None) if key else None
         if expires is None or expires <= self.clock():
             raise GitHubError('manifest_state_invalid')
+        # GitHub's code is single use: check storage before spending it.
+        self._require_key_storage()
         app = self.client.convert_manifest(code)
-        return self.configure(app['id'], app['slug'], app['pem'])
+        try:
+            return self.configure(app['id'], app['slug'], app['pem'])
+        except GitHubError:
+            raise GitHubError('manifest_key_not_saved') from None
 
     def connections(self):
         with self.store.read() as db:
