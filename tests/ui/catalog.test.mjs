@@ -44,7 +44,7 @@ test('App setup clears multiline PEM immediately, creates safe connect link and 
 });
 
 test('profile creation and credential rotation clear secrets; exact capabilities, policy and role payloads',async()=>{
- const app=await boot((method,url)=>method==='POST'||method==='PATCH'?{}:undefined);
+ const app=await boot((method,url)=>method==='POST'||method==='PATCH'?{}:undefined,'#/settings/models');
  const root=app.document.getElementById('settings-content');
  const form=formFor(root,'Create profile');input(form,'Profile name').value='Created';input(form,'Model identifier').value='model';
  const secret=input(form,'Credential (optional for local Ollama)');secret.value='never-render-this';input(form,'structured_output').checked=true;
@@ -61,7 +61,7 @@ test('profile creation and credential rotation clear secrets; exact capabilities
 });
 
 test('failed secret submission is sanitized, cleared and never automatically retried',async()=>{
- const app=await boot((method,url)=> method==='POST'&&url==='/api/provider-profiles'?{status:503,body:{code:'secret_store_unavailable',error:'reflected-api-key'}}:undefined);
+ const app=await boot((method,url)=> method==='POST'&&url==='/api/provider-profiles'?{status:503,body:{code:'secret_store_unavailable',error:'reflected-api-key'}}:undefined,'#/settings/models');
  const root=app.document.getElementById('settings-content');const form=formFor(root,'Create profile');
  input(form,'Profile name').value='Test';input(form,'Model identifier').value='model';const secret=input(form,'Credential (optional for local Ollama)');secret.value='reflected-api-key';form.requestSubmit();await settle();
  assert.equal(secret.value,'');assert.match(visibleText(root),/secret_store_unavailable/);assert.doesNotMatch(visibleText(root),/reflected-api-key/);
@@ -72,7 +72,7 @@ test('provider test renders capability failures and delete requires explicit con
  const app=await boot((method,url)=>{
   if(url.endsWith('/test'))return {status:'partial',capabilities:{chat:{status:'verified'},structured_output:{status:'failed',error_code:'invalid_output'}},destination:{kind:'local',host:'127.0.0.1:11434'}};
   if(method==='DELETE')return {deleted:true};
- });
+ },'#/settings/models');
  const root=app.document.getElementById('settings-content');button(root,'Test Local test').click();await settle();
  assert.match(visibleText(root),/chat: verified/);assert.match(visibleText(root),/structured_output: failed \(invalid_output\)/);
  button(root,'Delete Local test').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
@@ -87,7 +87,7 @@ test('callback keeps Settings route; unavailable APIs do not expose mutation for
 });
 
 test('embeddings preserve exact dimensions and secret-free saves omit credential rotation',async()=>{
- const app=await boot((method)=>method==='POST'?{}:undefined);
+ const app=await boot((method)=>method==='POST'?{}:undefined,'#/settings/models');
  const root=app.document.getElementById('settings-content');const form=formFor(root,'Create profile');
  input(form,'Profile name').value='Embeddings';input(form,'Model identifier').value='embedding-model';
  input(form,'chat').checked=false;input(form,'embeddings').checked=true;input(form,'Embedding dimensions (required for embeddings)').value='768';
@@ -124,7 +124,7 @@ test('newest provider load wins when older response arrives last', async () => {
   if (delayReads && method === 'GET' && ['/api/provider-profiles', '/api/settings/model-roles'].includes(url)) {
    const gate = delayed(); reads.push({url, ...gate}); return gate.promise;
   }
- });
+ },'#/settings/models');
  const root = app.document.getElementById('settings-content');
  delayReads = true;
  button(root, 'Reload provider settings').click(); await settle();
@@ -145,7 +145,7 @@ test('provider mutation prevents reloads from rendering pre-mutation settings', 
  const app = await boot((method, url) => {
   if (method === 'PATCH' && url === '/api/settings/model-roles') { pending = true; return mutation.promise; }
   if (pending && method === 'GET' && ['/api/provider-profiles', '/api/settings/model-roles'].includes(url)) readsWhilePending++;
- });
+ },'#/settings/models');
  const root = app.document.getElementById('settings-content');
  const policy = formFor(root, 'Save destination policy'); policy.requestSubmit(); await settle();
  button(root, 'Reload provider settings').click(); await settle();
@@ -198,6 +198,7 @@ test('invalid GitHub installation URLs are sanitized and saved settings retain k
  });
  const root=app.document.getElementById('settings-content');button(root,'Create connect link').click();await settle();
  assert.match(visibleText(root),/Invalid installation destination/);assert.doesNotMatch(visibleText(root),/private-callback-state/);
+ app.window.location.hash='#/settings/models';await settle();
  const form=formFor(root,'Create profile');input(form,'Profile name').value='Name';input(form,'Model identifier').value='model';
  button(form,'Create profile').focus();form.requestSubmit();await settle();
  assert.equal(app.document.activeElement.tagName,'H2');

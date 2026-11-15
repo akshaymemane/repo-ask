@@ -864,3 +864,21 @@ dialog.modal::backdrop { background: #05060899; }
 .detail-meta, .detail-muted { color: var(--muted); font-size: 12px; }
 .detail-link { color: var(--accent); font-size: 13px; }
 .detail-context { margin-top: var(--space-4); }
+
+/* ---- Settings sections ---- */
+.settings-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+.settings-nav { position: sticky; top: calc(var(--top-height) + var(--space-3)); display: grid; gap: 2px; }
+.settings-nav a { padding: 7px 10px; border-radius: 7px; color: var(--muted); text-decoration: none; font-size: 14px; }
+.settings-nav a:hover { background: var(--raised); color: var(--text); }
+.settings-nav a[aria-current="page"] { background: var(--raised); color: var(--text); }
+.settings-body { min-width: 0; display: grid; gap: var(--space-4); }
+.settings-status:empty { display: none; }
+.settings-status { margin-bottom: var(--space-3); color: var(--info); }
+.setting-card { border: 1px solid var(--line); border-radius: 10px; padding: var(--space-4); background: var(--surface); display: grid; gap: var(--space-2); justify-items: start; }
+.setting-card h2 { font-size: 16px; }
+.setting-card input[aria-label="Organization name"] { padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
+.setting-row { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+@media (max-width: 760px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-nav { position: static; grid-auto-flow: column; overflow-x: auto; } }
+.rail .primary-nav .recent-list { display: grid; flex: none; gap: 2px; }
+.rail .primary-nav .recent { flex: 0 1 auto; min-height: 0; }
+.existing-app > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: var(--space-2) 0; }

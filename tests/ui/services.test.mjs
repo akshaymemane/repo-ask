@@ -20,6 +20,7 @@ test('UI profile CRUD, roles and local policy persist through real FeatureAPI an
   const button=text=>root.querySelectorAll('button').find(x=>x.textContent===text);
   const input=(form,label)=>{const wrap=form.querySelectorAll('label').find(x=>x.textContent.startsWith(label));return wrap.querySelector('input')||wrap.querySelector('select');};
   assert.match(visibleText(root),/disconnected · 0 active installations/);
+  browser.window.location.hash='#/settings/models';await settle();
   let form=button('Create profile').closest('form');input(form,'Profile name').value='Real local profile';input(form,'Model identifier').value='synthetic';form.requestSubmit();await settle();
   assert.match(visibleText(root),/Real local profile/);
   form=button('Save ask role').closest('form');const select=input(form,'ask profile');select.value=select.querySelectorAll('option')[1].value;form.requestSubmit();await settle();
