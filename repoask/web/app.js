@@ -1,7 +1,9 @@
 import { createAskPanel } from "./ask.js";
 import { createContextPanel } from "./context.js";
 import { createSessionPanel, createExecutionSettings } from "./sessions.js";
+import { createShell } from "./shell.js";
 const byId = (id) => document.getElementById(id);
+const shell = createShell({ document });
 
 function node(tag, text, className) {
   const element = document.createElement(tag);
@@ -411,10 +413,7 @@ function showRoute(moveFocus) {
   const previous = state.route;
   state.route = route;
   for (const [id, info] of Object.entries(ROUTES)) byId(info.view).hidden = id !== route;
-  for (const link of document.querySelectorAll(".primary-nav a")) {
-    if (link.dataset.route === route) link.setAttribute("aria-current", "page");
-    else link.removeAttribute("aria-current");
-  }
+  shell.setRoute(route);
   // Ask-only controls act on the current conversation.
   const onAsk = route === "ask";
   byId("show-repos").hidden = !onAsk || Boolean(persistentAsk);
@@ -504,7 +503,10 @@ function exposeSessions() {
   if (!document.querySelector('.primary-nav a[data-route="sessions"]')) {
     const item = node("li"); const a = node("a", "Sessions"); a.setAttribute("href", "#/sessions"); a.dataset.route = "sessions";
     if (state.route === "sessions") a.setAttribute("aria-current", "page");
-    item.append(a); document.querySelector(".primary-nav ul").append(item);
+    item.append(a);
+    const list = document.querySelector(".primary-nav ul");
+    const [askItem, ...rest] = [...list.children];
+    list.replaceChildren(askItem, item, ...rest);
   }
   applyNavigation();
 }
@@ -536,6 +538,7 @@ function renderWorkspaceMode() {
   byId("workspace-mode-label").textContent = label;
   byId("workspace-mode-detail").textContent = detail ? ` — ${detail}` : "";
   byId("workspace-mode").dataset.mode = mode === "demo" || mode === "local" ? mode : "unknown";
+  shell.setWorkspaceMode(mode);
 }
 
 // Status vocabulary. Every state has text and an icon so color is never the
