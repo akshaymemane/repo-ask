@@ -4,6 +4,7 @@ import { renderThread } from "./thread.js";
 import { rememberRepositories } from "./repo-source.js";
 import { relativeTime } from "./ui.js";
 import { openSource } from "./code-viewer.js";
+import { renderSetup } from "./setup.js";
 // Persistent Ask consumes the frozen AskAPI; source and model output are always text.
 const el = (tag, text) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; return n; };
 const enc = encodeURIComponent;
@@ -249,7 +250,9 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   function landing() {
     header({title: 'Ask'});
     const heading = el('h3', 'What are we working on?'); heading.className = 'landing-title';
-    body.replaceChildren(heading);
+    const setupHost = el('div'); setupHost.className = 'setup-host';
+    body.replaceChildren(setupHost, heading);
+    renderSetup(setupHost, {request}).catch(() => setupHost.replaceChildren());
     const composer = createComposer({request, draftKey: 'ask-draft:new', label: 'Question or planning request',
       actions: [{label: 'Ask', intent: 'answer', variant: 'primary'}, {label: 'Generate plan', intent: 'plan'}],
       onInput: text => { draft = Boolean(text.trim()); },

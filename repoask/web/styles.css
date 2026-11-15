@@ -892,3 +892,16 @@ dialog.modal::backdrop { background: #05060899; }
 .setting-card select { min-width: 220px; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
 .modal-field { display: grid; gap: 4px; margin-bottom: var(--space-2); font-size: 13px; }
 .modal-field input { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
+
+/* ---- First-run setup ---- */
+.setup-host:empty { display: none; }
+.setup { width: min(100%, 560px); margin: 8vh auto 0; padding: var(--space-5); border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.setup h2 { font-size: 19px; font-weight: 650; }
+.setup-steps { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+.setup-step { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
+.setup-num { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line); font-size: 12px; color: var(--muted); }
+.setup-step.done .setup-num { background: var(--success); border-color: var(--success); color: var(--page); }
+.setup-body { display: grid; gap: var(--space-2); justify-items: start; }
+.setup-picks { display: grid; gap: 4px; }
+.setup-pick { display: flex; gap: var(--space-2); align-items: center; font-size: 13px; }
+.setup-host + .landing-title { margin-top: var(--space-5); }
