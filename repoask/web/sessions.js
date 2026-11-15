@@ -55,6 +55,7 @@ function eventText(event, sourceAllowed) {
 }
 
 export function createSessionPanel({host, request = executionRequest, onAvailable = () => {}, pollMs = 2000}) {
+  let listControls = [];
   const panel = el('div', undefined, 'sessions-panel'); host.append(panel);
   let epoch = 0, timer, active = false, currentID = null, refreshBusy = false, current, cursor = 0, sourceAllowed = true, messageCursor = null;
   const events = new Map(), history = new Map(); let messageSending = false, targetEdited = false, pendingMessage, retryKey, listCursor, listItems = new Map(), listFilters;
@@ -243,17 +244,25 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (!append) listItems = new Map();
       for (const s of page.items) listItems.set(s.id, s);
       listCursor = page.next_cursor; moreEvents.hidden = !listCursor; renderList();
-    } catch (e) { if (live(token)) say(e.status === 404 ? 'Sessions are unavailable in this build. Ask and saved plans remain available.' : `Sessions unavailable: ${e.message}`); }
+    } catch (e) {
+      if (!live(token)) return;
+      if (e.status === 404) {
+        // Nothing here can work without the session service; leave only the explanation and the way back.
+        for (const control of listControls) control.remove();
+        moreEvents.hidden = true;
+        say("Sessions aren't available in this build. Plans you make in Ask are saved and can start a session once it is.");
+      } else say(`Sessions unavailable: ${e.message}`);
+    }
   }
   function open() {
     clearTimeout(timer); ++epoch; refreshBusy = false; active = /^#\/sessions(?:\/[^/]+)?$/.test(location.hash); if (!active) return;
     const token = epoch; try { currentID = location.hash.startsWith('#/sessions/') ? decodeURIComponent(location.hash.slice(11)) : null; } catch { currentID = null; }
     const openedID = currentID;
-    panel.replaceChildren(); status = el('p'); status.setAttribute('role', 'status'); panel.append(status);
+    panel.replaceChildren(); panel.classList.toggle('session-detail', location.hash.startsWith('#/sessions/')); status = el('p'); status.setAttribute('role', 'status'); panel.append(status);
     events.clear(); history.clear(); cursor = 0; messageCursor = null; sourceAllowed = true; current = null; messageSending = false; targetEdited = false; diffSignature = null; checksSignature = null;
     if (!currentID) {
-      link(panel, 'Create a plan in Ask', '#/ask'); button(panel, 'Reload sessions', () => list(token));
-      const filters = el('form', undefined, 'settings-form catalog-filters'); panel.append(filters);
+      link(panel, 'Create a plan in Ask', '#/ask'); const reload = button(panel, 'Reload sessions', () => list(token));
+      const filters = el('form', undefined, 'settings-form catalog-filters'); panel.append(filters); listControls = [reload, filters];
       const query = field(filters, 'Search loaded sessions', '', 'search');
       const stateLabel = el('label', 'Session state'); const state = el('select'); for (const [value,text] of [['','All states'],['active','Active'],['terminal','Terminal']]) { const option=el('option',text);option.value=value;state.append(option); } stateLabel.append(state);filters.append(stateLabel);
       const repository = field(filters, 'Repository in loaded sessions', '', 'search'); const date = field(filters, 'Created on or after', '', 'date');
@@ -283,7 +292,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     }); });
     messageRows = region(panel, 'Messages and delivery'); moreMessages = button(panel, 'More messages', b => mutate(b, () => loadMessages(token, true))); moreMessages.hidden = true;
     activity = region(panel, 'Activity timeline'); moreEvents = button(panel, 'Load more activity', b => mutate(b, () => loadEvents(token))); moreEvents.hidden = true;
-    patches = region(panel, 'Diff'); checks = region(panel, 'Validation checks'); refresh(token);
+    patches = region(panel, 'Diff'); checks = region(panel, 'Validation checks'); patches.classList.add('session-side'); checks.classList.add('session-side'); refresh(token);
   }
   window.addEventListener('hashchange', open);
   return {panel, open, refresh: () => refresh(epoch), close() { active = false; ++epoch; clearTimeout(timer); }, focus() { host.querySelector('h1')?.focus(); }};

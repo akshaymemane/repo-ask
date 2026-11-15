@@ -142,3 +142,23 @@ test('unknown profile mutation blocks repeat writes until saved versions are rel
  const ui=createExecutionSettings({request:requestFor(b),pollMs:1e6});b.document.body.append(ui.element);await ui.refresh();input(field(ui.element,'Execution profile name'),'Pending');input(field(ui.element,'Locally provisioned'),'python:3.12-slim');button(ui.element,'Create execution profile').click();await settle();button(ui.element,'Create execution profile').click();await settle();assert.equal(writes,1);assert.match(visibleText(ui.element),/unknown outcome/);
  await ui.refresh();button(ui.element,'Create execution profile').click();await settle();assert.equal(writes,2);ui.close();
 });
+
+test('missing sessions API shows one honest unavailable state with no dead controls',async()=>{
+ const b=createBrowser('<!doctype html><html><body><main id=host></main></body></html>',{hash:'#/sessions',respond(){}});install(b);
+ const host=b.document.getElementById('host');
+ const ui=createSessionPanel({host,request:async()=>{const e=new Error('not_found');e.status=404;throw e;},pollMs:5});
+ ui.open();await settle();
+ assert.match(visibleText(host),/Sessions aren't available in this build\./);
+ assert.equal(host.querySelectorAll('input').length,0);assert.equal(host.querySelectorAll('select').length,0);
+ assert.equal(host.querySelectorAll('button').filter(x=>!x.hidden).length,0);
+ assert.ok(host.querySelectorAll('a').find(a=>a.getAttribute('href')==='#/ask'));
+});
+
+test('session detail puts diff and checks in the right-hand column',async()=>{
+ const b=createBrowser('<!doctype html><html><body><main id=host></main></body></html>',{hash:'#/sessions/s',respond(){}});install(b);
+ const host=b.document.getElementById('host');
+ const ui=createSessionPanel({host,request:async()=>new Promise(()=>{}),pollMs:5});ui.open();await settle();
+ const panel=host.querySelector('.sessions-panel')??host.firstElementChild??host.children[0];
+ assert.ok(panel.classList.contains('session-detail'));
+ assert.deepEqual(panel.querySelectorAll('.session-side').map(n=>n.querySelector('h2').textContent),['Diff','Validation checks']);
+});
