@@ -17,7 +17,7 @@ from .ask import RoutingService, PlanService, ConversationService
 from .platform import Platform
 from .platform.clock import now_ms
 from .platform.errors import PlatformError
-from .platform.workspace import build_workspace_summary, build_health
+from .platform.workspace import apply_github_status, build_workspace_summary, build_health
 from .api import error_status
 from .services import ApplicationServices
 from .platform.keyring_backend import OSKeyringBackend
@@ -103,7 +103,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if services is not None:
                     if url.path == "/api/workspace":
                         result["contract"] = "opendevin.workspace/m1.1"
-                        result["catalog"]["github"] = services.github.status_summary()
+                        apply_github_status(result, services.github.status_summary())
                         result["providers"]["profiles"] = {"status": "available", **services.providers.status_summary()}
                         result["navigation"][1]["status"] = "available"
                         result["navigation"][2]["status"] = "available"

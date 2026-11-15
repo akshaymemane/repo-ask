@@ -23,6 +23,7 @@ class ContextAPI:
                 rows = conn.execute("""SELECT id FROM (
                   SELECT id,full_name AS name,description FROM repositories
                   UNION ALL SELECT id,name,'' AS description FROM index_sources WHERE kind!='github'
+                    AND NOT (kind='demo' AND EXISTS(SELECT 1 FROM github_connections WHERE status='connected'))
                 ) WHERE id>? AND instr(lower(name||' '||description),lower(?))>0 ORDER BY id LIMIT ?""",
                                     (cursor,query,limit+1)).fetchall()
             items = [self.index.get_state(row[0]) for row in rows[:limit]]

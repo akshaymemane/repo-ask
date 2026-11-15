@@ -26,6 +26,15 @@ def build_workspace_summary(index, model, platform, *, now):
                        [('ask', 'Ask', 'available'), ('repositories', 'Repositories', 'read_only'), ('settings', 'Settings', 'read_only')]]}
 
 
+def apply_github_status(result, github):
+    """Attach the GitHub catalog summary; a connected catalog is the workspace source."""
+    result['catalog']['github'] = github
+    if github.get('status') == 'connected':
+        result['mode'] = 'connected'
+        result['catalog']['source'] = 'github'
+    return result
+
+
 def build_health(index, model, platform, *, now):
     counts, expired, oldest, failures = dict.fromkeys(STATES, 0), 0, None, []
     if platform:
