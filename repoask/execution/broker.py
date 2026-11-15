@@ -419,6 +419,7 @@ class ToolBroker:
             threading.Thread(target=self._serve_conn, args=(conn,), daemon=True).start()
 
     def _serve_conn(self, conn):
+        reader = None
         try:
             peer = _peer_uid(conn)
             if peer is not None and peer != os.getuid():
@@ -469,6 +470,11 @@ class ToolBroker:
         except OSError:
             return
         finally:
+            if reader is not None:
+                try:
+                    reader.close()
+                except OSError:
+                    pass
             with self._state_lock:
                 self._conns.discard(conn)
             try:
