@@ -92,10 +92,11 @@ class AskContextBudgetTests(TestCase):
 
     def test_plan_intent_keeps_server_validation_and_obeys_configured_prompt_budget(self):
         self.profile(context=2048,output=512,structured=True);f=self.f
-        f.transport.output=f.content
+        from test_native_plan_generation import draft
+        f.transport.output=draft(f.content)
         run=f.service.send(f.conv,'Add bounded retries to send_confirmation.','bounded-plan',intent='plan');f.work()
         self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
         body=json.loads(f.transport.requests[0].body)
-        self.assertNotIn('format',body)
+        self.assertIn('format',body)
         self.assertLessEqual(sum(len(m['content'].encode()) for m in body['messages']),(2048-512)*4-256)
         self.assertEqual(len(f.service.get(f.conv)['plans']),1)
