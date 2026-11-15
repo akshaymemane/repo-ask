@@ -1,6 +1,7 @@
 import { createAskPanel } from "./ask.js";
 import { createRepositoriesPage } from "./repositories.js";
 import { createSettingsPage } from "./settings.js";
+import { mountModels } from "./settings-models.js";
 import { createSessionPanel, createExecutionSettings } from "./sessions.js";
 import { createShell } from "./shell.js";
 import { createSidePanel } from "./panel.js";
@@ -855,6 +856,11 @@ let reposPage = null;
 window.addEventListener("hashchange", () => { if (state.route === "repositories" && reposPage) reposPage.refresh(); });
 function connectedSettings() { return connectedUI.githubReady || connectedUI.providersReady; }
 let settingsPage = null;
+const modelsHost = node("div", undefined, "models-host");
+const modelsSimple = node("div", undefined, "models-simple");
+const modelsAdvanced = node("details", undefined, "existing-app");
+modelsAdvanced.append(node("summary", "All provider profiles (advanced)"));
+modelsHost.append(modelsSimple, modelsAdvanced);
 function settingsSection() {
   const match = /^#\/settings\/([a-z]+)/.exec(location.hash);
   return match ? match[1] : "github";
@@ -868,11 +874,13 @@ function renderSettings() {
     if (connectedUI.executionReady) byId("settings-content").append(executionUI.element);
   } else {
     settingsPage ||= createSettingsPage({ host: byId("settings-content"), request: featureRequest,
-      sections: { github: githubPanel, models: providerPanel, agent: null, health: healthHost } });
+      sections: { github: githubPanel, models: modelsHost, agent: null, health: healthHost } });
+    if (providerPanel.parentNode !== modelsAdvanced) modelsAdvanced.append(providerPanel);
     settingsPage.mount();
     const code = (/[?&]github=([a-z_]{1,64})/.exec(location.hash) || [])[1] || "";
     settingsPage.setAgent(connectedUI.executionReady ? executionUI.element : null);
     settingsPage.show(settingsSection(), { code });
+    if (settingsSection() === "models") mountModels(modelsSimple, { request: featureRequest });
   }
   if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
