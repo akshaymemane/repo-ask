@@ -1,0 +1,505 @@
+"""One immutable session checkpoint to one GitHub draft pull request.
+
+Source bytes enter only through SessionService.publication_snapshot and are retained
+only in session artifacts.  Installation tokens stay in this call stack.
+"""
+
+import base64
+from datetime import datetime, timezone
+import hashlib
+import json
+import re
+import sqlite3
+
+from repoask.github.errors import GitHubError
+from repoask.platform.clock import new_id, now_ms
+from repoask.platform.worker import UnknownOutcomeError
+from .errors import PublicationError
+
+TERMINAL = frozenset({'published', 'blocked', 'failed', 'no_changes'})
+ACTIVE = frozenset({'queued', 'preparing', 'creating_objects', 'creating_branch', 'creating_pr', 'reconciling'})
+SHA = re.compile(r'^[0-9a-f]{40}(?:[0-9a-f]{24})?$')
+KEY = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$')
+EMAIL = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+PATH = re.compile(r'^(?!/)(?!.*(?:^|/)\.\.?(?:/|$))(?!.*[\x00-\x1f\\])[^\n\r]{1,1024}$')
+SAFE_URL = re.compile(r'^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$')
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def digest(value):
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def _text(value, low, high, field):
+    if not isinstance(value, str) or not low <= len(value) <= high or any(ord(c) < 32 and c not in '\n\t' for c in value):
+        raise PublicationError('validation', details=[field])
+    return value
+
+
+class PublicationService:
+    def __init__(self, platform, github, sessions, *, clock=now_ms):
+        self.platform, self.store, self.jobs = platform, platform.store, platform.jobs
+        self.github, self.sessions, self.clock = github, sessions, clock
+        try:
+            github.register_purge_hook('publications', self.purge_repository)
+        except AttributeError:
+            pass
+
+    # ----------------------------------------------------------- settings
+    def update_settings(self, commit_name, commit_email):
+        name = _text(commit_name, 1, 100, 'commit_name').strip()
+        email = _text(commit_email, 3, 254, 'commit_email').strip()
+        if not name or not EMAIL.fullmatch(email):
+            raise PublicationError('validation')
+        with self.store.transaction() as db:
+            db.execute('INSERT INTO publication_settings(singleton,commit_name,commit_email,updated_at) VALUES(1,?,?,?) '
+                       'ON CONFLICT(singleton) DO UPDATE SET commit_name=excluded.commit_name,'
+                       'commit_email=excluded.commit_email,updated_at=excluded.updated_at',
+                       (name, email, self.clock()))
+        return {'commit_name': name, 'commit_email': email}
+
+    def settings(self):
+        with self.store.read() as db:
+            row = db.execute('SELECT commit_name,commit_email FROM publication_settings WHERE singleton=1').fetchone()
+        return {'commit_name': row['commit_name'] if row else None, 'commit_email': row['commit_email'] if row else None}
+
+    # ------------------------------------------------------------- helpers
+    def _snapshot(self, session_id):
+        if not isinstance(session_id, str) or not session_id:
+            raise PublicationError('validation')
+        try:
+            snap = self.sessions.publication_snapshot(session_id)
+        except Exception as exc:
+            code = getattr(exc, 'code', None)
+            raise PublicationError(code if isinstance(code, str) else 'session_unavailable') from None
+        required = {'session_id','plan_id','plan_version_id','repository_id','base_sha','base_branch','diff_hash',
+                    'checkpoint_artifact_id','patch_artifact_id','checkpoint','patch','policy','outcome','validations','source_available'}
+        if not isinstance(snap, dict) or not required <= set(snap) or snap['session_id'] != session_id:
+            raise PublicationError('session_snapshot_invalid')
+        if not snap['source_available']:
+            raise PublicationError('source_unavailable')
+        if snap['policy'] not in ('manual_draft', 'on_success_draft') or not SHA.fullmatch(snap['base_sha']):
+            raise PublicationError('session_snapshot_invalid')
+        checkpoint, patch = snap['checkpoint'], snap['patch']
+        if not isinstance(checkpoint, dict) or not isinstance(patch, dict):
+            raise PublicationError('session_snapshot_invalid')
+        if checkpoint.get('base_sha') != snap['base_sha'] or patch.get('base_sha') != snap['base_sha']:
+            raise PublicationError('session_snapshot_invalid')
+        if checkpoint.get('rejected') or patch.get('rejected'):
+            raise PublicationError('rejected_paths')
+        return snap
+
+    def _identity(self):
+        value = self.settings()
+        if not value['commit_name'] or not value['commit_email']:
+            raise PublicationError('publication_identity_required')
+        return value
+
+    def _check_access(self, repository_id):
+        try:
+            self.github.require_access(repository_id, 'contents_write')
+            self.github.require_access(repository_id, 'pull_requests_write')
+            return self.github.get_repository(repository_id)
+        except GitHubError as exc:
+            raise PublicationError('publication_permission_denied', details=[exc.code]) from None
+
+    @staticmethod
+    def _stats(snap):
+        stats = snap['patch'].get('stats')
+        return stats if isinstance(stats, dict) else {'files': len(snap['patch'].get('files', []))}
+
+    @staticmethod
+    def _automatic_ok(snap):
+        outcome = snap['outcome'] if isinstance(snap['outcome'], dict) else {}
+        validations = snap['validations'] if isinstance(snap['validations'], dict) else {}
+        return (outcome.get('result') == 'reviewable' and outcome.get('publication_eligible') is True
+                and outcome.get('containment', {}).get('confirmed') is True
+                and not outcome.get('artifacts_stale') and validations.get('fully_validated') is True)
+
+    def _defaults(self, snap):
+        title = _text(snap.get('title') or 'OpenDevin session ' + snap['session_id'], 1, 256, 'title')
+        summary = self._stats(snap)
+        checks = snap['validations'].get('summary', {}) if isinstance(snap['validations'], dict) else {}
+        body = ('## Summary\n\nChanges from OpenDevin session `%s` (plan `%s`).\n\n'
+                '## Change statistics\n\n%s\n\n## Local validation\n\n%s\n' %
+                (snap['session_id'], snap['plan_version_id'], canonical(summary), canonical(checks)))
+        return title, body[:65536]
+
+    # -------------------------------------------------------------- public
+    def preview(self, session_id):
+        snap = self._snapshot(session_id)
+        blockers = []
+        try:
+            repo = self._check_access(snap['repository_id'])
+        except PublicationError as exc:
+            repo, blockers = None, [exc.code]
+        try:
+            self._identity()
+        except PublicationError as exc:
+            blockers.append(exc.code)
+        if snap['policy'] == 'on_success_draft' and not self._automatic_ok(snap):
+            blockers.append('automatic_policy_not_satisfied')
+        title, body = self._defaults(snap)
+        changed = list(snap['checkpoint'].get('changed', {})) + list(snap['checkpoint'].get('deleted', []))
+        return {'session_id': session_id, 'repository_id': snap['repository_id'],
+                'repository': repo['full_name'] if repo else None, 'base_sha': snap['base_sha'],
+                'base_branch': snap['base_branch'], 'head_branch': snap.get('session_branch'),
+                'diff_hash': snap['diff_hash'], 'stats': self._stats(snap),
+                'checks': snap['validations'], 'policy': snap['policy'], 'title': title, 'body': body,
+                'intent_version': 1, 'changed_paths': sorted(set(changed)),
+                'base_observation': {'sha': None, 'diverged': None},
+                'blocking_reasons': sorted(set(blockers)), 'publishable': not blockers}
+
+    def publish(self, session_id, title, body, expected_diff_hash, intent_version, idempotency_key):
+        title, body = _text(title, 1, 256, 'title').strip(), _text(body, 0, 65536, 'body')
+        if (not title or not isinstance(expected_diff_hash, str) or not SHA.fullmatch(expected_diff_hash)
+                or intent_version != 1 or not isinstance(idempotency_key, str) or not KEY.fullmatch(idempotency_key)):
+            raise PublicationError('validation')
+        request = {'session_id': session_id, 'title': title, 'body': body,
+                   'expected_diff_hash': expected_diff_hash, 'intent_version': intent_version}
+        request_hash = digest(request)
+        with self.store.read() as db:
+            existing = db.execute('SELECT * FROM publications WHERE idempotency_key=? OR session_id=?',
+                                  (idempotency_key, session_id)).fetchone()
+        if existing:
+            if existing['idempotency_key'] != idempotency_key or existing['request_hash'] != request_hash:
+                raise PublicationError('idempotency_conflict')
+            return self.get(existing['id'])
+        snap = self._snapshot(session_id)
+        if snap['diff_hash'] != expected_diff_hash:
+            raise PublicationError('stale_diff')
+        identity = self._identity()
+        self._check_access(snap['repository_id'])
+        if snap['policy'] == 'on_success_draft' and not self._automatic_ok(snap):
+            raise PublicationError('automatic_policy_not_satisfied')
+        now, ident = self.clock(), new_id('pub')
+        stamp = datetime.fromtimestamp(now / 1000, timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+        suffix = request_hash[:10]
+        branch = 'opendevin/%s-%s' % (re.sub('[^A-Za-z0-9._-]', '-', session_id)[:80], suffix)
+        message = ('OpenDevin session %s\n\nPlan-Version: %s' % (session_id, snap['plan_version_id']))[:4096]
+        try:
+            with self.store.transaction() as db:
+                again = db.execute('SELECT * FROM publications WHERE idempotency_key=? OR session_id=?',
+                                   (idempotency_key, session_id)).fetchone()
+                if again:
+                    if again['idempotency_key'] != idempotency_key or again['request_hash'] != request_hash:
+                        raise PublicationError('idempotency_conflict')
+                    return self._public(again)
+                job = self.jobs.enqueue_in_transaction(db, 'publication.run', {'publication_id': ident},
+                                                       effect='external', max_attempts=1,
+                                                       idempotency_key='publication.run:' + ident)
+                db.execute('INSERT INTO publications(id,session_id,repository_id,job_id,idempotency_key,request_hash,'
+                           'intent_version,policy,expected_diff_hash,checkpoint_artifact_id,patch_artifact_id,'
+                           'expected_base_sha,base_branch,head_branch,title,body,commit_name,commit_email,commit_date,'
+                           'commit_message,state,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                           (ident, session_id, snap['repository_id'], job.id, idempotency_key, request_hash, snap['policy'],
+                            expected_diff_hash, snap['checkpoint_artifact_id'], snap['patch_artifact_id'], snap['base_sha'],
+                            snap['base_branch'], branch, title, body, identity['commit_name'], identity['commit_email'],
+                            stamp, message, 'queued', now, now))
+                self._event(db, ident, 'publication.state', {'state': 'queued'})
+        except sqlite3.IntegrityError:
+            raise PublicationError('idempotency_conflict') from None
+        return self.get(ident)
+
+    def _row(self, db, ident):
+        row = db.execute('SELECT * FROM publications WHERE id=?', (ident,)).fetchone()
+        if row is None:
+            raise PublicationError('not_found')
+        return row
+
+    def _public(self, row):
+        return {k: row[k] for k in ('id','session_id','repository_id','intent_version','policy','expected_diff_hash',
+                                    'expected_base_sha','base_branch','head_branch','state','remote_base_sha','commit_sha',
+                                    'head_sha','pull_request_id','pull_request_number','pull_request_url',
+                                    'pull_request_state','error_code','created_at','updated_at','finished_at')}
+
+    def get(self, publication_id):
+        with self.store.read() as db:
+            return self._public(self._row(db, publication_id))
+
+    def _event(self, db, ident, kind, payload):
+        seq = db.execute('SELECT coalesce(max(seq),0)+1 FROM publication_events WHERE publication_id=?', (ident,)).fetchone()[0]
+        db.execute('INSERT INTO publication_events VALUES(?,?,?,?,?)', (ident, seq, kind, canonical(payload), self.clock()))
+
+    def _state(self, ident, state, *, error=None, **fields):
+        now = self.clock()
+        values = dict(fields, state=state, error_code=error, updated_at=now)
+        if state in TERMINAL:
+            values['finished_at'] = now
+        with self.store.transaction() as db:
+            row = self._row(db, ident)
+            if row['state'] in TERMINAL:
+                return self._public(row)
+            db.execute('UPDATE publications SET '+','.join(k+'=?' for k in values)+' WHERE id=?', (*values.values(), ident))
+            self._event(db, ident, 'publication.state', {'state': state, 'error_code': error})
+            return self._public(self._row(db, ident))
+
+    # ---------------------------------------------------------- remote run
+    def _remote(self, row):
+        snap = self._snapshot(row['session_id'])
+        if snap['diff_hash'] != row['expected_diff_hash'] or snap['base_sha'] != row['expected_base_sha']:
+            raise PublicationError('stale_diff')
+        self._check_access(row['repository_id'])
+        try:
+            repo = self.github.get_repository(row['repository_id'])
+            token = self.github.mint_installation_token(row['repository_id'],
+                                                        {'contents':'write','pull_requests':'write'})['token']
+        except GitHubError as exc:
+            raise PublicationError('publication_permission_denied', details=[exc.code]) from None
+        return snap, repo, token
+
+    @staticmethod
+    def _entries(checkpoint, client, token, owner, name, authority):
+        changed, modes = checkpoint.get('changed', {}), checkpoint.get('modes', {})
+        deleted = checkpoint.get('deleted', [])
+        if not isinstance(changed, dict) or not isinstance(modes, dict) or not isinstance(deleted, list):
+            raise PublicationError('session_snapshot_invalid')
+        entries = []
+        for path in sorted(changed):
+            authority()
+            if not PATH.fullmatch(path) or modes.get(path) not in ('100644','100755') or not isinstance(changed[path], str):
+                raise PublicationError('session_snapshot_invalid')
+            try:
+                data = base64.b64decode(changed[path], validate=True)
+            except (ValueError, TypeError):
+                raise PublicationError('session_snapshot_invalid') from None
+            sha = client.create_blob(token, owner, name, data)
+            entries.append({'path': path, 'mode': modes[path], 'type': 'blob', 'sha': sha})
+        for path in sorted(deleted):
+            authority()
+            if not PATH.fullmatch(path) or modes.get(path) not in ('100644','100755'):
+                raise PublicationError('session_snapshot_invalid')
+            entries.append({'path': path, 'mode': modes[path], 'type': 'blob', 'sha': None})
+        return entries
+
+    def run(self, job, context):
+        ident = job.payload.get('publication_id')
+        with self.store.read() as db:
+            row = dict(self._row(db, ident))
+        if row['state'] in TERMINAL:
+            return {'publication_id': ident, 'state': row['state']}
+        try:
+            # Empty changes are a local trusted-snapshot decision: never mint a
+            # write token or make a remote observation for an empty operation.
+            snap = self._snapshot(row['session_id'])
+            changed_paths = set(snap['checkpoint'].get('changed', {})) | set(snap['checkpoint'].get('deleted', []))
+            if not changed_paths:
+                return self._state(ident, 'no_changes')
+            snap, repo, token = self._remote(row)
+            authority = lambda: self._check_access(row['repository_id'])
+            if row['state'] == 'creating_pr':
+                authority()
+                found = self._find_pr(row, repo, token)
+                if found is not None:
+                    return self._confirm_pr(ident, row, repo, token, found)
+                try:
+                    value = self.github.client.create_pull_request(token, repo['owner'], repo['name'], row['title'],
+                                                                   row['body'], row['head_branch'], row['base_branch'])
+                except GitHubError as exc:
+                    if exc.code in ('timeout','upstream_unavailable'):
+                        self._state(ident, 'reconciling', error='pr_outcome_unknown')
+                        raise UnknownOutcomeError() from None
+                    raise
+                return self._confirm_pr(ident, row, repo, token, value)
+            if row['state'] == 'creating_branch' and row['commit_sha']:
+                authority()
+                row = self._create_branch(ident, row, repo, token, row['commit_sha'])
+                self._state(ident, 'creating_pr', branch_created=1, head_sha=row['commit_sha'])
+                with self.store.read() as db:
+                    row = dict(self._row(db, ident))
+                value = self.github.client.create_pull_request(token, repo['owner'], repo['name'], row['title'], row['body'],
+                                                               row['head_branch'], row['base_branch'])
+                return self._confirm_pr(ident, row, repo, token, value)
+            self._state(ident, 'preparing')
+            authority()
+            current = self.github.client.default_branch_sha(token, repo['owner'], repo['name'], row['base_branch'])
+            if current != row['expected_base_sha']:
+                comparison = self.github.client.compare(token, repo['owner'], repo['name'], row['expected_base_sha'], current)
+                remote_paths = {item['filename'] for item in comparison['files']}
+                if not comparison['complete']:
+                    raise PublicationError('divergence_unknown')
+                if changed_paths & remote_paths:
+                    raise PublicationError('base_conflict')
+                # A disjoint advance is recorded but never becomes a rebase: the
+                # frozen commit still has the session base as its sole parent.
+            base = self.github.client.commit(token, repo['owner'], repo['name'], row['expected_base_sha'])
+            self._state(ident, 'creating_objects', remote_base_sha=current, base_tree_sha=base['tree_sha'])
+            entries = self._entries(snap['checkpoint'], self.github.client, token, repo['owner'], repo['name'], authority)
+            authority()
+            tree = self.github.client.create_tree(token, repo['owner'], repo['name'], base['tree_sha'], entries)
+            identity = {'name': row['commit_name'], 'email': row['commit_email'], 'date': row['commit_date']}
+            commit = self.github.client.create_commit(token, repo['owner'], repo['name'], row['commit_message'],
+                                                      tree, row['expected_base_sha'], identity)
+            self._state(ident, 'creating_branch', tree_sha=tree, commit_sha=commit)
+            authority()
+            row = self._create_branch(ident, row, repo, token, commit)
+            self._state(ident, 'creating_pr', branch_created=1, head_sha=commit)
+            authority()
+            try:
+                value = self.github.client.create_pull_request(token, repo['owner'], repo['name'], row['title'], row['body'],
+                                                               row['head_branch'], row['base_branch'])
+            except GitHubError as exc:
+                if exc.code in ('timeout','upstream_unavailable'):
+                    self._state(ident, 'reconciling', error='pr_outcome_unknown')
+                    raise UnknownOutcomeError() from None
+                raise
+            with self.store.read() as db:
+                confirmed_row = dict(self._row(db, ident))
+            return self._confirm_pr(ident, confirmed_row, repo, token, value)
+        except UnknownOutcomeError:
+            raise
+        except PublicationError as exc:
+            return self._state(ident, 'blocked', error=exc.code)
+        except GitHubError as exc:
+            code = 'publication_permission_denied' if exc.code in ('auth','capability_missing','repository_unavailable','not_found') else 'github_unavailable'
+            return self._state(ident, 'blocked' if code == 'publication_permission_denied' else 'failed', error=code)
+
+    def _create_branch(self, ident, row, repo, token, commit):
+        """Create/adopt without updates; collision names are durably advanced."""
+        base = row['head_branch']
+        for ordinal in range(6):
+            branch = base if ordinal == 0 else '%s-%d' % (base, ordinal)
+            if branch != row['head_branch']:
+                with self.store.transaction() as db:
+                    db.execute('UPDATE publications SET head_branch=?,updated_at=? WHERE id=?',
+                               (branch, self.clock(), ident))
+                    self._event(db, ident, 'publication.branch_collision', {'head_branch': branch})
+                row = dict(row, head_branch=branch)
+            try:
+                created = self.github.client.create_ref(token, repo['owner'], repo['name'], branch, commit)
+            except GitHubError as exc:
+                if exc.code in ('timeout','upstream_unavailable'):
+                    self._state(ident, 'reconciling', error='branch_outcome_unknown')
+                    raise UnknownOutcomeError() from None
+                raise
+            if created:
+                return row
+            try:
+                existing = self.github.client.get_ref(token, repo['owner'], repo['name'], branch)
+            except GitHubError as exc:
+                if exc.code == 'not_found':
+                    continue
+                raise
+            if existing == commit:
+                return row
+        raise PublicationError('branch_collision')
+
+    def _confirm_pr(self, ident, row, repo, token, value):
+        number = value.get('number') if isinstance(value, dict) else None
+        if type(number) is not int or number <= 0:
+            raise PublicationError('pull_request_invalid')
+        fetched = self.github.client.pull_request(token, repo['owner'], repo['name'], number)
+        head = fetched.get('head', {}).get('sha')
+        head_ref = fetched.get('head', {}).get('ref')
+        head_repo = fetched.get('head', {}).get('repo', {}).get('full_name')
+        base = fetched.get('base', {}).get('ref')
+        base_repo = fetched.get('base', {}).get('repo', {}).get('full_name')
+        url = fetched.get('html_url')
+        provider_id = fetched.get('id')
+        state = 'merged' if fetched.get('merged') is True else fetched.get('state')
+        if ((head != row.get('commit_sha') and head != row.get('head_sha')) or head_ref != row['head_branch']
+                or head_repo != repo['full_name'] or base_repo != repo['full_name']
+                or base != row['base_branch'] or fetched.get('draft') is not True):
+            raise PublicationError('pull_request_mismatch')
+        expected_url = 'https://github.com/%s/pull/%d' % (repo['full_name'], number)
+        if (state not in ('open','closed','merged') or not isinstance(provider_id, int) or provider_id <= 0
+                or url != expected_url or not SAFE_URL.fullmatch(url)):
+            raise PublicationError('pull_request_invalid')
+        return self._state(ident, 'published', pull_request_id=str(fetched.get('id')),
+                           pull_request_number=number, pull_request_url=url, pull_request_state=state,
+                           head_sha=head, branch_created=1)
+
+    # ------------------------------------------------------ reconciliation
+    def _find_pr(self, row, repo, token):
+        values = self.github.client.pull_requests(token, repo['owner'], repo['name'],
+                                                  repo['owner'] + ':' + row['head_branch'], row['base_branch'])
+        matches = [v for v in values if v.get('head', {}).get('sha') == row['commit_sha']]
+        if len(matches) > 1:
+            raise PublicationError('pull_request_conflict')
+        return matches[0] if matches else None
+
+    def reconcile(self, publication_id):
+        with self.store.read() as db:
+            row = dict(self._row(db, publication_id))
+        if row['state'] != 'reconciling':
+            return self._public(row)
+        try:
+            _, repo, token = self._remote(row)
+            try:
+                head = self.github.client.get_ref(token, repo['owner'], repo['name'], row['head_branch'])
+            except GitHubError as exc:
+                if exc.code == 'not_found':
+                    return self._state(publication_id, 'creating_branch', error=None)
+                raise
+            if head != row['commit_sha']:
+                return self._state(publication_id, 'blocked', error='branch_collision')
+            with self.store.transaction() as db:
+                db.execute('UPDATE publications SET branch_created=1,head_sha=?,updated_at=? WHERE id=?',
+                           (head, self.clock(), publication_id))
+            found = self._find_pr(row, repo, token)
+            if found is None:
+                return self._state(publication_id, 'creating_pr', error=None)
+            return self._confirm_pr(publication_id, dict(row, head_sha=head), repo, token, found)
+        except PublicationError as exc:
+            return self._state(publication_id, 'blocked', error=exc.code)
+        except GitHubError:
+            return self.get(publication_id)
+
+    def retry(self, publication_id, idempotency_key):
+        if not isinstance(idempotency_key, str) or not KEY.fullmatch(idempotency_key):
+            raise PublicationError('validation')
+        resolved = self.reconcile(publication_id)
+        if resolved['state'] not in ('creating_branch','creating_pr'):
+            if resolved['state'] in TERMINAL:
+                return resolved
+            raise PublicationError('reconciliation_pending')
+        with self.store.transaction() as db:
+            row = self._row(db, publication_id)
+            desired_key = 'publication.retry:' + publication_id + ':' + idempotency_key
+            active = db.execute("SELECT idempotency_key FROM jobs WHERE kind='publication.run' AND payload=? "
+                                "AND state IN ('queued','leased') ORDER BY created_at,id LIMIT 1",
+                                (canonical({'publication_id': publication_id}),)).fetchone()
+            if active and active['idempotency_key'] != desired_key:
+                raise PublicationError('idempotency_conflict')
+            job = self.jobs.enqueue_in_transaction(db, 'publication.run', {'publication_id': publication_id},
+                                                   effect='external', max_attempts=1,
+                                                   idempotency_key=desired_key)
+            db.execute("UPDATE publications SET job_id=?,error_code=NULL,updated_at=? WHERE id=?",
+                       (job.id, self.clock(), publication_id))
+            self._event(db, publication_id, 'publication.retry', {'state': row['state']})
+        return self.get(publication_id)
+
+    def refresh(self, publication_id):
+        with self.store.read() as db:
+            row = dict(self._row(db, publication_id))
+        if row['pull_request_number'] is None:
+            return self._public(row)
+        try:
+            _, repo, token = self._remote(row)
+            pr = self.github.client.pull_request(token, repo['owner'], repo['name'], row['pull_request_number'])
+            state = 'merged' if pr.get('merged') is True else pr.get('state')
+            if state not in ('open','closed','merged'):
+                raise PublicationError('pull_request_invalid')
+            with self.store.transaction() as db:
+                db.execute('UPDATE publications SET pull_request_state=?,updated_at=? WHERE id=?',
+                           (state, self.clock(), publication_id))
+            return self.get(publication_id)
+        except (GitHubError, PublicationError):
+            return self._public(row)
+
+    def purge_repository(self, repository_id):
+        with self.store.transaction() as db:
+            rows = db.execute('SELECT id,state FROM publications WHERE repository_id=?', (repository_id,)).fetchall()
+            for row in rows:
+                if row['state'] not in TERMINAL:
+                    db.execute("UPDATE publications SET state='blocked',error_code='repository_purged',"
+                               'checkpoint_artifact_id=NULL,patch_artifact_id=NULL,updated_at=?,finished_at=? WHERE id=?',
+                               (self.clock(), self.clock(), row['id']))
+                    self._event(db, row['id'], 'publication.state', {'state':'blocked','error_code':'repository_purged'})
+                else:
+                    db.execute('UPDATE publications SET checkpoint_artifact_id=NULL,patch_artifact_id=NULL,updated_at=? WHERE id=?',
+                               (self.clock(), row['id']))
+        return {'repository_id': repository_id, 'purged': True}

@@ -116,7 +116,7 @@ class GitHubClient:
     def __init__(self, *, transport=None, clock):
         self.transport, self.clock = transport or globals()['transport'], clock
 
-    def request(self, method, path, token, body=None):
+    def request(self, method, path, token, body=None, *, allow_status=()):
         if not isinstance(path, str) or not path.startswith('/') or path.startswith('//') or any(c in path for c in '\r\n#\\'):
             raise GitHubError('validation')
         failed = None
@@ -148,6 +148,8 @@ class GitHubClient:
             raise GitHubError('auth')
         if response.status >= 500:
             raise GitHubError('upstream_unavailable')
+        if response.status in allow_status:
+            return {'_status': response.status, '_body': response.json}
         if not 200 <= response.status < 300:
             raise GitHubError('malformed_output')
         return response.json
@@ -238,6 +240,108 @@ class GitHubClient:
         except (KeyError, TypeError, ValueError):
             raise GitHubError('malformed_output') from None
         return decoded
+
+    # Publication methods keep object validation here, at the GitHub boundary.
+    def commit(self, token, owner, name, sha):
+        if not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40,64}', sha):
+            raise GitHubError('validation')
+        value = self.request('GET', '/repos/%s/%s/git/commits/%s' %
+                             (component(owner), component(name), sha), token)
+        tree = value.get('tree') if isinstance(value, dict) else None
+        tree_sha = tree.get('sha') if isinstance(tree, dict) else None
+        if not isinstance(tree_sha, str) or not re.fullmatch('[0-9a-f]{40,64}', tree_sha):
+            raise GitHubError('malformed_output')
+        return {'sha': sha, 'tree_sha': tree_sha}
+
+    def compare(self, token, owner, name, base, head):
+        for value in (base, head):
+            if not isinstance(value, str) or not re.fullmatch('[0-9a-f]{40,64}', value):
+                raise GitHubError('validation')
+        value = self.request('GET', '/repos/%s/%s/compare/%s...%s?per_page=300' %
+                             (component(owner), component(name), base, head), token)
+        files = value.get('files') if isinstance(value, dict) else None
+        total = value.get('total_commits') if isinstance(value, dict) else None
+        if (not isinstance(files, list) or len(files) > 300 or type(total) is not int
+                or any(not isinstance(f, dict) or not isinstance(f.get('filename'), str) for f in files)):
+            raise GitHubError('malformed_output')
+        return {'files': files, 'complete': len(files) < 300}
+
+    def create_blob(self, token, owner, name, content):
+        if not isinstance(content, (bytes, bytearray)) or len(content) > 4 * 1024 * 1024:
+            raise GitHubError('validation')
+        value = self.request('POST', '/repos/%s/%s/git/blobs' % (component(owner), component(name)), token,
+                             {'content': base64.b64encode(bytes(content)).decode(), 'encoding': 'base64'})
+        return self._object_sha(value)
+
+    @staticmethod
+    def _object_sha(value):
+        sha = value.get('sha') if isinstance(value, dict) else None
+        if not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40,64}', sha):
+            raise GitHubError('malformed_output')
+        return sha
+
+    def create_tree(self, token, owner, name, base_tree, entries):
+        if not isinstance(base_tree, str) or not re.fullmatch('[0-9a-f]{40,64}', base_tree):
+            raise GitHubError('validation')
+        if (not isinstance(entries, list) or not 1 <= len(entries) <= 1000
+                or any(not isinstance(e, dict) or set(e) != {'path','mode','type','sha'}
+                       or not isinstance(e['path'], str) or not 1 <= len(e['path']) <= 1024
+                       or e['mode'] not in ('100644','100755') or e['type'] != 'blob'
+                       or (e['sha'] is not None and not re.fullmatch('[0-9a-f]{40,64}', e['sha'])) for e in entries)):
+            raise GitHubError('validation')
+        value = self.request('POST', '/repos/%s/%s/git/trees' % (component(owner), component(name)), token,
+                             {'base_tree': base_tree, 'tree': entries})
+        return self._object_sha(value)
+
+    def create_commit(self, token, owner, name, message, tree_sha, parent_sha, identity):
+        if (not isinstance(message, str) or not 1 <= len(message) <= 4096
+                or any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{40,64}', v) for v in (tree_sha,parent_sha))
+                or not isinstance(identity, dict) or set(identity) != {'name','email','date'}
+                or any(not isinstance(v, str) or not v for v in identity.values())):
+            raise GitHubError('validation')
+        body = {'message': message, 'tree': tree_sha, 'parents': [parent_sha],
+                'author': identity, 'committer': identity}
+        value = self.request('POST', '/repos/%s/%s/git/commits' % (component(owner), component(name)), token, body)
+        return self._object_sha(value)
+
+    def get_ref(self, token, owner, name, branch):
+        if not isinstance(branch, str) or not 1 <= len(branch) <= 255:
+            raise GitHubError('validation')
+        value = self.request('GET', '/repos/%s/%s/git/ref/heads/%s' %
+                             (component(owner), component(name), quote(branch, safe='')), token)
+        obj = value.get('object') if isinstance(value, dict) else None
+        return self._object_sha(obj)
+
+    def create_ref(self, token, owner, name, branch, sha):
+        if (not isinstance(branch, str) or not 1 <= len(branch) <= 255 or branch.startswith('/') or branch.endswith('/')
+                or '..' in branch or not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40,64}', sha)):
+            raise GitHubError('validation')
+        value = self.request('POST', '/repos/%s/%s/git/refs' % (component(owner), component(name)), token,
+                             {'ref': 'refs/heads/' + branch, 'sha': sha}, allow_status=(422,))
+        if value.get('_status') == 422:
+            return False
+        self._object_sha(value.get('object', value))
+        return True
+
+    def pull_requests(self, token, owner, name, head, base):
+        if any(not isinstance(v, str) or not 1 <= len(v) <= 255 for v in (head,base)):
+            raise GitHubError('validation')
+        query = '?state=all&head=%s&base=%s&per_page=100' % (quote(head, safe=''), quote(base, safe=''))
+        value = self.request('GET', '/repos/%s/%s/pulls%s' % (component(owner), component(name), query), token)
+        if not isinstance(value, list) or len(value) > 100:
+            raise GitHubError('malformed_output')
+        return value
+
+    def create_pull_request(self, token, owner, name, title, body, head, base):
+        if (not isinstance(title, str) or not 1 <= len(title) <= 256 or not isinstance(body, str) or len(body) > 65536
+                or any(not isinstance(v, str) or not 1 <= len(v) <= 255 for v in (head,base))):
+            raise GitHubError('validation')
+        return self.request('POST', '/repos/%s/%s/pulls' % (component(owner), component(name)), token,
+                            {'title': title, 'body': body, 'head': head, 'base': base, 'draft': True})
+
+    def pull_request(self, token, owner, name, number):
+        return self.request('GET', '/repos/%s/%s/pulls/%s' %
+                            (component(owner), component(name), positive_id(number)), token)
 
 
 def permissions(value):
