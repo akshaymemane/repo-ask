@@ -53,3 +53,20 @@ Round-one pass, on a scratch data dir at `127.0.0.1:8898`, with the DevTools vie
 - **Session progress.** The backend reports no per-step completion. The Progress tab lists the saved plan's steps, states that, and points to activity and checks for confirmed progress. Activity groups show "Worked for N s · M steps in K files". Per-group `+A −D` is not derivable from events, so the diff totals appear in the Diff tab.
 - **Legacy provider profiles.** The short "Add OpenAI-compatible provider" form and the role dropdowns are the primary Models UI. The old profile list remains under "All provider profiles (advanced)" for editing existing profiles. Removing it is a product decision, not a code gap.
 - `repoask/web/context.js` is no longer used by the app. It is still served and still has its own tests. It can be deleted in a cleanup change.
+
+## R2 handoff verification
+
+Fresh verification on the complete candidate `7196ec0` (2026-11-15):
+
+- `node --test tests/ui/*.test.mjs` — 176/178 passed. The only failures are the two
+  `session-services.test.mjs` bridge cases whose Python dependency
+  `tests/test_sessions_fixture.py` belongs to the not-yet-integrated M2 Sessions
+  candidate. Both fail at import before exercising UI code.
+- Focused Python boundary suite covering the manifest, static assets, workspace mode,
+  context API, provider discovery/service, feature API, GitHub service/client,
+  application composition and legacy app — 124/124 passed in 14.270s.
+- The worktree contains no source changes beyond the committed R1 dispositions;
+  untracked `.venv` is a local environment and is intentionally excluded.
+
+This is builder evidence, not independent approval. The live GitHub Manifest flow and
+real session-service browser acceptance remain gated exactly as documented above.
