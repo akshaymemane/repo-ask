@@ -236,6 +236,87 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
         with self.assertRaises(ProcessLookupError):
             os.kill(started[0].pid, 0)
 
+    def _term_ignoring_group(self, pidfile):
+        # The leader and its child both ignore SIGTERM, like a hung CLI.
+        return self.script('import os, signal, subprocess, sys, time\n'
+            'signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
+            'p = subprocess.Popen([sys.executable, "-c", "import signal,time;signal.signal(signal.SIGTERM, signal.SIG_IGN);time.sleep(30)"])\n'
+            'open(' + repr(str(pidfile)) + ', "w").write(str(p.pid))\n'
+            'print("started", flush=True)\ntime.sleep(30)\n')
+
+    def _assert_group_gone(self, pidfile, leader):
+        child = int(pidfile.read_text())
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        else:
+            self.fail('SIGTERM-ignoring descendant survived')
+        try:
+            os.waitpid(leader, 0)  # reap the unreaped leader zombie left by the failure path
+        except ChildProcessError:
+            pass
+
+    def test_failed_termination_primitive_is_unconfirmed_and_kills_group(self):
+        from repoask.execution import adapter_process
+        from repoask.execution.adapter_process import ProcessContainmentError
+        pidfile, stop, leader = self.root / 'ignoring.pid', threading.Event(), []
+        binary = self._term_ignoring_group(pidfile)
+        real = adapter_process._LeaderExit.ready
+        def ready(watcher):
+            if stop.is_set():
+                raise OSError('kqueue failure')
+            return real(watcher)
+        def started(line):
+            stop.set()
+        with patch.object(adapter_process._LeaderExit, 'ready', ready):
+            with self.assertRaisesRegex(ProcessContainmentError, 'containment_failure'):
+                run_stream([binary], cwd=str(self.root), env={'PATH': os.environ['PATH']},
+                           on_line=started, on_started=leader.append, timeout_seconds=10,
+                           max_output_bytes=1024, stop_event=stop)
+        self._assert_group_gone(pidfile, leader[0])
+
+    def test_adapter_reports_failed_termination_as_unconfirmed_result(self):
+        from repoask.execution import adapter_process
+        pidfile, stop, leader = self.root / 'ignoring.pid', threading.Event(), []
+        binary = self.script('import json, signal, subprocess, sys, time\n'
+            'signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
+            'p = subprocess.Popen([sys.executable, "-c", "import signal,time;signal.signal(signal.SIGTERM, signal.SIG_IGN);time.sleep(30)"])\n'
+            'open(' + repr(str(pidfile)) + ', "w").write(str(p.pid))\n'
+            'print(' + repr(json.dumps(self.init())) + ', flush=True)\ntime.sleep(30)\n')
+        real = adapter_process._LeaderExit.ready
+        def ready(watcher):
+            if stop.is_set():
+                raise OSError('kqueue failure')
+            return real(watcher)
+        def verified():
+            self.ready = True
+            stop.set()
+        with patch.object(adapter_process._LeaderExit, 'ready', ready):
+            result = ClaudeAdapter(claude_binary=binary).run(
+                self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
+                emit=lambda k, v: self.events.append((k, v)), on_inventory_verified=verified,
+                on_started=leader.append, stop_event=stop)
+        self.assertEqual((result['status'], result['code']), ('failed', 'containment_failure'))
+        self.assertIs(result['stop_confirmed'], False)
+        self._assert_group_gone(pidfile, leader[0])
+
+    def test_metadata_containment_failure_is_not_an_ordinary_prelaunch_error(self):
+        from repoask.execution.adapter_process import ProcessContainmentError
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        stop = threading.Event()
+        with patch('repoask.execution.claude.run_stream', side_effect=ProcessContainmentError('containment_failure')):
+            result = adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                                 on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+            self.assertEqual(result['code'], 'containment_failure')
+            self.assertIs(result['stop_confirmed'], False)
+            with self.assertRaisesRegex(AdapterError, 'containment_failure'):
+                adapter.preflight()
+        self.assertTrue(stop.is_set())
+
     def test_shared_stop_gate_closes_on_internal_timeout(self):
         stop = threading.Event()
         result = self.run_events([self.init()], 'time.sleep(10)', timeout_seconds=0.1, stop_event=stop)

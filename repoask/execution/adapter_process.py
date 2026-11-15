@@ -196,6 +196,15 @@ def run_stream(
             stop_event.set()  # revoke the broker guard before signalling the CLI
         try:
             confirmed = _terminate_group(process, watcher)
+        except Exception:
+            # A failed supervision primitive proves nothing about the group: kill
+            # it best-effort and report containment as unconfirmed, never as an
+            # ordinary error that callers would read as a contained exit.
+            confirmed = False
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                pass
         finally:
             watcher.close()
             selector.close()

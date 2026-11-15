@@ -107,11 +107,15 @@ class ClaudeAdapter:
     def preflight(self) -> dict:
         """Read-only detection. Availability does not assert successful login/inference."""
         self._check_policy()
-        profile = self._check_auth_profile()
-        self._disabled_plugins()
         try:
+            profile = self._check_auth_profile()
+            self._disabled_plugins()
             result, output = self._metadata(["--version"], timeout_seconds=5, max_output_bytes=1024)
-        except (OSError, ProcessContainmentError):
+        except ProcessContainmentError:
+            # A metadata query whose process group could not be verified gone is
+            # reported as such, not folded into an ordinary availability error.
+            raise AdapterError("containment_failure") from None
+        except OSError:
             raise AdapterError("cli_unavailable") from None
         if result.exit_code or result.reason != "exited" or not output:
             raise AdapterError("cli_unavailable")
@@ -139,7 +143,7 @@ class ClaudeAdapter:
         try:
             result, output = self._metadata(["auth", "status"], timeout_seconds=10, max_output_bytes=16384)
             profile = json.loads(output)
-        except (OSError, ValueError, ProcessContainmentError):
+        except (OSError, ValueError):
             raise AdapterError("authentication_unverified") from None
         if result.reason != "exited" or result.exit_code != 0 or not isinstance(profile, dict) or profile.get("loggedIn") is not True:
             raise AdapterError("authentication_required")
@@ -155,7 +159,7 @@ class ClaudeAdapter:
         try:
             result, output = self._metadata(["plugin", "list", "--json"], timeout_seconds=10, max_output_bytes=65536)
             plugins = json.loads(output)
-        except (OSError, ValueError, ProcessContainmentError):
+        except (OSError, ValueError):
             raise AdapterError("customization_unverified") from None
         if result.reason != "exited" or result.exit_code != 0 or not isinstance(plugins, list) or len(plugins) > 100:
             raise AdapterError("customization_unverified")
@@ -218,10 +222,21 @@ class ClaudeAdapter:
                 on_started=on_started, timeout_seconds=timeout_seconds, max_turns=max_turns,
                 max_budget_usd=max_budget_usd, max_output_bytes=max_output_bytes,
             )
+        except ProcessContainmentError:
+            # Any process this attempt started (metadata query or agent) may still
+            # be running. Return it as an unconfirmed stop, never raise it.
+            return {"status": "failed", "code": "containment_failure", "exit_code": None,
+                    "stop_confirmed": False, "usage": None, "reported_cost_usd": None,
+                    "capabilities": dict(self.capabilities)}
+        except AdapterError:
+            raise
         except OSError:
             raise AdapterError("cli_unavailable") from None
         except ValueError:
             raise AdapterError("invalid_limits") from None
+        # Any other exception (for example the service's LeaseLost from a callback)
+        # propagates unchanged: run_stream raises only after confirming the group is
+        # gone, because an unconfirmed stop supersedes it as ProcessContainmentError.
         finally:
             stop_event.set()
 
