@@ -62,3 +62,33 @@ class ClientTests(unittest.TestCase):
         client = self.client(Response(200, {}, {}))
         for path in ('https://evil.invalid', '//evil.invalid', '/app\r\nsecret', '/\\evil.invalid'):
             with self.assertRaises(GitHubError): client.request('GET', path, 'SECRET')
+
+    def test_publication_uses_base_tree_new_ref_and_draft_pr_without_force(self):
+        requests=[]
+        values=iter([
+            Response(200,{}, {'sha':'a'*40}),
+            Response(200,{}, {'sha':'b'*40}),
+            Response(201,{}, {'object':{'sha':'b'*40}}),
+            Response(201,{}, {'number':7}),
+        ])
+        def send(req):requests.append(req);return next(values)
+        client=GitHubClient(transport=send,clock=lambda:0)
+        self.assertEqual(client.create_blob('SECRET','acme','repo',b'content'),'a'*40)
+        entries=[{'path':'bin/run','mode':'100755','type':'blob','sha':'a'*40}]
+        self.assertEqual(client.create_tree('SECRET','acme','repo','c'*40,entries),'b'*40)
+        self.assertTrue(client.create_ref('SECRET','acme','repo','opendevin/ses-one','b'*40))
+        client.create_pull_request('SECRET','acme','repo','Title','Body','opendevin/ses-one','main')
+        self.assertEqual(requests[1].json['base_tree'],'c'*40)
+        self.assertEqual(requests[2].json,{'ref':'refs/heads/opendevin/ses-one','sha':'b'*40})
+        self.assertNotIn('force',requests[2].json)
+        self.assertEqual(requests[3].json['draft'],True)
+        self.assertNotIn('SECRET',repr(requests))
+
+    def test_publication_bounds_and_300_file_comparison_fail_closed(self):
+        files=[{'filename':f'f{i}'} for i in range(300)]
+        result=self.client(Response(200,{}, {'files':files,'total_commits':1})).compare(
+            'token','acme','repo','a'*40,'b'*40)
+        self.assertFalse(result['complete'])
+        bad=[{'path':'x','mode':'100644','type':'blob','sha':'bad'}]
+        with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_tree('t','a','b','c'*40,bad)
+        with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_ref('t','a','b','main','bad')
