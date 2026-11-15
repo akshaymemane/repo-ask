@@ -882,3 +882,13 @@ dialog.modal::backdrop { background: #05060899; }
 .rail .primary-nav .recent-list { display: grid; flex: none; gap: 2px; }
 .rail .primary-nav .recent { flex: 0 1 auto; min-height: 0; }
 .existing-app > summary { cursor: pointer; color: var(--muted); font-size: 13px; margin: var(--space-2) 0; }
+
+/* ---- Models section ---- */
+.models-host { display: grid; gap: var(--space-4); }
+.models-simple { display: grid; gap: var(--space-4); }
+.model-ok { color: var(--success); font-size: 13px; }
+.model-hint { display: block; }
+.model-warning { color: var(--warning); font-size: 13px; }
+.setting-card select { min-width: 220px; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
+.modal-field { display: grid; gap: 4px; margin-bottom: var(--space-2); font-size: 13px; }
+.modal-field input { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
