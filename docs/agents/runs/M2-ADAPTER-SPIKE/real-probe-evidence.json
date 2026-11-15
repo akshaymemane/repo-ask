@@ -1,14 +1,15 @@
 {
-  "code_sha": "73a682f8a4a1b9139972005ac86992ea218c18f4",
+  "code_sha": "e51d10fd912771170218b78a4051781c74f59fd5",
   "source_hashes": {
     "repoask/execution/__init__.py": "02bb1f37412b25c6a134c4bbb4c4db496b3a87539fd4da4d8389ab54802ff303",
-    "repoask/execution/adapter_process.py": "2b8c5552afdb61f4eb38f742a75480b9d62d17787f2127054b614b123ff9343c",
-    "repoask/execution/broker.py": "50cfcbe24af3d52364465c7bf122f175bf2dc7349248d9eebeb94c5b1b68b98c",
-    "repoask/execution/claude.py": "55a7ef6b28967c734541e078be5adbff90afec7e34459b683ac1b634700b3dc4",
+    "repoask/execution/adapter_process.py": "491ba0bfc5b62157fa5b4d669044b530349578180ea71ebf6b8bb20f8b524513",
+    "repoask/execution/broker.py": "5d56cb99440522acf2e5e94a14a97ffceb9223847c4af77f9531eb9051876ae0",
+    "repoask/execution/claude.py": "eb02b7a3190b17748519d2602cd188dd4df44774f1a87452af12c873142748fe",
     "repoask/execution/mcp_server.py": "deac92726743eb68ef095aa99eaf9ab4a04ad88c90f0b7502831c24a79ee5357",
-    "repoask/execution/runner.py": "07e6a074593fb6dd2a6e4013de2425634121cc3a9b25861686184cc5286c47be",
+    "repoask/execution/profiles.py": "267dbd63469b38f8372e54a7d95f64245ea302a6af0a26b9adf4ddab3472fd2b",
+    "repoask/execution/runner.py": "d944e81d78d717a3940b804730df1b6ff8c1dfcaf18062710f367a0189913feb",
     "repoask/__init__.py": "b72794d0f8c02187c78162509f776230bf5f499860ee70aca3fc53f01a2cc904",
-    "tests/test_execution_adapter.py": "2001ac1c2a03a0349dd36c38a547160a56e34d14653ef03d0d711a4e455920fe",
+    "tests/test_execution_adapter.py": "924a8625428edeaf022f807a456a441745741c1b37756e168cb489136c80f590",
     "docs/agents/runs/M2-ADAPTER-SPIKE/real_probe.py": "40cdb0d8122691e859c685600e95ecee3e205690c409cf4b2d2f6fdbc20db1c6"
   },
   "synthetic_only": true,
@@ -55,7 +56,7 @@
         }
       ],
       "checkpoints": 3,
-      "pid": 86917,
+      "pid": 98050,
       "argv_inspection_verified": true,
       "prompt_marker_in_argv": false,
       "inventory": {
@@ -88,7 +89,7 @@
       },
       "inventory_verified": true,
       "model": "claude-opus-5-5",
-      "summary": "I fixed the bug in `add` and the test now passes.\n\n**The bug:** `calc.py:2` returned `a - b`, so it was subtracting instead of adding. I changed it to `return a + b`. I didn't touch `test_calc.py`.\n\n**Test run** (`python -m unittest -v` in the container, exit code 0):\n```\ntest_add (test_calc.TestCalc.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n```",
+      "summary": "I fixed `add` and the test passes.\n\n**The bug:** in `calc.py:2`, `add(a, b)` returned `a - b`. I changed it to `return a + b`. I didn't touch `test_calc.py`.\n\n**Test run** (`python -m unittest -v`, run in the container):\n```\ntest_add (test_calc.TestCalc.test_add) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n```\nIt exited with code 0.",
       "result": {
         "status": "completed",
         "code": "success",
@@ -96,11 +97,11 @@
         "stop_confirmed": true,
         "usage": {
           "input_tokens": 8,
-          "output_tokens": 451,
-          "cache_creation_input_tokens": 3954,
-          "cache_read_input_tokens": 10636
+          "output_tokens": 495,
+          "cache_creation_input_tokens": 3949,
+          "cache_read_input_tokens": 10625
         },
-        "reported_cost_usd": 0.0428112,
+        "reported_cost_usd": 0.043649,
         "capabilities": {
           "headless": true,
           "streaming": true,
@@ -112,7 +113,7 @@
           "ask_user_requires_callback": true
         }
       },
-      "elapsed_seconds": 12.728,
+      "elapsed_seconds": 15.982,
       "stop_event_set_on_return": true,
       "validation": {
         "exit_code": 0,
@@ -135,7 +136,7 @@
       "name": "cancellation",
       "tools": [],
       "checkpoints": 1,
-      "pid": 87069,
+      "pid": 98319,
       "argv_inspection_verified": true,
       "prompt_marker_in_argv": false,
       "inventory": {
@@ -187,9 +188,9 @@
           "ask_user_requires_callback": true
         }
       },
-      "elapsed_seconds": 1.397,
+      "elapsed_seconds": 1.338,
       "stop_event_set_on_return": true,
-      "stop_confirmation_seconds": 0.115,
+      "stop_confirmation_seconds": 0.113,
       "broker_close": {
         "closed": true,
         "revoked": true
@@ -208,7 +209,7 @@
         }
       ],
       "checkpoints": 1,
-      "pid": 87206,
+      "pid": 98351,
       "argv_inspection_verified": true,
       "prompt_marker_in_argv": false,
       "inventory": {
@@ -251,10 +252,10 @@
         "usage": {
           "input_tokens": 4,
           "output_tokens": 81,
-          "cache_creation_input_tokens": 882,
-          "cache_read_input_tokens": 5723
+          "cache_creation_input_tokens": 881,
+          "cache_read_input_tokens": 5722
         },
-        "reported_cost_usd": 0.0098366,
+        "reported_cost_usd": 0.0098284,
         "capabilities": {
           "headless": true,
           "streaming": true,
@@ -266,7 +267,7 @@
           "ask_user_requires_callback": true
         }
       },
-      "elapsed_seconds": 6.161,
+      "elapsed_seconds": 8.542,
       "stop_event_set_on_return": true,
       "broker_close": {
         "closed": true,
