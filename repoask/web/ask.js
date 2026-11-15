@@ -37,7 +37,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   const body = el('div'); const source = el('aside'); source.setAttribute('aria-label', 'Snapshot source');
   const historyNotice = el('div'); historyNotice.className = 'history-notice';
   panel.append(title, status, historyNotice, pendingNotice, body, source); host.append(panel);
-  let sourceEpoch=0;
+  let sourceEpoch=0, planEditor=null, planStart=null, planNotice=null, planDraft=false;
+  const markPlanDirty = () => { planDraft=true; draft=true; if(planStart)planStart.disabled=true; if(planNotice)planNotice.textContent='Unsaved plan edits. Save a new immutable version or explicitly discard before starting.'; };
   let epoch = 0, current = null, draft = false, pending = false, timer, acceptedHash = location.hash;
   let sendAttempt = null;
   try { sendAttempt = JSON.parse(window.sessionStorage?.getItem('ask-pending-send') || 'null'); } catch {}
@@ -46,14 +47,14 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   const inside = (parent, child) => { for (let n=child;n;n=n.parentNode) if(n===parent)return true; return false; };
   const button = (parent, text, fn) => {
     const b = el('button', text); b.type = 'button';
-    const token = inside(body,parent) || inside(source,parent) ? epoch : null;
+    const token = inside(body,parent) || inside(source,parent) || inside(planEditor,parent) ? epoch : null;
     b.addEventListener('click', async () => {
       if(b.disabled || !b.isConnected || (token!==null && token!==epoch))return;
       const focused=document.activeElement===b, hash=location.hash;
       b.disabled=true;
       try { await fn(b); } catch(e) { if(token===null || hash===location.hash)say(e); }
       finally {
-        b.disabled=false;
+        b.disabled=b===planStart ? planDraft || b.dataset.ready!=='true' || b.dataset.evidence!=='true' : false;
         if(focused && location.hash===hash && (document.activeElement===document.body || document.activeElement===b || !document.activeElement?.isConnected)){
           const target=b.isConnected ? b : [...body.querySelectorAll('button')].find(n=>n.textContent===text && !n.hidden && !n.disabled);
           if(target)target.focus();
@@ -64,8 +65,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   };
   const link = (parent, text, hash) => { const a = el('a', text); a.setAttribute('href', hash); parent.append(a); };
   const field = (parent, label, value, dirty=true) => { const wrap = el('label', label); const input = el('textarea'); input.value = value || ''; if(dirty)input.addEventListener('input', () => { draft = true; }); wrap.append(input); parent.append(wrap); return input; };
-  const guard = () => !draft || window.confirm('Discard unsaved Ask or plan edits?');
-  function discardDraft(){if(current){promptDrafts.delete(current.id);scopeDrafts.delete(current.id);try{window.sessionStorage?.removeItem(`ask-draft:${current.id}`);}catch{}}else{try{window.sessionStorage?.removeItem('ask-draft:new');}catch{}}draft=false;}
+  const guard = () => (!draft && !planDraft) || window.confirm('Discard unsaved Ask or plan edits?');
+  function discardDraft(){if(current){promptDrafts.delete(current.id);scopeDrafts.delete(current.id);try{window.sessionStorage?.removeItem(`ask-draft:${current.id}`);}catch{}}else{try{window.sessionStorage?.removeItem('ask-draft:new');}catch{}}draft=false;planDraft=false;}
   function renderPending(){
     pendingNotice.replaceChildren();if(!sendAttempt)return;
     pendingNotice.append(el('p',`Unconfirmed request for ${sendAttempt.conversation}. Retry the same request to reconcile it, or explicitly discard the pending client attempt. Discard does not cancel a request the server may already have accepted.`));
@@ -200,7 +201,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       for (const chip of added) events.push({kind: 'added', name: chip.name, at: Date.now()});
       for (const [, name] of removed) events.push({kind: 'removed', name, at: Date.now()});
       scopeEvents.set(id, events);
-      if (added.length && plans.length) { stale = {planId: plans.at(-1).id, addedNames: [...(stale?.addedNames || []), ...added.map(chip => chip.name)]}; staleScope.set(id, stale); }
+      if ((added.length || removed.length) && plans.length) { stale = {planId: plans.at(-1).id, addedNames: [...(stale?.addedNames || []), ...added.map(chip => chip.name)], removedNames: [...(stale?.removedNames || []), ...removed.map(([,name])=>name)]}; staleScope.set(id, stale); }
       composer.setChips(after);
       header({title: c.title || 'Untitled conversation', pills: after.map(chip => ({text: chip.name}))});
       rememberRepositories(c.repository_ids);
@@ -290,70 +291,90 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   }
   async function plan(id, versionId, token) {
     const p = await request(`/api/plans/${enc(id)}${versionId ? `?version_id=${enc(versionId)}` : ''}`); if(token!==epoch)return;
-    const v=p.version, c=v.content; body.replaceChildren(el('h3',`${p.title} · version ${v.version}`),el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));
-    const generation=v.generation || {};body.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${destinationText(generation.destination)} · Usage: ${generation.usage ? Object.entries(generation.usage).filter(([key,value])=>['input_tokens','output_tokens','total_tokens'].includes(key)&&Number.isFinite(value)).map(([key,value])=>`${key.replaceAll('_',' ')} ${value}`).join(' · ') || 'unknown':'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
-    if(p.conversation_id)link(body,'Conversation',`#/ask/${enc(p.conversation_id)}`);
-    if(v.parent_version_id)link(body,'Previous version',`#/plans/${enc(id)}/${enc(v.parent_version_id)}`);
-    link(body,'Latest version',`#/plans/${enc(id)}/${enc(p.latest_version_id)}`);
-    body.append(el('p',`Readiness: ${v.readiness.state} · Blocking: ${v.readiness.blocking_reasons.join(', ') || 'none'} · Warnings: ${v.readiness.warnings.join(', ') || 'none'}`),el('p',`Source freshness: ${Object.entries(v.readiness.source_freshness || {}).map(([repository,value])=>`${repository}: ${String(value).replaceAll('_',' ')}`).join(' · ') || 'unknown'}`));
-    if(!c){body.append(el('p','Plan content unavailable or redacted.'));return;}
-    body.append(el('p',`Scope: ${c.repositories.map(r=>`${r.repository_id} (${r.role}) @ ${r.revision} · ${r.snapshot_id}`).join('; ')}`),el('p',`Execution profile: ${c.execution_context.execution_profile_id || 'not configured'} · Publication: ${c.publication.policy}`));
-    citations(body,c.citations,token);
-    const execution=v.readiness.execution;
+    planDraft=false;
+    const editor=el('section');editor.className='plan-editor';
+    const v=p.version, c=v.content; editor.replaceChildren(el('h3',`${p.title} · version ${v.version}`),el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));
+    planEditor=editor;
+    if(sidePanel){
+      body.replaceChildren(el('h3',p.title),el('p',`Reviewing saved plan version ${v.version}. The editor is open in the details panel.`));
+      button(body,'Open plan editor',()=>sidePanel.openTab({id:`plan:${id}`,title:p.title,render:host=>host.append(editor),canClose:()=>{if(!guard())return false;discardDraft();return true;}}));
+      if(p.conversation_id)link(body,'Back to conversation',`#/ask/${enc(p.conversation_id)}`);
+      sidePanel.openTab({id:`plan:${id}`,title:p.title,render:host=>host.append(editor),canClose:()=>{if(!guard())return false;discardDraft();return true;}});
+      if(p.conversation_id)request(`/api/conversations/${enc(p.conversation_id)}`).then(conversation=>{if(token!==epoch)return;const preview=el('div');preview.className='plan-conversation-preview';renderThread(preview,{messages:conversation.messages||[],runs:[],plans:[]},{onCitation:(citation,trigger)=>cite(citation,token,trigger)});body.append(preview);},()=>{});
+    }else body.replaceChildren(editor);
+    const generation=v.generation || {};editor.append(el('p',`Plan model: ${generation.model || 'unknown'} · Destination: ${destinationText(generation.destination)} · Usage: ${generation.usage ? Object.entries(generation.usage).filter(([key,value])=>['input_tokens','output_tokens','total_tokens'].includes(key)&&Number.isFinite(value)).map(([key,value])=>`${key.replaceAll('_',' ')} ${value}`).join(' · ') || 'unknown':'unknown'} · Cost: ${typeof generation.usage?.estimated_cost==='number' ? `${generation.usage.cost_status || 'estimated'} ${generation.usage.estimated_cost} USD`:'unknown'}`));
+    if(p.conversation_id)link(editor,'Conversation',`#/ask/${enc(p.conversation_id)}`);
+    if(v.parent_version_id)link(editor,'Previous version',`#/plans/${enc(id)}/${enc(v.parent_version_id)}`);
+    link(editor,'Latest version',`#/plans/${enc(id)}/${enc(p.latest_version_id)}`);
+    editor.append(el('p',`Readiness: ${v.readiness.state} · Blocking: ${v.readiness.blocking_reasons.join(', ') || 'none'} · Warnings: ${v.readiness.warnings.join(', ') || 'none'}`),el('p',`Source freshness: ${Object.entries(v.readiness.source_freshness || {}).map(([repository,value])=>`${repository}: ${String(value).replaceAll('_',' ')}`).join(' · ') || 'unknown'}`));
+    if(!c){editor.append(el('p','Plan content unavailable or redacted.'));return;}
+    editor.append(el('p',`Scope: ${c.repositories.map(r=>`${r.repository_id} (${r.role}) @ ${r.revision} · ${r.snapshot_id}`).join('; ')}`),el('p',`Execution profile: ${c.execution_context.execution_profile_id || 'not configured'} · Publication: ${c.publication.policy}`));
+    citations(editor,c.citations,token);
+    const execution=v.readiness.execution; let displayedProfile=null, profileEvidenceReady=!execution?.profile_version_id;
+    const consentLine=el('p',execution?.profile_version_id?'Source consent: checking the pinned profile…':'Source consent: execution profile evidence unavailable.');
     const executionBox=el('section');executionBox.className='setting-box';executionBox.append(el('h4','Execution preflight for this saved version'));
     if(execution){
       executionBox.append(el('p',`Profile ${execution.profile_id || 'unknown'} · Immutable version ${execution.profile_version_id || 'unknown'}`),el('p',`Image ${execution.image_id || 'unknown'} · CLI ${execution.cli_version || 'unknown'} · Destination ${destinationText(execution.destination)}`),el('p',limitsText(execution.limits)),el('p',`Verified capabilities: ${Object.entries(execution.capabilities || {}).filter(([,value])=>value===true).map(([key])=>key.replaceAll('_',' ')).join(', ') || 'none reported'}`));
     }else executionBox.append(el('p','Execution preflight is unavailable. Review server readiness below; configure and test an execution profile in Settings.'));
-    body.append(executionBox);
+    executionBox.append(consentLine);editor.append(executionBox);
+    if(execution?.profile_version_id)request(`/api/execution-profile-versions/${enc(execution.profile_version_id)}`).then(record=>{if(token!==epoch)return;if(record.id!==execution.profile_version_id||!record.config)throw new Error('Pinned profile evidence unavailable.');displayedProfile={id:record.id,image:record.config.image,allow_external_source:record.config.allow_external_source,profile_deleted:record.profile_deleted};profileEvidenceReady=true;consentLine.textContent=`Source consent: ${record.config.allow_external_source===true?'explicitly allowed for this external coding model':'disabled'} · Profile image ${record.config.image || 'unknown'}`;if(planStart){planStart.dataset.evidence='true';planStart.disabled=planDraft||v.readiness.state!=='ready';}},()=>{if(token===epoch)consentLine.textContent='Pinned profile evidence unavailable. Reload before starting.';});
     const edited=structuredClone(c); const readers=[];
-    const profileLabel=el('label','Execution profile for the next immutable version');const profileSelect=el('select');profileSelect.disabled=true;profileLabel.append(profileSelect);body.append(profileLabel);
-    const profileStatus=el('p','Loading execution profiles…');body.append(profileStatus);
+    planEditor=editor; editor.addEventListener('input',markPlanDirty); editor.addEventListener('change',markPlanDirty);
+    const profileLabel=el('label','Execution profile for the next immutable version');const profileSelect=el('select');profileSelect.disabled=true;profileLabel.append(profileSelect);editor.append(profileLabel);
+    const profileStatus=el('p','Loading execution profiles…');editor.append(profileStatus);
     const publicationLabel=el('label','Publication policy for the next immutable version');const publicationSelect=el('select');
-    for(const [value,text] of [['manual_draft','Manual draft PR — explicitly choose publication after review'],['on_success_draft','Automatic draft PR after success — authorizes a remote branch and draft PR']]){const option=el('option',text);option.value=value;publicationSelect.append(option);}publicationSelect.value=c.publication.policy;publicationLabel.append(publicationSelect);body.append(publicationLabel);
-    publicationSelect.addEventListener('change',()=>{edited.publication.policy=publicationSelect.value;draft=true;say('Publication policy changed in draft. Save an immutable version before starting.');});
-    body.append(el('p',c.publication.policy==='on_success_draft'?'This saved version authorizes a remote branch and draft pull request after the server confirms the required success and publication checks. Publication capability and policy are rechecked by the server.':'This saved version requires an explicit publication action after review. Starting implementation alone does not authorize a remote branch or pull request.'));
+    for(const [value,text] of [['manual_draft','Manual draft PR — explicitly choose publication after review'],['on_success_draft','Automatic draft PR after success — authorizes a remote branch and draft PR']]){const option=el('option',text);option.value=value;publicationSelect.append(option);}publicationSelect.value=c.publication.policy;publicationLabel.append(publicationSelect);editor.append(publicationLabel);
+    publicationSelect.addEventListener('change',()=>{edited.publication.policy=publicationSelect.value;markPlanDirty();say('Publication policy changed in draft. Save an immutable version before starting.');});
+    editor.append(el('p',c.publication.policy==='on_success_draft'?'This saved version authorizes a remote branch and draft pull request after the server confirms the required success and publication checks. Publication capability and policy are rechecked by the server.':'This saved version requires an explicit publication action after review. Starting implementation alone does not authorize a remote branch or pull request.'));
 
     const unassigned=el('option','Unassigned');unassigned.value='';profileSelect.append(unassigned);
     const selectedProfile=c.execution_context.execution_profile_id;
     if(selectedProfile){const opt=el('option',`Saved profile ${selectedProfile}`);opt.value=selectedProfile;profileSelect.append(opt);}profileSelect.value=selectedProfile || '';
-    profileSelect.addEventListener('change',()=>{edited.execution_context.execution_profile_id=profileSelect.value || null;draft=true;profileStatus.textContent='Profile changed in draft. Save a new immutable version to recalculate execution readiness.';});
+    profileSelect.addEventListener('change',()=>{edited.execution_context.execution_profile_id=profileSelect.value || null;markPlanDirty();profileStatus.textContent='Profile changed in draft. Save a new immutable version to recalculate execution readiness.';});
     // A failed or late profile read must not discard the saved plan or user edits.
     (async()=>{try{let cursor=null;const seen=new Set(selectedProfile?[selectedProfile]:[]);do{const page=await request(`/api/execution-profiles?limit=100${cursor?`&cursor=${enc(cursor)}`:''}`);if(token!==epoch)return;if(!Array.isArray(page.items))throw new Error('Unsupported execution profile response.');for(const profile of page.items){if(seen.has(profile.id)){const existing=[...profileSelect.querySelectorAll('option')].find(o=>o.value===profile.id);if(existing)existing.textContent=`${profile.name} · v${profile.version.version} · test ${profile.check?.status || 'not tested'}`;continue;}seen.add(profile.id);const option=el('option',`${profile.name} · v${profile.version.version} · test ${profile.check?.status || 'not tested'}`);option.value=profile.id;profileSelect.append(option);}cursor=page.next_cursor;}while(cursor);if(token!==epoch)return;profileSelect.disabled=false;profileStatus.textContent='Choose an execution profile, then save a new version. The server pins its exact version and rechecks policy and readiness before launch.';}catch(e){if(token===epoch)profileStatus.textContent=`Execution profile selection unavailable: ${e.message}. Saved plan fields remain editable.`;}})();
-    for(const r of c.repositories) button(body,`Retain pinned base for ${r.repository_id}`,()=>{edited.execution_context.base_choices[r.repository_id]='retain';draft=true;say('Pinned base choice retained in draft; save a new version. Regenerate a plan from the conversation to use current context.');});
-    for(const key of ['goal','user_request']){const f=field(body,key.replaceAll('_',' '),c[key]);readers.push(()=>edited[key]=f.value);}
-    for(const key of ['requirements','risks','assumptions']){const f=field(body,`${key} (one per line)`,c[key].join('\n'));readers.push(()=>edited[key]=f.value.split('\n').filter(x=>x.trim()));}
+    for(const r of c.repositories) button(editor,`Retain pinned base for ${r.repository_id}`,()=>{edited.execution_context.base_choices[r.repository_id]='retain';markPlanDirty();say('Pinned base choice retained in draft; save a new version. Regenerate a plan from the conversation to use current context.');});
+    for(const key of ['goal','user_request']){const f=field(editor,key.replaceAll('_',' '),c[key]);readers.push(()=>edited[key]=f.value);}
+    for(const key of ['requirements','risks','assumptions']){const f=field(editor,`${key} (one per line)`,c[key].join('\n'));readers.push(()=>edited[key]=f.value.split('\n').filter(x=>x.trim()));}
     for(const [key, fields] of [['steps',['title','description']],['validation',['command','expected']],['open_questions',['text','answer']]]) {
-      const group=el('section');group.append(el('h4',key.replaceAll('_',' ')));body.append(group);
+      const group=el('section');group.append(el('h4',key.replaceAll('_',' ')));editor.append(group);
       const rows=el('div');group.append(rows);
       const renderRows=()=>{rows.replaceChildren();edited[key].forEach((item,i)=>{
         const row=el('section'); rows.append(row);
         for(const k of fields){const f=field(row,`${i+1}. ${k}`,item[k]);f.addEventListener('input',()=>{edited[key][i][k]=f.value || (k==='answer'?null:'');});}
         if(key==='steps'){const f=field(row,`${i+1}. paths (one per line)`,item.paths.join('\n'));f.addEventListener('input',()=>{item.paths=f.value.split('\n').filter(Boolean);});}
-        if(key==='validation'){const label=el('label','Validation source');const select=el('select');for(const value of ['proposed','observed']){const option=el('option',value);option.value=value;select.append(option);}select.value=item.source;select.addEventListener('change',()=>{item.source=select.value;draft=true;});label.append(select);row.append(label);}
-        if(key==='open_questions'){const label=el('label','Blocking question');const check=el('input');check.type='checkbox';check.checked=item.blocking;check.addEventListener('change',()=>{item.blocking=check.checked;draft=true;});label.append(check);row.append(label);}
-        button(row,'Remove entry',()=>{edited[key].splice(i,1);draft=true;renderRows();});
+        if(key==='validation'){const label=el('label','Validation source');const select=el('select');for(const value of ['proposed','observed']){const option=el('option',value);option.value=value;select.append(option);}select.value=item.source;select.addEventListener('change',()=>{item.source=select.value;markPlanDirty();});label.append(select);row.append(label);}
+        if(key==='open_questions'){const label=el('label','Blocking question');const check=el('input');check.type='checkbox';check.checked=item.blocking;check.addEventListener('change',()=>{item.blocking=check.checked;markPlanDirty();});label.append(check);row.append(label);}
+        button(row,'Remove entry',()=>{edited[key].splice(i,1);markPlanDirty();renderRows();});
       });};renderRows();
-      button(group,`Add ${key==='open_questions'?'question':key==='steps'?'step':'validation'}`,()=>{edited[key].push(key==='steps'?{title:'',description:'',paths:[],citation_ids:[]}:key==='validation'?{command:'',expected:'',source:'proposed',citation_ids:[]}:{id:globalThis.crypto.randomUUID(),text:'',blocking:true,answer:null});draft=true;renderRows();});
+      button(group,`Add ${key==='open_questions'?'question':key==='steps'?'step':'validation'}`,()=>{edited[key].push(key==='steps'?{title:'',description:'',paths:[],citation_ids:[]}:key==='validation'?{command:'',expected:'',source:'proposed',citation_ids:[]}:{id:globalThis.crypto.randomUUID(),text:'',blocking:true,answer:null});markPlanDirty();renderRows();});
     }
-    body.append(el('h4','Findings'),el('pre',c.findings.map(f=>f.text).join('\n')));
-    button(body,'Save immutable version',async()=>{readers.forEach(read=>read());const controls=body.querySelectorAll('textarea, input, select');controls.forEach(n=>n.disabled=true);let saved;try{saved=await request(`/api/plans/${enc(id)}/versions`,'POST',{content:edited,parent_version_id:v.id});}finally{controls.forEach(n=>n.disabled=false);}if(token!==epoch)return;draft=false;location.hash=`#/plans/${enc(id)}/${enc(saved.version.id)}`;});
-    const exportDisplay=el('section');body.append(exportDisplay);
-    button(body,'Export this saved version',async()=>{const result=await request(`/api/plans/${enc(id)}/export?version_id=${enc(v.id)}`);if(token!==epoch)return;if(result.content_hash!==v.content_hash || result.plan_version_id!==v.id)throw new Error('Export version/hash mismatch.');exportDisplay.replaceChildren(el('p',`Export ${result.plan_version_id} · ${result.content_hash}`),el('pre',result.markdown));});
-    const start=button(body,'Start session',async()=>{
-      if(draft)throw new Error('Save edits before starting.');
+    editor.append(el('h4','Findings'),el('pre',c.findings.map(f=>f.text).join('\n')));
+    button(editor,'Save immutable version',async()=>{readers.forEach(read=>read());const controls=editor.querySelectorAll('textarea, input, select');controls.forEach(n=>n.disabled=true);let saved;try{saved=await request(`/api/plans/${enc(id)}/versions`,'POST',{content:edited,parent_version_id:v.id});}finally{controls.forEach(n=>n.disabled=false);}if(token!==epoch)return;draft=false;planDraft=false;location.hash=`#/plans/${enc(id)}/${enc(saved.version.id)}`;});
+    button(editor,'Discard plan edits',()=>{if(!window.confirm('Discard unsaved plan edits and reload the saved version?'))return;draft=false;planDraft=false;return load();});
+    const exportDisplay=el('section');editor.append(exportDisplay);
+    button(editor,'Export this saved version',async()=>{const result=await request(`/api/plans/${enc(id)}/export?version_id=${enc(v.id)}`);if(token!==epoch)return;if(result.content_hash!==v.content_hash || result.plan_version_id!==v.id)throw new Error('Export version/hash mismatch.');exportDisplay.replaceChildren(el('p',`Export ${result.plan_version_id} · ${result.content_hash}`),el('pre',result.markdown));});
+    const start=button(editor,'Start session',async()=>{
+      if(draft || planDraft)throw new Error('Save edits before starting.');
+      if(!profileEvidenceReady)throw new Error('Reload the pinned execution profile evidence before starting.');
       const fresh=await request(`/api/plans/${enc(id)}?version_id=${enc(v.id)}`);if(token!==epoch)return;
+      if(draft || planDraft)throw new Error('Save edits before starting.');
       if(fresh.version.readiness.state!=='ready'||fresh.version.content_hash!==v.content_hash)throw new Error('Readiness changed; reload the saved version.');
+      const projection = x => x ? {profile_id:x.profile_id,profile_version_id:x.profile_version_id,image_id:x.image_id,cli_version:x.cli_version,destination:x.destination,allow_external_source:x.allow_external_source,limits:x.limits,capabilities:x.capabilities} : null;
+      if(JSON.stringify(projection(fresh.version.readiness.execution))!==JSON.stringify(projection(execution)))throw new Error('Execution settings changed. Reload this saved version to review the exact profile version, image, destination and source consent before starting.');
+      if(displayedProfile){const record=await request(`/api/execution-profile-versions/${enc(execution.profile_version_id)}`);if(token!==epoch)return;const now={id:record.id,image:record.config?.image,allow_external_source:record.config?.allow_external_source,profile_deleted:record.profile_deleted};if(JSON.stringify(now)!==JSON.stringify(displayedProfile))throw new Error('Execution source consent changed. Reload and review before starting.');}
+      if(draft || planDraft)throw new Error('Save edits before starting.');
       if(!launchKeys.has(v.id)){let key;try{key=window.sessionStorage?.getItem(`ask-launch-${v.id}`);}catch{}key ||= globalThis.crypto.randomUUID();launchKeys.set(v.id,key);try{window.sessionStorage?.setItem(`ask-launch-${v.id}`,key);}catch{}}
       try {
         const result=await request('/api/sessions','POST',{plan_version_id:v.id,content_hash:v.content_hash,idempotency_key:launchKeys.get(v.id)});
         if(token!==epoch)return;if(!result.session_id)throw new Error('Session outcome unknown. Retry Start with the same saved version to reconcile.');location.hash=`#/sessions/${enc(result.session_id)}`;
       }catch(e){if(e.status>=400&&e.status<500){launchKeys.delete(v.id);try{window.sessionStorage?.removeItem(`ask-launch-${v.id}`);}catch{}}throw e;}
     });
-    start.disabled=v.readiness.state!=='ready';start.title=v.readiness.blocking_reasons.join(', ');
-    const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);reasons.id='ask-launch-reasons';body.append(reasons);start.setAttribute('aria-describedby',reasons.id);
+    planStart=start; start.dataset.ready=String(v.readiness.state==='ready'); start.dataset.evidence=String(profileEvidenceReady); start.disabled=v.readiness.state!=='ready'||!profileEvidenceReady;start.title=v.readiness.blocking_reasons.join(', ');
+    const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);planNotice=reasons; reasons.id='ask-launch-reasons';editor.append(reasons);start.setAttribute('aria-describedby',reasons.id);
   }
   async function load() {
-    clearTimeout(timer); const token=++epoch; sourceEpoch++; current=null; sidePanel?.close();
+    clearTimeout(timer); const token=++epoch; sourceEpoch++; current=null; planEditor=null; planStart=null; planNotice=null; sidePanel?.close({force:true});
     // Retire controls immediately: the URL must never operate on the previous record.
     source.replaceChildren();body.replaceChildren(el('p','Loading saved Ask…'));
     const parts=location.hash.split('/');

@@ -167,9 +167,14 @@ test("a lost connection reports an unknown outcome, never retries and reloads sa
   assert.ok(calls.filter(([, p]) => p.startsWith("/api/repositories?")).length > reads, "saved state is reloaded");
 });
 
-test("large catalogs say only the first 100 are shown", async () => {
-  const { host } = await setup({ "GET /api/repositories": ({ catalog }) => ({ items: catalog, next_cursor: "more" }) });
-  assert.match(visibleText(host), /Showing the first 100 repositories\. Search to find others\./);
+test("catalog traversal reaches 205 repositories and owner/fork/archive filters span all pages", async () => {
+  const all=Array.from({length:205},(_,i)=>catalogItem(`gh:${i}`,`repo-${i}`,{owner:i===204?'later':'first',full_name:`${i===204?'later':'first'}/repo-${i}`,fork:i===204,archived:i===204}));
+  const {host,calls}=await setup({"GET /api/repositories":({path})=>{const u=new URL(path,'http://localhost'),start=Number(u.searchParams.get('cursor') || 0);return {items:all.slice(start,start+100),next_cursor:start+100<all.length?String(start+100):null};}});
+  assert.match(visibleText(host),/repo-204/);assert.ok(calls.some(([,p])=>p.includes('cursor=200')));
+  input([...host.querySelectorAll("input")].find(n=>n.getAttribute("aria-label")==="Exact repository owner"),'later');
+  const archive=host.querySelectorAll('select').find(n=>n.parentNode.textContent.startsWith('Archive state'));archive.value='true';archive.dispatchEvent({type:'change'});
+  const fork=host.querySelectorAll('select').find(n=>n.parentNode.textContent.startsWith('Fork state'));fork.value='true';fork.dispatchEvent({type:'change'});
+  assert.equal(host.querySelectorAll('tbody tr').length,1);assert.match(visibleText(host),/repo-204/);
 });
 
 test("two switches on one row save in order and the second keeps the first change", async () => {
@@ -190,4 +195,21 @@ test("two switches on one row save in order and the second keeps the first chang
   assert.equal(switchIn(row(host, "rcnl-app"), "Use in Ask").getAttribute("aria-checked"), "false");
   assert.equal(switchIn(row(host, "rcnl-app"), "Allow changes").getAttribute("aria-checked"), "true");
   assert.ok(b);
+});
+
+
+test("failed first row save cannot overwrite an immutable queued second intent", async () => {
+  const bodies=[]; let rejectFirst;
+  const {host}=await setup({"PATCH /api/repositories/gh%3A1":({body})=>{
+    bodies.push(structuredClone(body));
+    if(bodies.length===1)return new Promise((_,reject)=>rejectFirst=reject);
+    return {...catalogItem("gh:1","rcnl-app"),...body};
+  }});
+  globalThis.localStorage.setItem("od.allowConfirmed",JSON.stringify(["gh:1"]));
+  switchIn(row(host,"rcnl-app"),"Use in Ask").click();await settle();
+  switchIn(row(host,"rcnl-app"),"Allow changes").click();await settle();
+  rejectFirst(Object.assign(new Error("First selection rejected"),{status:409}));await settle(25);
+  assert.deepEqual(bodies,[{index_enabled:false,implementation_enabled:false},{index_enabled:false,implementation_enabled:true}]);
+  assert.equal(switchIn(row(host,"rcnl-app"),"Use in Ask").getAttribute("aria-checked"),"false");
+  assert.equal(switchIn(row(host,"rcnl-app"),"Allow changes").getAttribute("aria-checked"),"true");
 });

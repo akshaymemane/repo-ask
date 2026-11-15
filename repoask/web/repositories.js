@@ -1,6 +1,6 @@
 // Repositories page: one list of GitHub catalog entries merged with index state.
 import { badge, button, createModal, el, relativeTime, toggleSwitch } from "./ui.js";
-import { repoStatus } from "./repo-source.js";
+import { repoStatus, readRepositoryPages } from "./repo-source.js";
 import { createContextPanel } from "./context.js";
 
 const enc = encodeURIComponent;
@@ -38,7 +38,14 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   search.setAttribute("aria-label", "Search repositories");
   const chips = el("div", undefined, "filter-chips");
   const sync = el("span", undefined, "repos-sync");
-  top.append(search, chips, sync);
+  const filters = el("details",undefined,"repo-filters"); filters.append(el("summary","More filters"));
+  const owner = el("input"); owner.setAttribute("aria-label","Exact repository owner"); owner.placeholder="Owner";
+  const language = el("input"); language.setAttribute("aria-label","Repository language"); language.placeholder="Language";
+  const selectFilter = (label,entries) => { const wrap=el("label",label), select=el("select"); for(const [value,text] of entries){const opt=el("option",text);opt.value=value;select.append(opt);}select.value='';wrap.append(select);filters.append(wrap);return select; };
+  const archived=selectFilter("Archive state",[['','All'],['true','Archived'],['false','Active']]);
+  const fork=selectFilter("Fork state",[['','All'],['true','Forks'],['false','Originals']]);
+  filters.append(owner,language,el("p","These filters apply to all loaded catalog pages.","detail-muted"));
+  top.append(search, chips, filters, sync);
   const banner = el("div", undefined, "repos-banner");
   const status = el("p", "", "page-status");
   status.setAttribute("role", "status");
@@ -59,6 +66,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     const chip = button(chips, name, () => { filter = name; draw(); }, { variant: "ghost" });
     chip.classList.add("filter-chip");
   }
+  for(const control of [owner,language,archived,fork]){control.addEventListener("input",draw);control.addEventListener("change",draw);}
   search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => refresh(), 200); });
 
   const matches = (row) => filter === "All"
@@ -69,28 +77,30 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   // Saves on one row run in order; each sends the row's latest intended state so switches never undo each other.
   function save(row, patch) {
     row.target = { index_enabled: row.inAsk, implementation_enabled: row.canChange, ...(row.target ?? {}), ...patch };
-    const run = (row.queue ?? Promise.resolve()).catch(() => {}).then(() => saveNow(row, patch));
+    pendingSaves += 1;
+    const desired = Object.freeze({ ...row.target });
+    const intent = row.intent = (row.intent || 0) + 1;
+    const run = (row.queue ?? Promise.resolve()).catch(() => {}).then(() => saveNow(row, patch, desired, intent));
     row.queue = run;
     return run;
   }
 
-  async function saveNow(row, patch) {
-    pendingSaves += 1;
+  async function saveNow(row, patch, desired, intent) {
     notice.textContent = "";
     let unknown = false;
     try {
       if (row.github) {
-        const body = { ...row.target };
+        const body = { ...desired };
         const saved = await request(`/api/repositories/${enc(row.id)}`, "PATCH", body);
         row.inAsk = typeof saved?.index_enabled === "boolean" ? saved.index_enabled : body.index_enabled;
         row.canChange = typeof saved?.implementation_enabled === "boolean" ? saved.implementation_enabled : body.implementation_enabled;
-        if (row.inAsk !== body.index_enabled || row.canChange !== body.implementation_enabled) queueMicrotask(draw);
+        row.controls?.ask.set(row.inAsk); row.controls?.change?.set(row.canChange);
       } else {
         await request(`/api/repositories/${enc(row.id)}/context`, "PATCH", { index_enabled: patch.index_enabled });
         row.inAsk = patch.index_enabled;
       }
     } catch (error) {
-      row.target = { index_enabled: row.inAsk, implementation_enabled: row.canChange };
+      if (row.intent === intent) row.target = { index_enabled: row.inAsk, implementation_enabled: row.canChange };
       // A lost response may still have been applied: say so and show what the server has.
       unknown = error.status === undefined;
       if (unknown) notice.textContent = error.message;
@@ -137,7 +147,11 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     for (const label of ["Repository", "Status", "Use in Ask", "Allow changes"]) headRow.append(el("th", label));
     head.append(headRow);
     const bodyRows = el("tbody");
-    const visible = rows.filter(matches);
+    const visible = rows.filter(row=>matches(row)
+      && (!owner.value.trim() || (row.meta?.owner || row.fullName.split('/')[0]).toLowerCase()===owner.value.trim().toLowerCase())
+      && (!language.value.trim() || (row.meta?.language || '').toLowerCase()===language.value.trim().toLowerCase())
+      && (!archived.value || String(row.meta?.archived)===archived.value)
+      && (!fork.value || String(row.meta?.fork)===fork.value));
     for (const row of visible) {
       const tr = el("tr");
       const name = el("th");
@@ -147,7 +161,8 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       const statusCell = el("td");
       statusCell.append(badge(row.status.tone, row.status.label));
       const askCell = el("td");
-      askCell.append(toggleSwitch({ label: `Use in Ask for ${row.name}`, checked: row.inAsk, onChange: (next) => save(row, { index_enabled: next }) }).root);
+      const ask = toggleSwitch({ label: `Use in Ask for ${row.name}`, checked: row.inAsk, onChange: (next) => save(row, { index_enabled: next }) });
+      row.controls = { ask }; askCell.append(ask.root);
       const changeCell = el("td");
       if (row.github) {
         const allow = toggleSwitch({ label: `Allow changes in ${row.name}`, checked: row.canChange, onChange: async (next) => {
@@ -158,7 +173,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
           }
           await save(row, { implementation_enabled: next });
         } });
-        changeCell.append(allow.root);
+        row.controls.change = allow; changeCell.append(allow.root);
       } else {
         changeCell.append(el("span", "—", "detail-muted"));
       }
@@ -176,8 +191,8 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     const q = query ? `&query=${enc(query)}` : "";
     try {
       const [catalog, context, roles, connections] = await Promise.all([
-        request(`/api/repositories?limit=100${q}`).catch(() => ({ items: [] })),
-        request(`/api/context/repositories?limit=100${q}`),
+        readRepositoryPages(request, `/api/repositories?limit=100${q}`).catch(error => { if(error.status===404)return {items:[],pages:0}; throw error; }),
+        readRepositoryPages(request, `/api/context/repositories?limit=100${q}`),
         request("/api/settings/model-roles").catch(() => ({})),
         request("/api/github/connections").catch(() => ({ connections: [] })),
       ]);
@@ -192,7 +207,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       const others = [...contexts.values()].map((c) => ({ id: c.repository_id, name: c.name, fullName: c.name, github: false, meta: null, context: c,
         inAsk: c.eligible, canChange: false, status: repoStatus(c) }));
       rows = [...github, ...others];
-      more.textContent = catalog.next_cursor ? "Showing the first 100 repositories. Search to find others." : "";
+      more.textContent = `Loaded ${rows.length} repositories across ${catalog.pages || context.pages || 1} pages. Filters apply to these loaded results.`;
       const embedding = roles.roles?.embedding;
       const keywordOnly = rows.some((row) => row.context?.active_snapshot && (row.context.active_snapshot.mode ?? row.context.active_snapshot.coverage?.mode) === "lexical_only");
       banner.replaceChildren();

@@ -98,14 +98,16 @@ function planCard(plan, view, handlers) {
   const card = el("div", undefined, "plan-card");
   card.append(el("p", `📋 ${plan.title} · ${plan.steps ?? "?"} steps · v${plan.version ?? "?"}`, "plan-card-title"));
   if (view.staleScopeSincePlan?.planId === plan.id) {
-    const stale = el("p", `Made before ${view.staleScopeSincePlan.addedNames.join(", ")} was added · `, "plan-card-stale");
+    const scope = view.staleScopeSincePlan;
+    const changes = [...(scope.addedNames || []).map(n=>`${n} was added`), ...(scope.removedNames || []).map(n=>`${n} was removed`)];
+    const stale = el("p", `Made before ${changes.join(", ")} · `, "plan-card-stale");
     button(stale, "Regenerate", () => handlers.onRegenerate(plan.id), { variant: "ghost" }).classList.add("link-button");
     card.append(stale);
   }
   const actions = el("div", undefined, "plan-card-actions");
   button(actions, "View plan", () => handlers.onViewPlan(plan.id));
   const start = button(actions, "Start session", () => handlers.onStartSession(plan.id), { variant: "primary" });
-  start.disabled = !plan.ready;
+  start.disabled = !plan.ready || view.staleScopeSincePlan?.planId === plan.id;
   if (!plan.ready && plan.reason) start.setAttribute("title", plan.reason);
   card.append(actions);
   return card;

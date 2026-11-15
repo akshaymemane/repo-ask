@@ -172,3 +172,32 @@ class ManifestPreconditionTests(ManifestTests):
     def test_connections_route_reports_whether_setup_can_store_a_key(self):
         api = FeatureAPI(self.platform, self.service, None)
         self.assertIs(api.dispatch('GET', '/api/github/connections', '').body['can_configure'], True)
+
+
+class ManifestRetryAndClaimTests(ManifestTests):
+    def test_locked_vault_retry_preserves_state_without_spending_conversion(self):
+        start = self.begin()
+        self.vault.status = lambda: BackendStatus('test-only', False, 'locked')
+        with self.assertRaises(GitHubError) as e:
+            self.service.finish_manifest(start['state'], 'abc')
+        self.assertEqual(e.exception.code, 'secret_store_unavailable')
+        self.assertFalse(any(r.path.startswith('/app-manifests/') for r in self.remote.requests))
+        self.vault.status = lambda: BackendStatus('test-only', True, None)
+        self.assertEqual(self.service.finish_manifest(start['state'], 'abc')['status'], 'configured')
+        self.assertEqual(sum(r.path.startswith('/app-manifests/') for r in self.remote.requests), 1)
+
+    def test_concurrent_callbacks_claim_exactly_one_conversion(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        start = self.begin()
+        arrived = threading.Barrier(2)
+        def callback():
+            arrived.wait(timeout=3)
+            try:
+                return self.service.finish_manifest(start['state'], 'abc')['status']
+            except GitHubError as error:
+                return error.code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: callback(), range(2)))
+        self.assertCountEqual(results, ['configured', 'manifest_state_invalid'])
+        self.assertEqual(sum(r.path.startswith('/app-manifests/') for r in self.remote.requests), 1)

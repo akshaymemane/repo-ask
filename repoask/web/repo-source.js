@@ -85,3 +85,18 @@ export function rememberRepositories(ids) {
     // Recent repositories are a convenience; storage can be unavailable.
   }
 }
+
+// Traverse each cursor exactly once; consumers never infer whole-catalog state
+// from the first page. Duplicate rows are merged by durable repository identity.
+export async function readRepositoryPages(request, path) {
+  const rows = new Map(), seen = new Set(); let cursor = null, pages = 0;
+  do {
+    const page = await request(`${path}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+    if (!Array.isArray(page?.items)) throw new Error('Repository page unavailable. Reload to try again.');
+    for (const item of page.items) rows.set(item.repository_id || item.id, item);
+    ++pages; cursor = page.next_cursor || null;
+    if (cursor && seen.has(cursor)) throw new Error('Repository paging did not advance. Reload to inspect the full catalog.');
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return {items:[...rows.values()],pages};
+}
