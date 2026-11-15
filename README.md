@@ -40,13 +40,14 @@ hosting needs a separate authentication and TLS design.
 
 ## GitHub and model setup
 
-The connected settings UI is being reviewed. The implemented backend uses a
-GitHub App rather than importing credentials from your GitHub CLI login. Configure
-an App ID, slug and private key, then complete its installation flow. The App setup
-URL is `http://127.0.0.1:8765/api/github/callback` when using the default port.
-Metadata and contents read access support discovery/indexing; contents write and
-pull-request write permissions are separate capabilities for later publication.
-Indexing and implementation selections are independent.
+Open Settings → GitHub → **Connect GitHub**. OpenDevin creates a private, read-only
+GitHub App from a manifest; you review it on GitHub, click Create, and the App ID and
+private key are stored in your OS credential vault automatically. Then install the App on
+the repositories you want. To reuse an App you already have, use "Use an existing GitHub
+App" and enter its App ID, slug and private key; its Setup URL must be
+`http://127.0.0.1:8765/api/github/callback` for the default port. OpenDevin does not
+import your GitHub CLI login. Write access (contents and pull requests) is a separate,
+later step for publishing. "Use in Ask" and "Allow changes" are independent per repository.
 
 Provider profiles support Ollama and OpenAI-compatible chat/embedding endpoints.
 Configure capability flags, limits, dimensions, credentials and role assignments.
