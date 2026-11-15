@@ -47,6 +47,9 @@ class NativePlanTests(TestCase):
         self.assertNotIn('user_request',schema['properties'])
         self.assertNotIn('snapshot_id',schema['properties']['repositories']['items']['properties'])
         self.assertFalse(schema['additionalProperties'])
+        self.assertEqual(schema['properties']['repositories']['maxItems'],1)
+        self.assertTrue(schema['properties']['repositories']['uniqueItems'])
+        self.assertEqual(schema['properties']['citation_ids']['maxItems'],len(json.loads(body['messages'][1]['content'])['evidence']))
         self.assertLessEqual(sum(len(m['content'].encode()) for m in body['messages'])+len(json.dumps(schema,sort_keys=True,separators=(',',':')).encode()),(8192-1024)*4-256)
 
     def test_invalid_provider_response_cannot_add_identities_or_grants(self):
@@ -56,6 +59,7 @@ class NativePlanTests(TestCase):
             lambda d:d.update(publication={'policy':'on_success_draft'}),
             lambda d:d.update(execution_context={'execution_profile_id':'invented'}),
             lambda d:d['citation_ids'].append('invented'),
+            lambda d:d['repositories'].append(copy.deepcopy(d['repositories'][0])),
         ):
             f=self.f;payload=draft(f.content);mutate(payload);f.transport.output=payload
             run=f.service.send(f.conv,'Plan confirmation retries','bad-'+str(f.transport.calls),intent='plan');f.work()

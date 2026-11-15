@@ -15,6 +15,8 @@ def plan_schema(repository_ids, evidence_ids):
     refs=_array({'type':'string',**({'enum':list(evidence_ids)} if evidence_ids else {})},empty=not evidence_ids)
     strings=_array(string)
     repositories=_array(_object({'repository_id':{'type':'string',**({'enum':list(repository_ids)} if repository_ids else {})},'role':{'type':'string','enum':['write','read']}}),empty=not repository_ids)
+    repositories.update(maxItems=len(repository_ids),uniqueItems=True)
+    refs.update(maxItems=len(evidence_ids),uniqueItems=True)
     return _object({
         'goal':string,'repositories':repositories,'citation_ids':refs,
         'findings':_array(_object({'text':string,'citation_ids':refs})),
