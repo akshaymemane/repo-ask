@@ -769,3 +769,13 @@ dialog.modal::backdrop { background: #05060899; }
 .picker-name small { color: var(--muted); font-size: 12px; }
 .picker-empty, .picker-status { color: var(--muted); font-size: 13px; padding: var(--space-2) 0; }
 .picker-count { margin-right: auto; color: var(--muted); font-size: 12px; }
+
+/* ---- @ mentions ---- */
+.mention-menu {
+  position: absolute; bottom: calc(100% + 6px); left: var(--space-3); z-index: 30; min-width: 240px; max-width: 360px;
+  margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 12px 30px #0006;
+}
+.mention-option { padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.mention-option small { color: var(--muted); }
+.mention-option[aria-selected="true"], .mention-option:hover { background: var(--raised); }

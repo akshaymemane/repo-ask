@@ -1,0 +1,88 @@
+// @ mentions: inline repository menu on the composer textarea.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createBrowser, input, install, keydown, settle, visibleText } from "./dom.mjs";
+
+const url = pathToFileURL(fileURLToPath(new URL("../../repoask/web/mentions.js", import.meta.url))).href;
+let loads = 0;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const ctx = (i, name, over = {}) => ({ repository_id: `gh:${i}`, name: `akshaymemane/${name}`, kind: "github", eligible: true, status: "ready",
+  active_snapshot: { mode: "lexical_only" }, active_run: null, ...over });
+
+async function setup() {
+  const b = createBrowser("<!doctype html><html><body><div id=box><textarea id=t></textarea></div></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  loads += 1;
+  const { attachMentions } = await import(`${url}?m=${loads}`);
+  const calls = [];
+  const request = async (path) => {
+    calls.push(path);
+    if (!path.startsWith("/api/context")) return { items: [] };
+    return { items: [ctx(1, "rcnl-app"), ctx(2, "rcnl-legacy", { status: "metadata_only", active_snapshot: null })], next_cursor: null };
+  };
+  const textarea = b.document.getElementById("t");
+  const picked = [];
+  const handle = attachMentions(textarea, { request, onPick: (repo) => picked.push(repo) });
+  return { b, textarea, picked, calls, handle };
+}
+
+async function type(textarea, value) {
+  input(textarea, value);
+  await wait(190);
+  await settle();
+}
+
+test("typing @rc opens a listbox and Enter picks the highlighted repo", async () => {
+  const { b, textarea, picked, calls } = await setup();
+  await type(textarea, "Explain @rc");
+  const menu = b.document.querySelector('[role="listbox"]');
+  assert.ok(menu && !menu.hidden, "menu opens");
+  assert.match(calls.find((p) => p.startsWith("/api/context")), /query=rc/);
+  const options = menu.querySelectorAll('[role="option"]');
+  assert.deepEqual(options.map((o) => visibleText(o).split("·")[0].trim()), ["rcnl-app"], "only pickable repos are offered");
+  assert.equal(textarea.getAttribute("aria-activedescendant"), options[0].id);
+  const event = keydown(textarea, "Enter");
+  assert.equal(event.defaultPrevented, true, "Enter does not reach the composer");
+  assert.deepEqual(picked, [{ id: "gh:1", name: "rcnl-app" }]);
+  assert.equal(textarea.value, "Explain ");
+  assert.equal(menu.hidden, true);
+  assert.equal(textarea.hasAttribute("aria-activedescendant"), false);
+});
+
+test("Escape closes the menu and keeps the typed text", async () => {
+  const { b, textarea, picked } = await setup();
+  await type(textarea, "@rc");
+  const event = keydown(textarea, "Escape");
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(b.document.querySelector('[role="listbox"]').hidden, true);
+  assert.equal(textarea.value, "@rc");
+  assert.deepEqual(picked, []);
+});
+
+test("an email address does not open the menu", async () => {
+  const { b, textarea, calls } = await setup();
+  await type(textarea, "mail a@b");
+  const menu = b.document.querySelector('[role="listbox"]');
+  assert.ok(!menu || menu.hidden);
+  assert.equal(calls.length, 0);
+});
+
+test("Tab picks and clicking an option picks; detach removes the menu", async () => {
+  const { b, textarea, picked, handle } = await setup();
+  await type(textarea, "@rc");
+  keydown(textarea, "Tab");
+  assert.deepEqual(picked.map((p) => p.id), ["gh:1"]);
+  await type(textarea, "and @rc");
+  b.document.querySelector('[role="option"]').click();
+  assert.equal(picked.length, 2);
+  assert.equal(textarea.value, "and ");
+  handle.detach();
+  assert.equal(b.document.querySelector('[role="listbox"]'), null);
+});
+
+test("keys pass through when the menu is closed", async () => {
+  const { textarea } = await setup();
+  input(textarea, "hello");
+  assert.equal(keydown(textarea, "Enter").defaultPrevented, false);
+});
