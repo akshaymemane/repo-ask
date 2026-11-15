@@ -163,7 +163,7 @@ class PlanService:
         return self.get(plan_id)
 
     def _readiness(self,plan,version):
-        c=version['content']; reasons=[]; warnings=[]; freshness={}
+        c=version['content']; reasons=[]; warnings=[]; freshness={}; execution=None
         if c is None:
             return dict(state='draft',blocking_reasons=['deleted'],warnings=[],source_freshness={})
         if plan['conversation_id']:
@@ -206,9 +206,10 @@ class PlanService:
             try:
                 check=self.execution_preflight(c)
                 reasons.extend(check['blocking_reasons']); warnings.extend(check['warnings'])
+                execution=check.get('execution') if isinstance(check.get('execution'),dict) else None
             except Exception:
                 reasons.append('execution_preflight_failed')
-        return dict(state='superseded' if version['id']!=plan['latest_version_id'] else 'needs_input' if reasons else 'ready',blocking_reasons=sorted(set(reasons)),warnings=sorted(set(warnings)),source_freshness=freshness)
+        return dict(state='superseded' if version['id']!=plan['latest_version_id'] else 'needs_input' if reasons else 'ready',blocking_reasons=sorted(set(reasons)),warnings=sorted(set(warnings)),source_freshness=freshness,execution=execution)
 
     def get(self,plan_id,version_id=None):
         with self.store.read() as db:
