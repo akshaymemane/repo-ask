@@ -46,12 +46,16 @@ LIMIT_BOUNDS = {
 }
 SANDBOX_UID = 65534
 WORKSPACE = '/workspace'
+# Optional read-only reference root: a separate root-owned tmpfs, never under /workspace.
+CONTEXT = '/context'
+EXECUTABLE_MODE, REGULAR_MODE = '100755', '100644'
 LABEL_PREFIX = 'org.opendevin.'
 LABEL_MANAGED = LABEL_PREFIX + 'managed'
 LABEL_INSTANCE = LABEL_PREFIX + 'instance'
 LABEL_SESSION = LABEL_PREFIX + 'session'
 LABEL_ATTEMPT = LABEL_PREFIX + 'attempt'
 LABEL_LIMITS = LABEL_PREFIX + 'limits'
+LABEL_CONTEXT = LABEL_PREFIX + 'context'
 CONTROL_TIMEOUT = 30
 STOP_CONFIRM_SECONDS = 10
 # Internal budget leaves headroom for process teardown inside the 10 s contract.
@@ -176,6 +180,40 @@ def _validate_files(files, limits) -> dict:
     if total > limits['workspace_mib'] * 1024 * 1024:
         raise RunnerError('limit_exceeded', 'files exceed workspace size')
     return out
+
+
+def _validate_modes(file_modes, files) -> dict:
+    """Only regular 0644/0755 git modes for uploaded files; absent means 0644."""
+    if file_modes is None:
+        return {}
+    if not isinstance(file_modes, dict):
+        raise RunnerError('invalid_argument', 'file_modes must be a mapping')
+    out = {}
+    for raw, mode in file_modes.items():
+        path = validate_relative_path(raw)
+        if path not in files:
+            raise RunnerError('invalid_argument', 'mode for unknown file')
+        if mode in (0o755, EXECUTABLE_MODE):
+            out[path] = EXECUTABLE_MODE
+        elif mode in (0o644, REGULAR_MODE):
+            out[path] = REGULAR_MODE
+        else:
+            raise RunnerError('invalid_argument', 'unsupported file mode')
+    return out
+
+
+def _context_size(context, limits):
+    """Validate read-only reference files and return (tmpfs bytes or None, files)."""
+    if context is None:
+        return None, {}
+    files = _validate_files(context, limits)
+    total = sum(len(v) for v in files.values())
+    size = max(1024 * 1024, total + len(files) * 8192 + 65536)
+    if size > limits['workspace_mib'] * 1024 * 1024:
+        raise RunnerError('limit_exceeded', 'context exceeds workspace size')
+    if limits['memory_mib'] * 1024 * 1024 < (limits['workspace_mib'] + limits['tmp_mib'] + 64) * 1024 * 1024 + size:
+        raise RunnerError('limit_exceeded', 'context exceeds memory headroom')
+    return size, files
 
 
 # ------------------------------------------------------- bounded subprocesses
@@ -402,8 +440,12 @@ def discover_docker_binary(docker_binary=None) -> str:
 
 # ------------------------------------------------------------ tar parsing
 
-def parse_workspace_tar(data: bytes, limits: dict) -> dict[str, bytes]:
-    """Parse a tar stream in memory. Regular files only; never touches the host FS."""
+def parse_workspace_tar(data: bytes, limits: dict, modes: dict | None = None) -> dict[str, bytes]:
+    """Parse a tar stream in memory. Regular files only; never touches the host FS.
+
+    When ``modes`` is a dict it receives each file's git mode (100755 when any
+    execute bit is set, else 100644); the returned bytes mapping is unchanged.
+    """
     files, total = {}, 0
     try:
         archive = tarfile.open(fileobj=io.BytesIO(data), mode='r:')
@@ -443,6 +485,8 @@ def parse_workspace_tar(data: bytes, limits: dict) -> dict[str, bytes]:
             if len(content) != member.size:
                 raise RunnerError('snapshot_rejected', 'truncated entry')
             files[path] = content
+            if modes is not None:
+                modes[path] = EXECUTABLE_MODE if member.mode & 0o111 else REGULAR_MODE
     return files
 
 
@@ -456,14 +500,15 @@ def compare_snapshots(base: dict, current: dict) -> dict:
     return {'added': added, 'modified': modified, 'deleted': deleted}
 
 
-def _tar_files(files: dict) -> bytes:
+def _tar_files(files: dict, modes: dict | None = None, *, owner: int = SANDBOX_UID) -> bytes:
     buf = io.BytesIO()
+    modes = modes or {}
     with tarfile.open(fileobj=buf, mode='w', format=tarfile.PAX_FORMAT) as archive:
         for path in sorted(files):
             info = tarfile.TarInfo(path)
             info.size = len(files[path])
-            info.mode = 0o644
-            info.uid = info.gid = SANDBOX_UID
+            info.mode = 0o755 if modes.get(path) == EXECUTABLE_MODE else 0o644
+            info.uid = info.gid = owner
             info.mtime = 0
             info.type = tarfile.REGTYPE
             archive.addfile(info, io.BytesIO(files[path]))
@@ -510,6 +555,22 @@ _DELETE_SCRIPT = _CHECK_PARENTS + r'''
 if [ -L "$cur" ] || [ -f "$cur" ]; then exec rm -f -- "$cur"; fi
 if [ ! -e "$cur" ]; then echo not_found >&2; exit 92; fi
 echo not_a_file >&2; exit 94
+'''
+# Run as uid 0 WITHOUT capabilities: it owns the fresh /context files, so it can
+# chmod them, but cannot override permissions afterwards (no CAP_DAC_OVERRIDE).
+_CONTEXT_LOCK_SCRIPT = r'''
+set -eu
+find /context -type d -exec chmod 0555 {} +
+find /context -type f -exec chmod 0444 {} +
+'''
+# Run as the unprivileged actor: create, append and rename attempts must all fail.
+_CONTEXT_PROBE_SCRIPT = r'''
+if touch /context/.odv-probe 2>/dev/null; then exit 1; fi
+for f in $(find /context -type f | head -n 1); do
+  if sh -c ': >> "$1"' sh "$f" 2>/dev/null; then exit 1; fi
+  if mv "$f" "$f.x" 2>/dev/null; then exit 1; fi
+done
+exit 0
 '''
 _TOOLS_SCRIPT = r'''
 for b in "$@"; do command -v "$b" >/dev/null 2>&1 || { echo "$b" >&2; exit 95; }; done
@@ -640,7 +701,7 @@ class DockerRunner:
         return res
 
     @staticmethod
-    def _create_args(*, image_id, instance_id, session_id, attempt_id, limits) -> list[str]:
+    def _create_args(*, image_id, instance_id, session_id, attempt_id, limits, context_bytes=None) -> list[str]:
         """Exact docker create argument array. No caller-provided Docker options."""
         ws = limits['workspace_mib'] * 1024 * 1024
         tmp = limits['tmp_mib'] * 1024 * 1024
@@ -661,6 +722,10 @@ class DockerRunner:
             '--log-driver', 'none', '--workdir', WORKSPACE, '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp',
             '--hostname', 'opendevin-session', '--stop-timeout', '1',
         ]
+        if context_bytes is not None:
+            args += ['--tmpfs', f'{CONTEXT}:rw,nosuid,nodev,noexec,size={int(context_bytes)},'
+                                f'nr_inodes={limits["max_files"] * 2 + 64},mode=0755,uid=0,gid=0']
+            labels[LABEL_CONTEXT] = '1'
         for key, value in labels.items():
             args += ['--label', f'{key}={value}']
         # PID 1 (tini) runs a bounded sleep: the container ends itself at the wall limit.
@@ -668,7 +733,7 @@ class DockerRunner:
         return args
 
     @staticmethod
-    def _verify_hostconfig(info, limits) -> None:
+    def _verify_hostconfig(info, limits, *, context=False) -> None:
         hc = info.get('HostConfig') or {}
         problems = []
         if hc.get('Binds'):
@@ -687,7 +752,7 @@ class DockerRunner:
             problems.append('no_new_privileges')
         if hc.get('Devices') or hc.get('VolumesFrom') or hc.get('PidMode') or hc.get('IpcMode') == 'host':
             problems.append('namespaces')
-        if set((hc.get('Tmpfs') or {})) != {WORKSPACE, '/tmp'}:
+        if set((hc.get('Tmpfs') or {})) != ({WORKSPACE, '/tmp', CONTEXT} if context else {WORKSPACE, '/tmp'}):
             problems.append('tmpfs')
         if hc.get('PidsLimit') != limits['pids'] or hc.get('Memory') != limits['memory_mib'] * 1024 * 1024:
             problems.append('resources')
@@ -746,10 +811,16 @@ class DockerRunner:
         result['available'] = not reasons
         return result
 
-    def provision(self, session_id: str, files: dict, *, image: str, limits: dict) -> RunnerHandle:
+    def provision(self, session_id: str, files: dict, *, image: str, limits: dict,
+                  file_modes: dict | None = None, context: dict | None = None) -> RunnerHandle:
+        """``file_modes`` (optional) preserves regular 0644/0755 modes. ``context`` (optional)
+        is a read-only reference tree under /context: root-owned 0555 dirs and 0444 files
+        on its own noexec tmpfs, verified unwritable by the actor; never under /workspace."""
         session_id = _validate_id(session_id, 'session_id')
         limits = validate_limits(limits)
         files = _validate_files(files, limits)
+        modes = _validate_modes(file_modes, files)
+        context_bytes, context_files = _context_size(context, limits)
         pre = self.preflight(image)
         if pre['blocking_reasons']:
             raise RunnerError('preflight_failed', ','.join(pre['blocking_reasons']))
@@ -758,7 +829,8 @@ class DockerRunner:
             raise RunnerError('session_exists', 'an owned container already exists for this session')
         attempt_id = secrets.token_hex(6)
         res = self._cli_ok(self._create_args(image_id=image_id, instance_id=self.instance_id,
-                                             session_id=session_id, attempt_id=attempt_id, limits=limits),
+                                             session_id=session_id, attempt_id=attempt_id, limits=limits,
+                                             context_bytes=context_bytes),
                            code='provision_failed', timeout=60)
         container_id = res.stdout.decode('ascii', 'replace').strip()
         if not _CONTAINER_RE.match(container_id):
@@ -768,7 +840,7 @@ class DockerRunner:
             info = self._verify_handle(handle)
             if info is None:
                 raise RunnerError('provision_failed', 'created container disappeared')
-            self._verify_hostconfig(info, limits)
+            self._verify_hostconfig(info, limits, context=context_bytes is not None)
             self._cli_ok(['start', '--', container_id], code='provision_failed', timeout=60)
             with self._lock:
                 self._limits[container_id] = limits
@@ -779,10 +851,12 @@ class DockerRunner:
             if files:
                 up = self._exec(handle, ['tar', '-x', '-f', '-', '-C', WORKSPACE, '--no-same-owner',
                                          '--no-same-permissions'],
-                                timeout=120, max_stdout=4096, stdin=_tar_files(files))
+                                timeout=120, max_stdout=4096, stdin=_tar_files(files, modes))
                 if up.timed_out or up.returncode != 0:
                     raise RunnerError('workspace_full' if b'No space' in up.stderr else 'provision_failed',
                                       'workspace upload failed')
+            if context_bytes is not None:
+                self._upload_context(handle, context_files)
         except BaseException:
             try:
                 self._force_remove(container_id)
@@ -792,6 +866,26 @@ class DockerRunner:
                 self._limits.pop(container_id, None)
             raise
         return handle
+
+    def _root_exec(self, handle, argv, *, stdin=None, timeout=CONTROL_TIMEOUT) -> BoundedResult:
+        # uid 0 with every capability dropped and no-new-privileges; used only to
+        # populate the trusted read-only reference root before any tool runs.
+        args = ['exec'] + (['-i'] if stdin is not None else []) + ['-u', '0:0', '-w', '/', '-e', 'HOME=/tmp',
+                                                                   handle.container_id, *argv]
+        return self._cli(args, timeout=timeout, max_stdout=4096, stdin=stdin)
+
+    def _upload_context(self, handle, files) -> None:
+        if files:
+            up = self._root_exec(handle, ['tar', '-x', '-f', '-', '-C', CONTEXT, '--no-same-owner',
+                                          '--no-same-permissions'], stdin=_tar_files(files, owner=0), timeout=120)
+            if up.timed_out or up.returncode != 0:
+                raise RunnerError('provision_failed', 'context upload failed')
+        lock = self._root_exec(handle, ['sh', '-c', _CONTEXT_LOCK_SCRIPT])
+        if lock.timed_out or lock.returncode != 0:
+            raise RunnerError('isolation_unverified', 'context lock failed')
+        probe = self._exec(handle, ['sh', '-c', _CONTEXT_PROBE_SCRIPT], timeout=CONTROL_TIMEOUT, max_stdout=4096)
+        if probe.timed_out or probe.returncode != 0:
+            raise RunnerError('isolation_unverified', 'context is writable by the session user')
 
     def _force_remove(self, container_id: str) -> None:
         # Only called for a container this call just created and verified by id.
@@ -864,7 +958,8 @@ class DockerRunner:
             'truncated': res.stdout_truncated or res.stderr_truncated or len(res.stderr) > cap,
         }
 
-    def snapshot(self, handle) -> dict[str, bytes]:
+    def snapshot(self, handle, *, include_modes: bool = False):
+        """Default: {path: bytes}. With include_modes=True: (files, {path: git mode})."""
         limits = self._handle_limits(handle)
         cap = limits['workspace_mib'] * 1024 * 1024 + (limits['max_files'] * 2 + 64) * 2048 + 20480
         res = self._exec(handle, ['tar', '-C', WORKSPACE, '--numeric-owner', '-cf', '-', '.'],
@@ -873,6 +968,9 @@ class DockerRunner:
             raise RunnerError('limit_exceeded', 'snapshot archive exceeds limit')
         if res.timed_out or res.returncode != 0:
             raise RunnerError('snapshot_failed', 'workspace archive failed')
+        if include_modes:
+            modes = {}
+            return parse_workspace_tar(res.stdout, limits, modes), modes
         return parse_workspace_tar(res.stdout, limits)
 
     def stop(self, handle) -> dict:
