@@ -34,6 +34,7 @@ ASSETS = {
     "/panel.js": ("panel.js", "text/javascript; charset=utf-8"),
     "/ui.js": ("ui.js", "text/javascript; charset=utf-8"),
     "/repo-source.js": ("repo-source.js", "text/javascript; charset=utf-8"),
+    "/picker.js": ("picker.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
