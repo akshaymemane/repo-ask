@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createBrowser, install, settle, visibleText } from "./dom.mjs";
+import { createBrowser, input, install, settle, visibleText } from "./dom.mjs";
 
 const url = pathToFileURL(fileURLToPath(new URL("../../repoask/web/settings-models.js", import.meta.url))).href;
 let loads = 0;
@@ -102,11 +102,50 @@ test("Add OpenAI-compatible provider keeps advanced fields folded and posts the 
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
   assert.ok(dialog.querySelector("details"), "advanced settings are folded");
   field("Name").value = "LM Studio";
-  field("Base URL").value = "http://127.0.0.1:1234/v1";
+  input(field("Base URL"), "http://127.0.0.1:1234/v1");
   field("Model").value = "qwen-coder";
+  assert.ok(field("Send repository source to this provider").closest(".modal-remote").hidden, "no source opt-in for loopback");
   dialog.querySelectorAll("button").find((x) => x.textContent === "Add provider").click();
   await settle();
   const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
   assert.deepEqual(post[2], { name: "LM Studio", adapter: "openai_compatible", endpoint: "http://127.0.0.1:1234/v1", model: "qwen-coder",
-    config: { capabilities: ["chat"], timeout_seconds: 180, context_limit: 8192, max_output_tokens: 1024 } });
+    config: { capabilities: ["chat", "structured_output"], timeout_seconds: 180, context_limit: 8192, max_output_tokens: 1024 } });
+});
+
+test("a remote provider offers the source-sharing opt-in and sends it with structured output", async () => {
+  const { b, host, calls } = await setup();
+  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
+  field("Name").value = "Groq";
+  input(field("Base URL"), "https://api.groq.com/openai/v1");
+  field("Model").value = "openai/gpt-oss-120b";
+  const share = field("Send repository source to this provider");
+  assert.equal(share.closest(".modal-remote").hidden, false);
+  assert.equal(share.checked, false, "sharing is never on by default");
+  assert.match(visibleText(dialog), /Local-only mode in Settings → Privacy must also be off\./);
+  share.click();
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Add provider").click();
+  await settle();
+  const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
+  assert.deepEqual(post[2].config, { capabilities: ["chat", "structured_output"], timeout_seconds: 180, context_limit: 8192,
+    max_output_tokens: 1024, allow_external_source: true });
+});
+
+test("unchecking structured output keeps a chat-only profile", async () => {
+  const { b, host, calls } = await setup();
+  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
+  field("Name").value = "Old server";
+  input(field("Base URL"), "https://llm.example.com/v1");
+  field("Model").value = "m";
+  field("Supports structured output (JSON schema)").click();
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Add provider").click();
+  await settle();
+  const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
+  assert.deepEqual(post[2].config.capabilities, ["chat"]);
+  assert.equal(post[2].config.allow_external_source, false);
 });

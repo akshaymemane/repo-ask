@@ -9,6 +9,12 @@ const CHAT_CAPS = ["chat", "structured_output"];
 
 const wantsEmbedding = (role) => role === "embedding";
 const capabilities = (profile) => profile.version?.config?.capabilities ?? [];
+// Mirrors the server's loopback rule (localhost, 127.0.0.0/8, ::1); anything else is remote.
+const isRemote = (value) => {
+  let host;
+  try { host = new URL(value).hostname; } catch { return false; }
+  return !(host === "localhost" || host === "[::1]" || /^127(\.\d{1,3}){3}$/.test(host));
+};
 
 // Creates (or reuses) a local Ollama profile for a discovered model and assigns it to a role.
 export async function useDiscoveredModel(request, role, model) {
@@ -39,24 +45,45 @@ function addProviderForm(request, onDone, trigger) {
     wrap.append(input);
     return { wrap, input };
   };
+  const check = (label, checked) => {
+    const wrap = el("label", undefined, "modal-check");
+    const input = el("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.setAttribute("aria-label", label);
+    wrap.append(input, el("span", label));
+    return { wrap, input };
+  };
   const name = field("Name", "LM Studio");
   const base = field("Base URL", "http://127.0.0.1:1234/v1");
   const model = field("Model", "model id");
   const credential = field("Credential", "optional", "password");
+  // Plans use the JSON-schema path only when the profile declares it; Test connection verifies it.
+  const structured = check("Supports structured output (JSON schema)", true);
+  // A remote destination receives no repository source without this per-profile opt-in.
+  const remote = el("div", undefined, "modal-remote");
+  const share = check("Send repository source to this provider", false);
+  remote.append(share.wrap, el("p", "Ask and plans send retrieved code snippets to this provider. "
+    + "Local-only mode in Settings → Privacy must also be off.", "modal-note"));
+  const showRemote = () => { remote.hidden = !isRemote(base.input.value.trim()); };
+  base.input.addEventListener("input", showRemote);
+  showRemote();
   const advanced = el("details");
   const timeout = field("Timeout seconds", "180", "number");
   const context = field("Context token limit", "8192", "number");
   const output = field("Maximum output tokens", "1024", "number");
   advanced.append(el("summary", "Advanced: timeouts and token limits"), timeout.wrap, context.wrap, output.wrap);
   const error = el("p", "", "composer-error");
-  modal.body.append(name.wrap, base.wrap, model.wrap, credential.wrap, advanced, error);
+  modal.body.append(name.wrap, base.wrap, model.wrap, credential.wrap, structured.wrap, remote, advanced, error);
   button(modal.footer, "Cancel", () => modal.close(null));
   button(modal.footer, "Add provider", async (event, control) => {
     control.disabled = true;
     error.textContent = "";
     const number = (input, fallback) => (input.value.trim() ? Number(input.value) : fallback);
-    const payload = { name: name.input.value.trim(), adapter: "openai_compatible", endpoint: base.input.value.trim(), model: model.input.value.trim(),
-      config: { capabilities: ["chat"], timeout_seconds: number(timeout.input, 180), context_limit: number(context.input, 8192), max_output_tokens: number(output.input, 1024) } };
+    const endpoint = base.input.value.trim();
+    const payload = { name: name.input.value.trim(), adapter: "openai_compatible", endpoint, model: model.input.value.trim(),
+      config: { capabilities: structured.input.checked ? CHAT_CAPS : ["chat"], timeout_seconds: number(timeout.input, 180), context_limit: number(context.input, 8192), max_output_tokens: number(output.input, 1024) } };
+    if (isRemote(endpoint)) payload.config.allow_external_source = share.input.checked;
     if (credential.input.value) payload.secret_value = credential.input.value;
     try {
       await request("/api/provider-profiles", "POST", payload);
