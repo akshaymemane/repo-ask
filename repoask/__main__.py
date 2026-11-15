@@ -37,6 +37,7 @@ ASSETS = {
     "/picker.js": ("picker.js", "text/javascript; charset=utf-8"),
     "/mentions.js": ("mentions.js", "text/javascript; charset=utf-8"),
     "/composer.js": ("composer.js", "text/javascript; charset=utf-8"),
+    "/thread.js": ("thread.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
