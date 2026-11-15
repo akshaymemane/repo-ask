@@ -81,6 +81,9 @@ class ExecutionAPI:
         if method=='GET' and operation in ('diff','validations','artifacts'):
             query_fields(raw_query,set())
             return APIResponse(200,getattr(self.sessions,operation)(ident))
+        if method=='GET' and operation=='messages':
+            q=query_fields(raw_query,{'limit','cursor'})
+            return APIResponse(200,self.sessions.list_messages(ident,limit=page_limit(q.get('limit',50)),cursor=q.get('cursor')))
         if method=='POST' and operation=='messages':
             data=fields(body,{'content','client_request_id','question_id'},{'content','client_request_id'})
             return APIResponse(202,self.sessions.send_message(ident,**data))
