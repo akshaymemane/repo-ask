@@ -40,11 +40,16 @@ export function createSidePanel(host) {
 
   const api = {
     openTab({ id, title, render: draw }) {
-      if (host.hidden) returnFocus = document.activeElement;
+      const opener = document.activeElement;
+      let inside = false;
+      for (let node = opener; node; node = node.parentNode) if (node === host) inside = true;
+      if (!inside && opener && opener !== document.body && opener.isConnected) returnFocus = opener;
       tabs.set(id, { title, render: draw });
       active = id;
       host.hidden = false;
       render();
+      const selected = [...tabList.querySelectorAll("button")].find((tab) => tab.getAttribute("aria-selected") === "true");
+      (selected ?? closeAll).focus();
     },
     closeTab(id) {
       tabs.delete(id);
@@ -66,11 +71,11 @@ export function createSidePanel(host) {
   };
 
   closeAll.addEventListener("click", () => api.close());
-  host.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      api.close();
-    }
+  // Escape closes the panel from anywhere, unless a dialog (which handles its own Escape) is open.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || host.hidden || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+    event.preventDefault();
+    api.close();
   });
   return api;
 }

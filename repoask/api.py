@@ -118,7 +118,8 @@ class FeatureAPI:
         if method == 'GET':
             if path == '/api/github/connections':
                 query_fields(raw_query, set())
-                return APIResponse(200, {'connections': self.github.connections(), 'summary': self.github.status_summary()})
+                return APIResponse(200, {'connections': self.github.connections(), 'summary': self.github.status_summary(),
+                                         'can_configure': self.github.can_configure()})
             if path == '/api/repositories':
                 q = query_fields(raw_query, {'cursor', 'limit', 'query', 'owner', 'index_enabled'})
                 selected = q.get('index_enabled')

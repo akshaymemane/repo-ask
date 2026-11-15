@@ -105,3 +105,56 @@ test("the privacy switch saves local-only immediately and reverts on failure", a
   assert.equal(failing.getAttribute("aria-checked"), "true");
   assert.match(visibleText(bad.host), /http_500/);
 });
+
+test("a created but not installed app offers Install on your repositories", async () => {
+  const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const mod = await import(`${url}?s=install`);
+  const calls = [];
+  const request = async (path, method = "GET", body) => {
+    calls.push([method, path, body]);
+    if (path === "/api/github/connections") return { connections: [{ id: "ghc_1", status: "configured", slug: "opendevin-99fc7a" }] };
+    if (path === "/api/github/connect") return { install_url: "https://github.com/apps/opendevin-99fc7a/installations/new?state=abc", expires_at: 1 };
+    return {};
+  };
+  const opened = [];
+  const page = mod.createSettingsPage({ host: b.document.getElementById("host"), request, sections: { github: null }, navigate: (href) => opened.push(href) });
+  await page.show("github", { code: "manifest_created" });
+  await settle();
+  const host = b.document.getElementById("host");
+  assert.equal(host.querySelectorAll("button").find((x) => x.textContent === "Connect GitHub"), undefined);
+  host.querySelectorAll("button").find((x) => x.textContent === "Install on your repositories").click();
+  await settle();
+  assert.deepEqual(calls.find(([, p]) => p === "/api/github/connect"), ["POST", "/api/github/connect", { connection_id: "ghc_1" }]);
+  assert.deepEqual(opened, ["https://github.com/apps/opendevin-99fc7a/installations/new?state=abc"]);
+});
+
+test("an install link that is not on github.com is refused", async () => {
+  const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const mod = await import(`${url}?s=badinstall`);
+  const request = async (path) => path === "/api/github/connections" ? { connections: [{ id: "ghc_1", status: "configured" }] } : { install_url: "https://evil.example/apps/x", expires_at: 1 };
+  const opened = [];
+  const page = mod.createSettingsPage({ host: b.document.getElementById("host"), request, sections: { github: null }, navigate: (href) => opened.push(href) });
+  await page.show("github");
+  await settle();
+  const host = b.document.getElementById("host");
+  host.querySelectorAll("button").find((x) => x.textContent === "Install on your repositories").click();
+  await settle();
+  assert.deepEqual(opened, []);
+  assert.match(visibleText(host), /Invalid installation destination/);
+});
+
+test("without key storage there is no Connect button, only the reason", async () => {
+  const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const mod = await import(`${url}?s=nostorage`);
+  const request = async (path) => path === "/api/github/connections" ? { connections: [], can_configure: false } : {};
+  const page = mod.createSettingsPage({ host: b.document.getElementById("host"), request, sections: { github: null } });
+  await page.show("github");
+  await settle();
+  const host = b.document.getElementById("host");
+  assert.equal(host.querySelectorAll("button").find((x) => x.textContent === "Connect GitHub"), undefined);
+  assert.match(visibleText(host), /GitHub setup needs saved storage and an unlocked secure key store\. Start OpenDevin with --data-dir and unlock your keychain\./);
+  assert.match(mod.githubStatusText("manifest_key_not_saved"), /The App was created on GitHub but its key wasn't saved/);
+});

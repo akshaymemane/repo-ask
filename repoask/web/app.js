@@ -520,7 +520,7 @@ function applyNavigation() {
   const { workspace } = state.status;
   if (workspace.kind !== "ok" || !Array.isArray(workspace.data.navigation)) return;
   const ids = workspace.data.navigation.map((entry) => entry && entry.id);
-  for (const link of document.querySelectorAll(".primary-nav a")) {
+  for (const link of document.querySelectorAll(".primary-nav a[data-route]")) {
     // Ask always stays reachable; other areas follow the server's list.
     link.parentNode.hidden = link.dataset.route !== "ask" && !(link.dataset.route === "sessions" && connectedUI.sessionsReady) && !ids.includes(link.dataset.route);
   }

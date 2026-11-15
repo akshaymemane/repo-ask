@@ -1,6 +1,6 @@
 // First-run checklist shown on the Ask landing page until GitHub, repositories and a model are set.
 import { button, el } from "./ui.js";
-import { startManifest } from "./settings.js";
+import { STORAGE_NEEDED, startInstall, startManifest } from "./settings.js";
 import { useDiscoveredModel } from "./settings-models.js";
 
 const enc = encodeURIComponent;
@@ -18,7 +18,7 @@ function step(number, title, done) {
   return { item, body };
 }
 
-export async function renderSetup(host, { request, onDone = () => {}, submitForm } = {}) {
+export async function renderSetup(host, { request, onDone = () => {}, submitForm, navigate = (href) => location.assign(href) } = {}) {
   let connections, catalog, roles, discovered;
   try {
     [connections, catalog, roles, discovered] = await Promise.all([
@@ -43,13 +43,23 @@ export async function renderSetup(host, { request, onDone = () => {}, submitForm
     onDone();
     return;
   }
-  const again = () => renderSetup(host, { request, onDone, submitForm });
+  const again = () => renderSetup(host, { request, onDone, submitForm, navigate });
   const box = el("section", undefined, "setup");
   box.append(el("h2", "Set up OpenDevin"), el("p", "Everything stays on this computer. About 3 minutes.", "detail-muted"));
   const list = el("ol", undefined, "setup-steps");
 
   const github = step(1, "Connect GitHub", state.githubConnected);
-  if (!state.githubConnected) {
+  const created = (connections.connections || []).find((item) => item.status !== "connected" && item.status !== "disconnected");
+  if (!state.githubConnected && created) {
+    const output = el("p", "", "detail-muted");
+    github.body.append(el("p", `${created.slug ?? "Your GitHub App"} is created. Install it on your repositories.`, "detail-muted"));
+    button(github.body, "Install on your repositories", async () => {
+      try { await startInstall(request, created.id, navigate); } catch (error) { output.textContent = error.message; }
+    }, { variant: "primary" });
+    github.body.append(output);
+  } else if (!state.githubConnected && connections.can_configure === false) {
+    github.body.append(el("p", STORAGE_NEEDED, "detail-muted"));
+  } else if (!state.githubConnected) {
     const output = el("p", "", "detail-muted");
     button(github.body, "Connect GitHub", async () => {
       try { await startManifest(request, {}, submitForm); } catch (error) { output.textContent = `Could not start GitHub setup: ${error.message}`; }

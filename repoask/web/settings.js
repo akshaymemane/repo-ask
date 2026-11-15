@@ -2,7 +2,8 @@
 import { button, el, toggleSwitch } from "./ui.js";
 
 const SECTIONS = [["github", "GitHub"], ["models", "Models"], ["agent", "Coding agent"], ["privacy", "Privacy"], ["health", "System health"]];
-const STATUS = { connected: "GitHub connected.", manifest_created: "App created. Now install it on your repositories.", pending_approval: "Installation is waiting for an organization owner's approval." };
+const STORAGE_NEEDED = "GitHub setup needs saved storage and an unlocked secure key store. Start OpenDevin with --data-dir and unlock your keychain.";
+const STATUS = { manifest_key_not_saved: "The App was created on GitHub but its key wasn't saved. Delete it in GitHub → Settings → Developer settings → GitHub Apps, fix storage, then try again.", connected: "GitHub connected.", manifest_created: "App created. Now install it on your repositories.", pending_approval: "Installation is waiting for an organization owner's approval." };
 
 export function githubStatusText(code) {
   if (!code) return null;
@@ -12,6 +13,17 @@ export function githubStatusText(code) {
 function defaultSubmit(form) {
   document.body.append(form);
   form.submit();
+}
+
+// Opens GitHub's install page for a created App; only github.com/apps/... destinations are followed.
+export { STORAGE_NEEDED };
+
+export async function startInstall(request, connectionId, navigate) {
+  const result = await request("/api/github/connect", "POST", { connection_id: connectionId });
+  let target;
+  try { target = new URL(result.install_url); } catch { throw new Error("Invalid installation destination."); }
+  if (target.origin !== "https://github.com" || target.username || target.password || !target.pathname.startsWith("/apps/")) throw new Error("Invalid installation destination.");
+  navigate(target.href);
 }
 
 // Starts GitHub App creation: the browser posts the manifest to GitHub, which returns to our callback.
@@ -31,7 +43,7 @@ export async function startManifest(request, { organization = "" } = {}, submitF
   return start;
 }
 
-export function createSettingsPage({ host, request, sections, submitForm = defaultSubmit }) {
+export function createSettingsPage({ host, request, sections, submitForm = defaultSubmit, navigate = (href) => location.assign(href) }) {
   const root = el("div", undefined, "settings-layout");
   const nav = el("nav", undefined, "settings-nav");
   nav.setAttribute("aria-label", "Settings sections");
@@ -51,9 +63,24 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
     const box = el("section", undefined, "setting-card");
     box.append(el("h2", "GitHub"), el("p", "Checking connection…", "detail-muted"));
     request("/api/github/connections").then((data) => {
-      const connected = (data.connections || []).some((item) => item.status === "connected");
+      const connections = data.connections || [];
+      const connected = connections.some((item) => item.status === "connected");
       box.replaceChildren(el("h2", "GitHub"));
       if (connected) return;
+      if (data.can_configure === false) { box.append(el("p", STORAGE_NEEDED, "detail-muted")); return; }
+      const created = connections.find((item) => item.status !== "disconnected");
+      if (created) {
+        // The App exists; installing it is the only step left. Never offer to create a second App.
+        box.append(el("p", `${created.slug ?? "Your GitHub App"} is created. Install it on the repositories OpenDevin should see.`));
+        const output = el("p", "", "detail-muted");
+        const installButton = button(box, "Install on your repositories", async () => {
+          installButton.disabled = true;
+          output.textContent = "";
+          try { await startInstall(request, created.id, navigate); } catch (error) { output.textContent = error.message; } finally { installButton.disabled = false; }
+        }, { variant: "primary" });
+        box.append(output);
+        return;
+      }
       box.append(el("p", "Connect GitHub to search your repositories. OpenDevin creates a private, read-only GitHub App for you; you review it on GitHub before anything is created."));
       const org = el("input");
       org.setAttribute("aria-label", "Organization name");

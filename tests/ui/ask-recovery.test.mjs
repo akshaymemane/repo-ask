@@ -238,7 +238,7 @@ test('completed generation loads automatically for heading/button focus and pres
   });
   if(editing)b.field('Question').focus();else b.button('Cancel').focus();
   await new Promise(resolve=>setTimeout(resolve,1600));await settle();
-  if(editing){assert.equal(reads,1);assert.match(b.text(),/Generation finished/);assert.equal(b.document.activeElement,b.field('Question'));}
+  if(editing){assert.equal(reads,2);assert.match(b.text(),/Automatically loaded answer/);assert.doesNotMatch(b.text(),/Reload saved conversation/);assert.equal(b.document.activeElement,b.field('Question'),'typing focus is kept');}
   else {assert.equal(reads,2);assert.match(b.text(),/Automatically loaded answer/);assert.equal(b.document.activeElement.tagName,'H3');}
  }
 });
@@ -252,4 +252,36 @@ test('coverage and destination expose useful summaries without internal JSON',as
   return missing;
  });
  await settle();assert.match(b.text(),/4 files · 12 chunks · partial coverage/);assert.match(b.text(),/local · localhost/);assert.doesNotMatch(b.text(),/selection_hash|private-internal-hash/);
+});
+
+test('a conflicting scope edit keeps the other tab change and re-applies only this edit',async()=>{
+ let server={...conversation('a',{repository_ids:['x','y']}),scope_revision:2};const patches=[];
+ const b=await boot((m,u,o)=>{
+  if(u==='/api/conversations')return {items:[server]};
+  if(u==='/api/conversations/a'){
+   if(m==='PATCH'){const body=JSON.parse(o.body);patches.push(body);if(body.expected_revision!==server.scope_revision)return {status:409,body:{message:'Scope revision changed.'}};server={...server,repository_ids:body.repository_ids,scope_revision:server.scope_revision+1};return server;}
+   return patches.length?server:{...server,repository_ids:['x'],scope_revision:1};
+  }
+  if(u==='/api/repositories/x/context')return {repository_id:'x',name:'owner/x'};
+  if(u==='/api/repositories/y/context')return {repository_id:'y',name:'owner/y'};
+  return missing;
+ });
+ b.panel.querySelectorAll('button').find(n=>n.getAttribute('aria-label')==='Remove x').click();await settle(30);
+ assert.deepEqual(patches.map(p=>[p.repository_ids,p.expected_revision]),[[[],1],[['y'],2]]);
+ assert.deepEqual(b.panel.querySelectorAll('.chip-repo .chip-label').map(n=>n.textContent),['y']);
+ assert.match(b.text(),/Removed x/);assert.doesNotMatch(b.text(),/Removed y|Added y/);
+});
+
+test('a failed repository choice or retry is reported and keeps the pending question',async()=>{
+ const c=conversation('a',{repository_ids:[],messages:[{id:'m1',role:'user',state:'complete',content:'Q',created_at:1},{id:'m2',role:'assistant',state:'failed',error_code:'provider_timeout',created_at:2}],runs:[{id:'run1',assistant_message_id:'m2',state:'failed'}]});
+ const b=await boot((m,u)=>{
+  if(u==='/api/conversations')return {items:[c]};if(u==='/api/conversations/a'){if(m==='PATCH')return {status:500,body:{message:'Scope store offline'}};return c;}
+  if(u==='/api/route')return {status:'needs_selection',selected_repository_ids:[],candidates:[{name:'owner/candidate',repository_id:'suggested',reason:'match'}]};
+  if(u==='/api/answer-runs/run1/retry')return {status:503,body:{message:'Retry queue offline'}};
+  return missing;
+ });
+ b.button('Retry').click();await settle();assert.match(b.text(),/Retry queue offline/);
+ input(b.field('Question'),'request');b.button('Ask').click();await settle();
+ b.button('candidate').click();await settle(20);
+ assert.match(b.text(),/Scope store offline/);assert.match(b.text(),/Which repository\?/,'the choice stays available');assert.equal(b.field('Question').value,'request');
 });

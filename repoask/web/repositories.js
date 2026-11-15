@@ -66,13 +66,21 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     || (filter === "Can change" && row.canChange)
     || (filter === "Problems" && (row.status.tone === "danger" || row.status.label === "No access" || row.status.label.startsWith("Waiting")));
 
-  async function save(row, patch) {
+  // Saves on one row run in order; each sends the row's latest intended state so switches never undo each other.
+  function save(row, patch) {
+    row.target = { index_enabled: row.inAsk, implementation_enabled: row.canChange, ...(row.target ?? {}), ...patch };
+    const run = (row.queue ?? Promise.resolve()).catch(() => {}).then(() => saveNow(row, patch));
+    row.queue = run;
+    return run;
+  }
+
+  async function saveNow(row, patch) {
     pendingSaves += 1;
     notice.textContent = "";
     let unknown = false;
     try {
       if (row.github) {
-        const body = { index_enabled: row.inAsk, implementation_enabled: row.canChange, ...patch };
+        const body = { ...row.target };
         const saved = await request(`/api/repositories/${enc(row.id)}`, "PATCH", body);
         row.inAsk = typeof saved?.index_enabled === "boolean" ? saved.index_enabled : body.index_enabled;
         row.canChange = typeof saved?.implementation_enabled === "boolean" ? saved.implementation_enabled : body.implementation_enabled;
@@ -82,6 +90,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
         row.inAsk = patch.index_enabled;
       }
     } catch (error) {
+      row.target = { index_enabled: row.inAsk, implementation_enabled: row.canChange };
       // A lost response may still have been applied: say so and show what the server has.
       unknown = error.status === undefined;
       if (unknown) notice.textContent = error.message;

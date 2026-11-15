@@ -55,7 +55,14 @@ export function attachMentions(textarea, { request, onPick, exclude = () => [] }
     const taken = new Set(exclude());
     options = items.filter((item) => item.selectable && !taken.has(item.id)).slice(0, 8);
     menu.replaceChildren();
-    if (!options.length) return close();
+    if (!options.length) {
+      const empty = el("li", "No indexed repositories match. Use + to see all.", "mention-empty");
+      empty.setAttribute("aria-disabled", "true");
+      menu.append(empty);
+      menu.hidden = false;
+      textarea.removeAttribute("aria-activedescendant");
+      return;
+    }
     options.forEach((repo, i) => {
       const item = el("li", undefined, "mention-option");
       item.id = `${prefix}-opt-${i}`;
@@ -80,7 +87,7 @@ export function attachMentions(textarea, { request, onPick, exclude = () => [] }
     const token = ++sequence;
     timer = setTimeout(async () => {
       try {
-        const page = await searchRepositories(request, { query, limit: 8 });
+        const page = await searchRepositories(request, { query, limit: 50 });
         if (token === sequence && mention) render(page.items);
       } catch {
         if (token === sequence) close();
@@ -89,7 +96,11 @@ export function attachMentions(textarea, { request, onPick, exclude = () => [] }
   }
 
   function onKeydown(event) {
-    if (menu.hidden || !options.length) return;
+    if (menu.hidden) return;
+    if (!options.length) {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
