@@ -1,6 +1,6 @@
 # M2-PROFILES status
 
-- State: review; source/test b5ca0c490e70889a40755042187c8b9c072a7237 frozen, independent review pending.
+- State: review; R1 source fixes frozen at 4f8f698aa77a7d1f5beed0acb04e5ca37db6df2f, independent re-review pending.
 - Owner: native Codex `/root/transport_cancel`, temporary platform assignment.
 - Worktree/branch: /Users/apple/workspace/vibe-coding/opendevin-m2-profiles; task/m2-profiles.
 - Base: 28343c3a6a5223bb6195678d2d55203692cdbc14.
@@ -14,3 +14,7 @@
 - Integration requirement sent to coordinator: Session runtime must wire pending_runtime_tests()/reconcile_test() and the matching process start identity; this service does not own runtime leadership/HTTP entrypoints.
 - Processes: all owned fixture/regression/lease-monitor work finished; none running.
 - Next: final evidence commit, independent review, coordinator-owned dependency fixes/runtime wiring and combined real acceptance.
+
+- Review R1: M1 pre-runtime safe failure, L1 confirmed callback cleanup, L2 strict image references, L3 int64 cursor bound and L4 byte-equivalent rename check inheritance implemented; exact evidence in review-r1-response.md.
+
+- Final R1 verification: 39 focused passed in 15.590s; 358 full tests in 151.314s, OK with five Docker-gated skips and inherited broker ResourceWarnings. No owned tests or synthetic child processes remain.

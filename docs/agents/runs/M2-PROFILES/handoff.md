@@ -1,12 +1,35 @@
 # Builder handoff — M2-PROFILES
 
+## Latest review follow-up
+
+Independent Claude review of `551e988` requested M1 and L1–L4 changes. Source/test
+fix commit: `4f8f698aa77a7d1f5beed0acb04e5ca37db6df2f`; its parent is the previously
+submitted `551e98823f59b468432c69e158eab96612c747cf`. Re-review this follow-up against
+that exact parent. The subsequent evidence commit is identified directly to the
+coordinator. Initial implementation/evidence below is retained as history.
+
+Current checks: **39 focused passed in 15.590s; final full suite 358 tests in
+151.314s, OK with five expected Docker-gated skips.** Known broker ResourceWarnings
+remain reported; no out-of-scope fix or warning suppression was applied.
+
+All findings are mapped to changes and concrete regression scenarios in
+[review-r1-response.md](review-r1-response.md). Before any factory/runtime effect,
+policy/shutdown rejection now records a safe failed check and permits fresh testing
+when policy is restored. Confirmed callback cleanup is not classified as unknown
+containment. Image references and int64 cursor bounds are validated. Presentation
+renames inherit cached checks only through consecutive byte-equivalent config
+versions, retaining one private recovery record even for an in-flight check.
+Material configuration changes break inheritance. Public interfaces and SQL remain
+unchanged. All owned tests and synthetic child processes have finished; no actual
+model, Docker or remote operation ran. Independent re-review is pending.
+
 ## Identity
 
 - Author/harness/session: native Codex `/root/transport_cancel`, temporarily assigned platform/execution-profile producer.
 - Branch/worktree: `task/m2-profiles`; `/Users/apple/workspace/vibe-coding/opendevin-m2-profiles`.
 - Assigned base: `28343c3a6a5223bb6195678d2d55203692cdbc14`.
 - Explicit dependency picks: `7d2f363` (original adapter `6789421`), `392ee23` (original adapter evidence `9de6eeb`). These are separate producer candidates, not this task's implementation or approval.
-- Source/test commit: `b5ca0c490e70889a40755042187c8b9c072a7237`.
+- Initial source/test commit: `b5ca0c490e70889a40755042187c8b9c072a7237`; latest follow-up is listed above.
 - The subsequent task-evidence commit's exact SHA is delivered directly to the coordinator.
 - Review own source against dependency base `392ee23`; integrate only this task's source/evidence commits after independent approval, with separately reviewed adapter dependencies/fixes.
 - Task card: `docs/agents/runs/M2-PROFILES/task.json`.

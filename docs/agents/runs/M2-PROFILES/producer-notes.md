@@ -41,3 +41,12 @@ They do not alter SQL, shared contracts or Session files from this worktree.
 The coordinator owns Session runtime recovery wiring, worker registration, API/main
 composition, SQL, and independent review/integration. The adapter dependency remains
 subject to its own review fixes; this task does not claim it is approved.
+
+## Review follow-up decisions
+
+Coordinator confirmed name-only renames are presentation-only. Cached checks are
+preserved across consecutive adapter/auth/config-byte-equivalent versions without
+cloning private runtime records. An intervening config/source/limit change breaks
+inheritance, and an explicitly requested new check replaces inherited readiness.
+Pre-runtime rejections with no factory/runtime effects are known failed checks,
+not unknown external outcomes; live lease fencing still applies.

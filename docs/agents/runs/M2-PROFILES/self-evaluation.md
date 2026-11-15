@@ -18,3 +18,12 @@ Self-check: the user should agree because the requested producer behavior and
 pinned-version amendment have concrete checks, while unrun live evidence and
 out-of-scope integration/dependency gaps are stated without claiming completion.
 Verdict: deliver for independent review, not as an integrated release.
+
+## R1 follow-up evidence
+
+Independent review caught a zero-effect external-job recovery trap and four
+smaller correctness/product issues. They are addressed in source 4f8f698 with
+39 focused and 358 full passing checks (five expected skips). The callback regression
+uses a real synthetic child process and verifies disappearance; no model runs.
+Accuracy remains 4 pending exact-commit re-review. Broker reader warnings and
+production integration/live proof remain coordinator-owned dependencies.
