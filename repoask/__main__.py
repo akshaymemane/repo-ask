@@ -36,6 +36,7 @@ ASSETS = {
     "/repo-source.js": ("repo-source.js", "text/javascript; charset=utf-8"),
     "/picker.js": ("picker.js", "text/javascript; charset=utf-8"),
     "/mentions.js": ("mentions.js", "text/javascript; charset=utf-8"),
+    "/composer.js": ("composer.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
 
