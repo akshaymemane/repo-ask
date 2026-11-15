@@ -1,11 +1,22 @@
 import { limitsText } from "./sessions.js";
+import { createComposer } from "./composer.js";
+import { renderThread } from "./thread.js";
+import { rememberRepositories } from "./repo-source.js";
+import { relativeTime } from "./ui.js";
 // Persistent Ask consumes the frozen AskAPI; source and model output are always text.
 const el = (tag, text) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; return n; };
 const enc = encodeURIComponent;
 const destinationText = d => d && typeof d === 'object' ? `${d.kind || 'unknown'}${d.host ? ` · ${d.host}` : d.disclosure ? ` · ${d.disclosure}` : ''}` : 'unknown';
 const coverageText = c => c && typeof c === 'object' ? [Number.isFinite(c.files) ? `${c.files} files` : null, Number.isFinite(c.chunks) ? `${c.chunks} chunks` : null, c.mode ? c.mode.replaceAll('_',' ') : null, c.partial === true ? 'partial coverage' : null].filter(Boolean).join(' · ') || 'unknown' : 'unknown';
 
-export async function createAskPanel({host, request = http, onMount = () => {}}) {
+const NO_SHELL = {setHeader() {}, setRecent() {}};
+export function titleFrom(text) {
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  if (clean.length <= 60) return clean;
+  const cut = clean.slice(0, 60);
+  return (cut.lastIndexOf(' ') > 30 ? cut.slice(0, cut.lastIndexOf(' ')) : cut) + '…';
+}
+export async function createAskPanel({host, request = http, onMount = () => {}, shell = NO_SHELL}) {
   let listing, initialHistoryError;
   try {
     listing = await request('/api/conversations');
@@ -17,10 +28,11 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
   const panel = el('main'); panel.className = 'persistent-ask';
   const title=el('h1','Ask · saved planning');title.id='persistent-ask-title';title.setAttribute('tabindex','-1');panel.setAttribute('aria-labelledby',title.id);
   const status = el('p'); status.setAttribute('role', 'status');
-  const history = el('nav'); history.setAttribute('aria-label', 'Saved conversations');
+  const knownNames = new Map(), scopeEvents = new Map(), staleScope = new Map(); let composerHandle = null;
   const pendingNotice=el('div');
   const body = el('div'); const source = el('aside'); source.setAttribute('aria-label', 'Snapshot source');
-  panel.append(title, status, history, pendingNotice, body, source); host.append(panel);
+  const historyNotice = el('div'); historyNotice.className = 'history-notice';
+  panel.append(title, status, historyNotice, pendingNotice, body, source); host.append(panel);
   let sourceEpoch=0;
   let epoch = 0, current = null, draft = false, pending = false, timer, acceptedHash = location.hash;
   let sendAttempt = null;
@@ -49,7 +61,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
   const link = (parent, text, hash) => { const a = el('a', text); a.setAttribute('href', hash); parent.append(a); };
   const field = (parent, label, value, dirty=true) => { const wrap = el('label', label); const input = el('textarea'); input.value = value || ''; if(dirty)input.addEventListener('input', () => { draft = true; }); wrap.append(input); parent.append(wrap); return input; };
   const guard = () => !draft || window.confirm('Discard unsaved Ask or plan edits?');
-  function discardDraft(){if(current){promptDrafts.delete(current.id);scopeDrafts.delete(current.id);}draft=false;}
+  function discardDraft(){if(current){promptDrafts.delete(current.id);scopeDrafts.delete(current.id);try{window.sessionStorage?.removeItem(`ask-draft:${current.id}`);}catch{}}else{try{window.sessionStorage?.removeItem('ask-draft:new');}catch{}}draft=false;}
   function renderPending(){
     pendingNotice.replaceChildren();if(!sendAttempt)return;
     pendingNotice.append(el('p',`Unconfirmed request for ${sendAttempt.conversation}. Retry the same request to reconcile it, or explicitly discard the pending client attempt. Discard does not cancel a request the server may already have accepted.`));
@@ -57,23 +69,27 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     button(pendingNotice,'Discard pending request',()=>{sendAttempt=null;persistAttempt();renderPending();say('Pending client attempt discarded. Draft text is preserved; any accepted server request is unchanged.');});
   }
   window.addEventListener('beforeunload', e => { if (draft) { e.preventDefault(); e.returnValue = ''; } });
-  let historyGeneration=0;
+  let historyGeneration=0, historyItems=[];
   async function refreshHistory(cursor, supplied) {
     const generation=++historyGeneration;
-    if(!cursor){history.replaceChildren();button(history, 'New saved conversation', async () => { if (!guard()) return; const c = await request('/api/conversations', 'POST', {}); discardDraft(); location.hash = `#/ask/${enc(c.id)}`; });}
     try {
       const page = supplied || await request(`/api/conversations${cursor ? `?cursor=${enc(cursor)}`:''}`);
       if(generation!==historyGeneration)return;
       if(!Array.isArray(page?.items))throw new Error('Unsupported conversation history response.');
-      const existing=new Set([...history.querySelectorAll('a')].map(a=>a.getAttribute('href')));
-      for (const c of page.items){const hash=`#/ask/${enc(c.id)}`;if(!existing.has(hash)){link(history,c.title || c.id,hash);existing.add(hash);}}
-      if (page.next_cursor) button(history, 'More conversations', async b => {await refreshHistory(page.next_cursor);b.remove();});
+      const seen=new Set(cursor?historyItems.map(item=>item.href):[]);
+      if(!cursor)historyItems=[];
+      for (const c of page.items){const href=`#/ask/${enc(c.id)}`;if(seen.has(href))continue;seen.add(href);
+        historyItems.push({href,title:c.title || `Untitled · ${relativeTime(c.updated_at ?? c.created_at ?? Date.now())}`,meta:relativeTime(c.updated_at ?? c.created_at ?? Date.now())});}
+      historyNext=page.next_cursor || null;
+      shell.setRecent(historyItems,{heading:'Recent',onMore:historyNext?()=>refreshHistory(historyNext):null});
+      historyNotice.replaceChildren();
     } catch(error) {
       if(generation!==historyGeneration)return;
-      history.append(el('p',`Conversation history unavailable: ${error.message}`));
-      button(history,'Retry conversation history',()=>refreshHistory());
+      historyNotice.replaceChildren(el('p',`Conversation history unavailable: ${error.message}`));
+      button(historyNotice,'Retry conversation history',()=>refreshHistory());
     }
   }
+  let historyNext=null;
   async function cite(c, token, trigger) {
     const sourceToken=++sourceEpoch; source.replaceChildren(el('p', 'Loading exact snapshot…'));
     try {
@@ -85,98 +101,130 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     } catch (e) { if (token === epoch && sourceToken===sourceEpoch) source.replaceChildren(el('p', `Source unavailable: ${e.message}`)); }
   }
   function citations(parent, list, token) { for (const c of list || []) button(parent, `${c.repository_id} · ${c.path}:${c.start_line}–${c.end_line} @ ${c.revision}`, trigger => cite(c, token, trigger)); }
+  const contexts = new Map();
+  async function repoNames(ids, token) {
+    const results = await Promise.allSettled(ids.map(id => contexts.has(id) ? Promise.resolve(contexts.get(id)) : request(`/api/repositories/${enc(id)}/context`)));
+    if (token !== epoch) return [];
+    return ids.map((id, i) => {
+      const value = results[i].status === 'fulfilled' ? results[i].value : null;
+      if (value) contexts.set(id, value);
+      const name = String(value?.name || id).split('/').pop();
+      knownNames.set(id, name);
+      return {id, name, missing: !value};
+    });
+  }
+  async function updateScope(c, ids) {
+    const patch = revision => request(`/api/conversations/${enc(c.id)}`, 'PATCH', {repository_ids: ids, expected_revision: revision});
+    try { return await patch(c.scope_revision); }
+    catch (error) {
+      if (error.status !== 409) throw error;
+      const fresh = await request(`/api/conversations/${enc(c.id)}`);
+      try { return await patch(fresh.scope_revision); }
+      catch (again) { if (again.status === 409) throw new Error("Someone changed this conversation's repositories. Reload to see the latest."); throw again; }
+    }
+  }
+  async function enrichPlans(c, token) {
+    return Promise.all((c.plans || []).map(async p => {
+      const base = {id: p.id, title: p.title || 'Saved plan', version: null, steps: null, ready: false, reason: 'Plan details unavailable', created_at: p.created_at ?? Infinity, latest: p.latest_version_id};
+      try {
+        const full = await request(`/api/plans/${enc(p.id)}`);
+        if (token !== epoch) return base;
+        const v = full.version;
+        return {...base, version: v.version, steps: v.content?.steps?.length ?? 0, ready: v.readiness?.state === 'ready',
+          reason: v.readiness?.state === 'ready' ? '' : (v.readiness?.blocking_reasons || []).join(', ') || v.readiness?.state || ''};
+      } catch { return base; }
+    }));
+  }
   async function conversation(id, token) {
     const c = await request(`/api/conversations/${enc(id)}`); if (token !== epoch) return;
-    current = c; body.replaceChildren(el('h3', c.title || 'Conversation'));
-    body.append(el('p', `Scope revision ${c.scope_revision}: ${(c.repository_ids || []).join(', ') || 'Unscoped; route a question or choose repositories'}`));
-    const details=el('section'); body.append(details);
-    Promise.allSettled((c.repository_ids || []).map(r=>request(`/api/repositories/${enc(r)}/context`))).then(results=>{
-      if(token!==epoch)return;
-      results.forEach((result,i)=>{if(result.status==='fulfilled'){
-        const r=result.value;details.append(el('p',`${r.name} · ${r.repository_id} · ${r.status} · Base ${r.active_snapshot?.revision || 'not indexed'} · Coverage ${coverageText(r.active_snapshot?.coverage)} · Implementation ${r.implementation_enabled?'enabled':'disabled'}`));
-      }else details.append(el('p',`${c.repository_ids[i]} · repository context unavailable. Scope is retained; reload or adjust scope explicitly.`));});
-    });
-    request('/api/settings/model-roles').then(settings=>{if(token!==epoch)return;details.append(el('p',`Local-only policy: ${settings.settings?.local_only===true?'enabled':settings.settings?.local_only===false?'disabled':'unknown'}`));for(const role of ['ask','planning']){const r=settings.roles?.[role] || {};details.append(el('p',`${role} model: ${r.model || 'unknown'} · ${r.status || 'unknown'} · Destination: ${destinationText(r.destination)} · Usage and cost: unknown until returned`));}}).catch(()=>{if(token===epoch)details.append(el('p','Model configuration unavailable · destination, usage and cost unknown. See Settings.'));});
-    const scope = field(body, 'Repository IDs (one per line; explicit manual scope)', scopeDrafts.get(id) ?? (c.repository_ids || []).join('\n'));
-    scope.addEventListener('input',()=>scopeDrafts.set(id,scope.value));
-    if(scopeDrafts.has(id))draft=true;
-    button(body, 'Save repository scope', async () => { await request(`/api/conversations/${enc(id)}`, 'PATCH', {repository_ids: scope.value.split('\n').map(x=>x.trim()).filter(Boolean), expected_revision:c.scope_revision}); if(token===epoch){scopeDrafts.delete(id);draft = false; await load();} });
-    const catalogQuery=field(body,'Find repositories by name','',false);
-    const catalog=el('section');body.append(catalog);
-    let catalogCursor=null, catalogGeneration=0;
-    async function browse(append=false){
-      const generation=++catalogGeneration;
-      if(!append)catalog.replaceChildren(el('p','Loading repositories…'));
-      const page=await request(`/api/context/repositories?query=${enc(catalogQuery.value)}${append && catalogCursor ? `&cursor=${enc(catalogCursor)}`:''}`);
-      if(token!==epoch || generation!==catalogGeneration)return;
-      if(!append)catalog.replaceChildren();catalogCursor=page.next_cursor;
-      const existing=new Set([...catalog.querySelectorAll('input')].map(n=>n.dataset.repository));
-      for(const r of page.items){
-        if(existing.has(r.repository_id))continue;
-        const label=el('label',`${r.name} · ${r.status} · ${r.repository_id}`);const check=el('input');check.type='checkbox';check.dataset.repository=r.repository_id;
-        check.checked=scope.value.split('\n').includes(r.repository_id);check.disabled=!r.eligible;
-        check.addEventListener('change',()=>{const ids=new Set(scope.value.split('\n').filter(Boolean));if(check.checked)ids.add(r.repository_id);else ids.delete(r.repository_id);scope.value=[...ids].join('\n');scopeDrafts.set(id,scope.value);draft=true;});label.append(check);catalog.append(label);
-      }
-      if(catalogCursor)button(catalog,'More repositories',async b=>{await browse(true);b.remove();});
-    }
-    button(body,'Browse repository scope',()=>browse());
-    const transcript = el('div'); body.append(transcript);
-    const showMessages = messages => { for (const m of messages) {
-      const box = el('article');
-      box.append(el('h4', `${m.role} · ${m.state}`), el('p', m.content || m.error_code || 'Waiting for generation'));
-      const generation=m.generation || m.generation_metadata || {};
-      const usage=m.usage || generation.usage;
-      const knownUsage=usage && Object.values(usage).some(value=>value!==null && value!==undefined);
-      const cost=typeof usage?.estimated_cost==='number' ? `${usage.cost_status || 'estimated'} ${usage.estimated_cost} USD` : 'unknown';
-      box.append(el('p', `Model: ${m.model || generation.model || 'unknown'} · Destination: ${destinationText(m.destination || generation.destination)} · Usage: ${knownUsage ? JSON.stringify(usage) : 'unknown'} · Cost: ${cost}`));
-      citations(box,m.citations,token);transcript.append(box);
-    } };
-    showMessages(c.messages);
+    current = c;
+    const chips = await repoNames(c.repository_ids || [], token); if (token !== epoch) return;
+    shell.setHeader({title: c.title || 'Untitled conversation', pills: chips.map(chip => ({text: chip.name}))});
+    const heading = el('h3', c.title || 'Untitled conversation'); heading.className = 'conversation-title';
+    body.replaceChildren(heading);
+    for (const chip of chips.filter(chip => chip.missing)) body.append(el('p', `${chip.id} · repository context unavailable. It stays in scope; remove it or reload.`));
+    const info = el('details'); info.className = 'conversation-details'; info.append(el('summary', 'Details'));
+    for (const chip of chips.filter(chip => !chip.missing)) { const r = contexts.get(chip.id); info.append(el('p', `${chip.name} · ${r.status} · ${coverageText(r.active_snapshot?.coverage)}${r.active_snapshot?.revision ? ` · base ${String(r.active_snapshot.revision).slice(0, 7)}` : ''} · changes ${r.implementation_enabled ? 'allowed' : 'not allowed'}`)); }
+    body.append(info);
+    request('/api/settings/model-roles').then(settings => { if (token !== epoch) return; const r = settings.roles?.ask || {};
+      info.append(el('p', `Answering model: ${r.model || 'unknown'} · ${destinationText(r.destination)} · local-only ${settings.settings?.local_only === true ? 'on' : settings.settings?.local_only === false ? 'off' : 'unknown'}`));
+      if (r.model) shell.setHeader({title: c.title || 'Untitled conversation', pills: [...chips.map(chip => ({text: chip.name})), {text: `${r.model} · ${r.destination?.kind || 'unknown'}`, tone: 'ok'}]}); }, () => {});
     let cursor = c.messages_next_cursor;
-    const more = button(body, 'Load more saved messages', async () => { const page = await request(`/api/conversations/${enc(id)}/messages?cursor=${enc(cursor)}`); if(token!==epoch)return; showMessages(page.items); cursor = page.next_cursor; more.hidden = !cursor; }); more.hidden = !cursor;
-    for (const p of c.plans || []) link(body, p.title || 'Saved plan', `#/plans/${enc(p.id)}/${enc(p.latest_version_id)}`);
-    let planCursor=c.plans_next_cursor;
-    const morePlans=button(body, 'More saved plans', async () => { const page = await request(`/api/plans?conversation_id=${enc(id)}&cursor=${enc(planCursor)}`); if(token!==epoch)return; for(const p of page.items) link(body,p.title,`#/plans/${enc(p.id)}/${enc(p.latest_version_id)}`); planCursor=page.next_cursor; morePlans.hidden=!planCursor; }); morePlans.hidden=!planCursor;
-    const runLabels=new Map();
-    for (const run of c.runs || []) {
-      const label=el('p', `Request ${run.id}: ${run.state}${run.error_code ? ` · ${run.error_code}` : ''}`);body.append(label);runLabels.set(run.id,label);
-      if (['queued','running'].includes(run.state)) button(body, 'Cancel request', async () => { await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if(token===epoch && !draft) await load(); });
-      if (['failed','cancelled'].includes(run.state)) button(body, 'Retry request', async () => { await request(`/api/answer-runs/${enc(run.id)}/retry`, 'POST', {}); if(token===epoch && !draft) await load(); });
+    const more = button(body, 'Load more saved messages', async () => { const page = await request(`/api/conversations/${enc(id)}/messages?cursor=${enc(cursor)}`); if(token!==epoch)return; c.messages = [...page.items, ...c.messages]; cursor = page.next_cursor; more.hidden = !cursor; draw(); }); more.hidden = !cursor;
+    const threadHost = el('div'); threadHost.className = 'chat-thread'; body.append(threadHost);
+    let routing = null, plans = [], stale = staleScope.get(id) || null;
+    const events = scopeEvents.get(id) || [];
+    const handlers = {
+      onCitation: (citation, trigger) => cite(citation, token, trigger),
+      onViewPlan: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
+      onStartSession: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
+      onRegenerate: () => { if (composer.value.trim()) return [...composer.root.querySelectorAll('button')].find(b => b.textContent === 'Generate plan')?.click(); say('Describe the change again, then choose Generate plan to make a new version with the current repositories.'); composer.focus(); },
+      onRetry: async runId => { await request(`/api/answer-runs/${enc(runId)}/retry`, 'POST', {}); if (token === epoch) { await load(); composerHandle?.focus(); } },
+      onPickRoute: async repositoryId => { routing = null; await scopeTo([repositoryId]); if (pendingQuestion) { const q = pendingQuestion; pendingQuestion = null; await send(q.text, q.intent); composer.setValue(''); } },
+      onChooseRepos: () => [...composer.root.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Add repositories')?.click(),
+    };
+    const draw = () => renderThread(threadHost, {now: Date.now(), messages: c.messages || [], runs: c.runs || [], plans, routing, scopeEvents: events, staleScopeSincePlan: stale}, handlers);
+    let pendingQuestion = null;
+    async function scopeTo(ids) {
+      const before = new Map((await repoNames(c.repository_ids || [], token)).map(chip => [chip.id, chip.name]));
+      const updated = await updateScope(c, ids); if (token !== epoch) return;
+      Object.assign(c, {scope_revision: updated.scope_revision, repository_ids: updated.repository_ids});
+      const after = await repoNames(c.repository_ids, token); if (token !== epoch) return;
+      const added = after.filter(chip => !before.has(chip.id)), removed = [...before].filter(([key]) => !c.repository_ids.includes(key));
+      for (const chip of added) events.push({kind: 'added', name: chip.name, at: Date.now()});
+      for (const [, name] of removed) events.push({kind: 'removed', name, at: Date.now()});
+      scopeEvents.set(id, events);
+      if (added.length && plans.length) { stale = {planId: plans.at(-1).id, addedNames: [...(stale?.addedNames || []), ...added.map(chip => chip.name)]}; staleScope.set(id, stale); }
+      composer.setChips(after);
+      shell.setHeader({title: c.title || 'Untitled conversation', pills: after.map(chip => ({text: chip.name}))});
+      rememberRepositories(c.repository_ids);
+      draw();
     }
-    const prompt = field(body, 'Question or planning request', promptDrafts.get(id) ?? (sendAttempt?.conversation === id ? sendAttempt.content : ''));
-    prompt.addEventListener('input',()=>promptDrafts.set(id,prompt.value));
-    if(prompt.value)draft=true;
-    button(body, 'Find repository candidates', async () => {
-      const r = await request('/api/route','POST',{prompt:prompt.value,conversation_id:id,pinned_repository_ids:[...new Set([...(c.repository_ids || []),...scope.value.split('\n').map(x=>x.trim()).filter(Boolean)])]}); if(token!==epoch)return;
-      const results = el('section'); results.append(el('h4', `Routing: ${r.status}`),el('p',r.question || r.next_action || ''),el('p',r.degradation_code || ''));
-      for(const candidate of r.candidates) { results.append(el('p',`${candidate.name}: ${candidate.reason} · Coverage ${coverageText(candidate.coverage)} · Freshness ${candidate.freshness || 'unknown'} · Implementation ${candidate.implementation_enabled ? 'enabled' : 'disabled'}`)); citations(results,candidate.citations,token); button(results,`Use ${candidate.name}`,()=>{const pins=new Set([...(c.repository_ids || []),...scope.value.split('\n').map(x=>x.trim()).filter(Boolean),candidate.repository_id]);scope.value=[...pins].join('\n');scopeDrafts.set(id,scope.value);draft=true;say('Candidate added to scope draft; existing pins and edits retained. Save repository scope to confirm.');scope.focus();}); } body.append(results);
-    });
-    async function send(intent) {
-      if(pending || !prompt.value.trim())return;
-      if(JSON.stringify(scope.value.split('\n').map(x=>x.trim()).filter(Boolean))!==JSON.stringify(c.repository_ids || []))throw new Error('Save repository scope before generating.');
-      const content=prompt.value.trim();
+    async function send(content, intent) {
+      if(token!==epoch || pending || !content.trim())return;
+      if (!(c.repository_ids || []).length) {
+        const r = await request('/api/route', 'POST', {prompt: content, conversation_id: id, pinned_repository_ids: []}); if (token !== epoch) return;
+        const status = r.status ?? r.state;
+        routing = {state: status, candidates: (r.candidates || []).filter(x => status !== 'resolved' || (r.selected_repository_ids || []).includes(x.repository_id))};
+        if (status !== 'resolved' || !(r.selected_repository_ids || []).length) { pendingQuestion = {text: content, intent}; draw(); throw new Error(status === 'no_match' ? 'No repository matched. Choose repositories with +.' : 'Choose a repository to continue.'); }
+        await scopeTo(r.selected_repository_ids);
+      }
       if(sendAttempt && (sendAttempt.content!==content || sendAttempt.intent!==intent || sendAttempt.conversation!==id)) throw new Error('Resolve the uncertain request by retrying the same content and action before submitting another.');
-      sendAttempt ||= {conversation:id,content,intent,client_request_id:globalThis.crypto.randomUUID()}; persistAttempt(); pending=true;prompt.disabled=true;
+      sendAttempt ||= {conversation:id,content,intent,client_request_id:globalThis.crypto.randomUUID()}; persistAttempt(); pending=true;
       renderPending();
       try {
         await request(`/api/conversations/${enc(id)}/messages`,'POST',{content,intent,client_request_id:sendAttempt.client_request_id});
       } catch(error) {
         if(error.status>=400 && error.status<500){sendAttempt=null;persistAttempt();renderPending();}
         throw error;
-      } finally {pending=false;prompt.disabled=false;}
-      sendAttempt=null;persistAttempt();renderPending();promptDrafts.delete(id);
-      if(token===epoch){draft=false;await load();}await refreshHistory();
+      } finally {pending=false;}
+      sendAttempt=null;persistAttempt();renderPending();
+      try{window.sessionStorage?.removeItem(`ask-draft:${id}`);}catch{}
+      if(token===epoch){draft=false;say('');await load();}await refreshHistory();
     }
-    const active = (c.runs || []).some(r=>['queued','running'].includes(r.state));
-    button(body,'Ask',()=>send('answer')).disabled=active;
-    button(body,'Generate plan',()=>send('plan')).disabled=active;
-    button(body,'Reload saved conversation',()=>{if(guard()){discardDraft();return load();}});
+    const activeRuns = () => (c.runs || []).filter(r=>['queued','running'].includes(r.state));
+    const composer = createComposer({request, draftKey: `ask-draft:${id}`, label: 'Question or planning request',
+      initialText: sendAttempt?.conversation === id ? sendAttempt.content : null,
+      actions: [{label: 'Ask', intent: 'answer', variant: 'primary'}, {label: 'Generate plan', intent: 'plan'}],
+      onInput: text => { draft = Boolean(text.trim()); },
+      onSend: ({text, intent}) => send(text, intent),
+      onScopeChange: ids => scopeTo(ids),
+      onCancel: async () => { if (token !== epoch) return; for (const run of activeRuns()) await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if (token === epoch && !draft) { await load(); composerHandle?.focus(); } }});
+    composer.setChips(chips);
+    if (composer.value.trim()) draft = true;
+    body.append(composer.root);
+    composerHandle = composer;
+    draw();
+    enrichPlans(c, token).then(list => { if (token !== epoch) return; plans = list; draw(); });
+    const active = activeRuns().length > 0;
+    composer.setBusy(active);
+    let autosend=null;try{autosend=JSON.parse(window.sessionStorage?.getItem('ask-autosend')||'null');}catch{}
+    if(autosend?.conversation===id){try{window.sessionStorage?.removeItem('ask-autosend');}catch{}send(autosend.text,autosend.intent).catch(error=>{composer.setValue(autosend.text);say(error);});}
     async function poll() {
       try {
-        const runs=await Promise.all((c.runs || []).filter(r=>['queued','running'].includes(r.state)).map(r=>request(`/api/answer-runs/${enc(r.id)}`)));
+        const runs=await Promise.all(activeRuns().map(r=>request(`/api/answer-runs/${enc(r.id)}`)));
         if(token!==epoch)return;
-        for(const r of runs)runLabels.get(r.id).textContent=`Request ${r.id}: ${r.state}${r.error_code ? ` · ${r.error_code}`:''}`;
-        if(runs.some(r=>['queued','running'].includes(r.state)))timer=setTimeout(poll,1500);
+        if(runs.some(r=>['queued','running'].includes(r.state))){draw();timer=setTimeout(poll,1500);}
         else {
           const focused=document.activeElement;
           const editing=['INPUT','TEXTAREA','SELECT'].includes(focused?.tagName) || focused?.isContentEditable;
@@ -187,6 +235,24 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
       } catch(e){if(token===epoch)say(`Status unavailable: ${e.message}. Reload saved conversation to reconnect.`);}
     }
     if(active) timer=setTimeout(poll,1500);
+  }
+  function landing() {
+    shell.setHeader({title: 'Ask'});
+    const heading = el('h3', 'What are we working on?'); heading.className = 'landing-title';
+    body.replaceChildren(heading);
+    const composer = createComposer({request, draftKey: 'ask-draft:new', label: 'Question or planning request',
+      actions: [{label: 'Ask', intent: 'answer', variant: 'primary'}, {label: 'Generate plan', intent: 'plan'}],
+      onInput: text => { draft = Boolean(text.trim()); },
+      onScopeChange: async () => {},
+      onCancel: async () => {},
+      onSend: async ({text, repositoryIds, intent}) => {
+        const created = await request('/api/conversations', 'POST', {title: titleFrom(text), repository_ids: repositoryIds});
+        rememberRepositories(repositoryIds);
+        try { window.sessionStorage?.removeItem('ask-draft:new'); window.sessionStorage?.setItem('ask-autosend', JSON.stringify({conversation: created.id, intent, text})); } catch {}
+        draft = false; acceptedHash = `#/ask/${enc(created.id)}`; location.hash = acceptedHash; await load(); await refreshHistory();
+      }});
+    body.append(composer.root, el('p', 'Pick repositories with + or type @, or just ask and OpenDevin suggests them. Ask plans changes; it never edits your code.', 'landing-hint'));
+    composerHandle = composer;
   }
   async function plan(id, versionId, token) {
     const p = await request(`/api/plans/${enc(id)}${versionId ? `?version_id=${enc(versionId)}` : ''}`); if(token!==epoch)return;
@@ -260,23 +326,20 @@ export async function createAskPanel({host, request = http, onMount = () => {}})
     try {
       if(parts[1]==='plans' && parts[2])await plan(decodeURIComponent(parts[2]),parts[3] ? decodeURIComponent(parts[3]):null,token);
       else if(parts[1]==='ask' && parts[2])await conversation(decodeURIComponent(parts[2]),token);
-      else body.replaceChildren(el('p','Choose a saved conversation or create one. Ask only plans; it does not execute changes.'));
+      else landing();
     } catch(error) {
       if(token!==epoch)return;
       body.replaceChildren(el('h3',parts[1]==='plans'?'Plan unavailable':'Conversation unavailable'),el('p',error.message));
-      button(body,'Retry saved page',()=>load());link(body,'Conversation history','#/ask');
+      button(body,'Retry saved page',()=>load());link(body,'Start a new conversation','#/ask');
       say(`Saved page unavailable: ${error.message}`);
     }
   }
   window.addEventListener('hashchange',()=>{if(location.hash===acceptedHash)return;if(!guard()){window.history.replaceState(null,'',acceptedHash);return;}discardDraft();acceptedHash=location.hash;load();});
-  const handle={panel, focus:()=>title.focus(), current:()=>current, canNavigate:()=>{if(location.hash===acceptedHash)return true;if(!guard()){window.history.replaceState(null,'',acceptedHash);return false;}discardDraft();return true;}};
+  const handle={panel, focus:()=>title.focus(), refreshHistory:()=>refreshHistory(), current:()=>current, canNavigate:()=>{if(location.hash===acceptedHash)return true;if(!guard()){window.history.replaceState(null,'',acceptedHash);return false;}discardDraft();return true;}};
   onMount(handle);
   renderPending();
-  if(initialHistoryError){
-    history.append(el('p',`Conversation history unavailable: ${initialHistoryError.message}`));
-    button(history,'Retry conversation history',()=>refreshHistory());
-    button(history,'New saved conversation',async()=>{if(!guard())return;const c=await request('/api/conversations','POST',{});discardDraft();location.hash=`#/ask/${enc(c.id)}`;});
-  }else await refreshHistory(null,listing);
+  if(initialHistoryError){historyNotice.replaceChildren(el('p',`Conversation history unavailable: ${initialHistoryError.message}`));button(historyNotice,'Retry conversation history',()=>refreshHistory());}
+  else await refreshHistory(null,listing);
   await load();
   return handle;
 }

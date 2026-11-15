@@ -1243,7 +1243,7 @@ featureRequest("/api/sessions?limit=1").then(available => { if (Array.isArray(av
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
 
-persistentAsk = await createAskPanel({host: byId("view-ask"), onMount: handle => {
+persistentAsk = await createAskPanel({host: byId("view-ask"), shell, onMount: handle => {
   // Retire legacy content before the first saved-page/history read can wait or fail.
   persistentAsk = handle;
   connectedUI.savedAskReady = true;

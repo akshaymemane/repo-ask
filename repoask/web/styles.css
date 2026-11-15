@@ -814,3 +814,19 @@ dialog.modal::backdrop { background: #05060899; }
 .thread-card-title, .plan-card-title { flex-basis: 100%; font-weight: 600; }
 .plan-card-stale { flex-basis: 100%; color: var(--warning); font-size: 13px; }
 .plan-card-actions { display: flex; gap: var(--space-2); }
+
+/* ---- Ask page (persistent) ---- */
+.persistent-ask > h1:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.landing-title { text-align: center; font-size: 26px; font-weight: 650; letter-spacing: -.03em; margin: 16vh 0 var(--space-5); }
+.landing-hint { width: min(100%, 760px); margin: 0 auto; text-align: center; color: var(--muted); font-size: 13px; }
+.conversation-title { width: min(100%, 760px); margin: var(--space-5) auto 0; padding: 0 var(--space-4); font-size: 20px; font-weight: 650; }
+.conversation-details { width: min(100%, 760px); margin: var(--space-2) auto 0; padding: 0 var(--space-4); color: var(--muted); font-size: 12px; }
+.conversation-details summary { cursor: pointer; }
+.history-notice:empty { display: none; }
+.history-notice { width: min(100%, 760px); margin: var(--space-3) auto 0; color: var(--warning); }
+
+.rail .primary-nav .recent { margin-top: var(--space-4); min-height: 0; overflow-y: auto; }
+.rail .primary-nav .recent a { padding: 6px 10px; }
+.persistent-ask > h1:focus { font-size: 13px; color: var(--muted); width: min(100%, 760px); margin: var(--space-2) auto 0; }
+.persistent-ask > p[role="status"] { width: min(100%, 760px); margin: var(--space-2) auto 0; padding: 0 var(--space-4); color: var(--muted); font-size: 13px; }
+.persistent-ask > p[role="status"]:empty { display: none; }

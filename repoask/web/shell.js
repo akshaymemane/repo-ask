@@ -17,7 +17,7 @@ export function createShell({ document }) {
         else link.removeAttribute("aria-current");
       }
     },
-    setRecent(items, { heading }) {
+    setRecent(items, { heading, onMore = null }) {
       byId("recent-heading").textContent = heading;
       const list = byId("recent-list");
       list.replaceChildren();
@@ -31,6 +31,14 @@ export function createShell({ document }) {
         if (item.meta) link.append(make("small", item.meta, "recent-meta"));
         const li = make("li");
         li.append(link);
+        list.append(li);
+      }
+      if (onMore) {
+        const more = make("button", "More conversations", "btn btn-ghost recent-more");
+        more.type = "button";
+        more.addEventListener("click", () => { more.disabled = true; onMore(); });
+        const li = make("li");
+        li.append(more);
         list.append(li);
       }
       byId("recent").hidden = items.length === 0;

@@ -5,7 +5,7 @@ import { searchRepositories } from "./repo-source.js";
 const TRIGGER = /(^|\s)@([^\s@]{0,40})$/;
 let instances = 0;
 
-export function attachMentions(textarea, { request, onPick }) {
+export function attachMentions(textarea, { request, onPick, exclude = () => [] }) {
   const prefix = `mention-${++instances}`;
   const menu = el("ul", undefined, "mention-menu");
   menu.id = `${prefix}-list`;
@@ -52,7 +52,8 @@ export function attachMentions(textarea, { request, onPick }) {
   }
 
   function render(items) {
-    options = items.filter((item) => item.selectable).slice(0, 8);
+    const taken = new Set(exclude());
+    options = items.filter((item) => item.selectable && !taken.has(item.id)).slice(0, 8);
     menu.replaceChildren();
     if (!options.length) return close();
     options.forEach((repo, i) => {

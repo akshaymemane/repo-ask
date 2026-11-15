@@ -86,3 +86,14 @@ test("keys pass through when the menu is closed", async () => {
   input(textarea, "hello");
   assert.equal(keydown(textarea, "Enter").defaultPrevented, false);
 });
+
+test("repositories already chosen are not offered", async () => {
+  const b = createBrowser("<!doctype html><html><body><div><textarea id=t></textarea></div></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const { attachMentions } = await import(`${url}?m=exclude`);
+  const request = async (path) => path.startsWith("/api/context") ? { items: [ctx(1, "rcnl-app"), ctx(3, "rcnl-tools")], next_cursor: null } : { items: [] };
+  const textarea = b.document.getElementById("t");
+  attachMentions(textarea, { request, onPick: () => {}, exclude: () => ["gh:1"] });
+  await type(textarea, "@rc");
+  assert.deepEqual(b.document.querySelectorAll('[role="option"]').map((o) => o.querySelector("strong").textContent), ["rcnl-tools"]);
+});

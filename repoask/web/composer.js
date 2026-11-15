@@ -3,22 +3,25 @@ import { button, el } from "./ui.js";
 import { openRepoPicker } from "./picker.js";
 import { attachMentions } from "./mentions.js";
 
+const drafts = () => globalThis.window?.sessionStorage ?? globalThis.sessionStorage;
 function readDraft(key) {
-  try { return globalThis.sessionStorage?.getItem(key) ?? ""; } catch { return ""; }
+  try { return drafts()?.getItem(key) ?? ""; } catch { return ""; }
 }
 function writeDraft(key, value) {
   try {
-    if (value) globalThis.sessionStorage?.setItem(key, value);
-    else globalThis.sessionStorage?.removeItem(key);
+    if (value) drafts()?.setItem(key, value);
+    else drafts()?.removeItem(key);
   } catch {
     // Drafts are a convenience; storage may be unavailable.
   }
 }
 
-export function createComposer({ request, placeholder = "Ask about your code, or describe a change…", onSend, onScopeChange, onCancel, draftKey, chips: withChips = true }) {
+export function createComposer({ request, placeholder = "Ask about your code, or describe a change…", onSend, onScopeChange, onCancel, draftKey, chips: withChips = true,
+  actions = null, label = null, initialText = null, onInput = () => {} }) {
   const root = el("form", undefined, "composer-v2");
   root.noValidate = true;
-  const field = el("div", undefined, "composer-field");
+  const field = el(label ? "label" : "div", undefined, "composer-field");
+  if (label) field.append(el("span", label, "sr-only"));
   const textarea = el("textarea");
   textarea.rows = 2;
   textarea.maxLength = 4000;
@@ -32,6 +35,13 @@ export function createComposer({ request, placeholder = "Ask about your code, or
   const send = button(null, "↑", () => (busy ? cancel() : submit()), { variant: "primary" });
   send.classList.add("composer-send");
   send.setAttribute("aria-label", "Send");
+  const actionButtons = (actions || []).map((action) => button(null, action.label, () => submit(action.intent), { variant: action.variant }));
+  if (actions) {
+    send.textContent = "Cancel";
+    send.setAttribute("aria-label", "Cancel");
+    send.classList.remove("btn-primary");
+    send.hidden = true;
+  }
   root.append(field, row, error);
 
   let chips = [];
@@ -81,19 +91,21 @@ export function createComposer({ request, placeholder = "Ask about your code, or
     plus.classList.add("composer-plus");
     plus.setAttribute("aria-label", "Add repositories");
     plus.setAttribute("title", "Add repositories (or type @)");
-    attachMentions(textarea, { request, onPick: (repo) => addRepositories([repo]) });
-    row.append(plus, chipList, send);
+    attachMentions(textarea, { request, onPick: (repo) => addRepositories([repo]), exclude: () => chips.map((chip) => chip.id) });
+    row.append(plus, chipList, ...actionButtons, send);
   } else {
-    row.append(el("span", undefined, "composer-spacer"), send);
+    row.append(el("span", undefined, "composer-spacer"), ...actionButtons, send);
   }
 
-  async function submit() {
+  async function submit(intent = actions ? actions[0].intent : undefined) {
     const text = textarea.value.trim();
     if (!text || busy || sending) return;
     sending = true;
     error.textContent = "";
     try {
-      await onSend({ text, repositoryIds: chips.map((chip) => chip.id) });
+      const payload = { text, repositoryIds: chips.map((chip) => chip.id) };
+      if (intent !== undefined) payload.intent = intent;
+      await onSend(payload);
       textarea.value = "";
       writeDraft(draftKey, "");
     } catch (failure) {
@@ -111,19 +123,26 @@ export function createComposer({ request, placeholder = "Ask about your code, or
     event.preventDefault();
     submit();
   });
-  textarea.addEventListener("input", () => writeDraft(draftKey, textarea.value));
+  textarea.addEventListener("input", () => { writeDraft(draftKey, textarea.value); onInput(textarea.value); });
   root.addEventListener("submit", (event) => { event.preventDefault(); submit(); });
-  textarea.value = readDraft(draftKey);
+  textarea.value = initialText ?? readDraft(draftKey);
 
   return {
     root,
     setChips(next) { chips = [...next]; renderChips(); },
     setBusy(next) {
       busy = Boolean(next);
+      for (const action of actionButtons) action.disabled = busy;
+      if (actions) {
+        send.hidden = !busy;
+        return;
+      }
       send.textContent = busy ? "Cancel" : "↑";
       send.setAttribute("aria-label", busy ? "Cancel" : "Send");
       send.classList.toggle("btn-primary", !busy);
     },
     focus() { textarea.focus(); },
+    get value() { return textarea.value; },
+    setValue(text) { textarea.value = text; writeDraft(draftKey, text); },
   };
 }

@@ -1,10 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createBrowser,install,input,settle,visibleText} from './dom.mjs';
+import {createBrowser,install,input,keydown,settle,visibleText} from './dom.mjs';
 import {createAskPanel} from '../../repoask/web/ask.js';
 const html=readFileSync(new URL('../../repoask/web/index.html',import.meta.url),'utf8');
-const conversation=(id='a',extra={})=>({id,title:`Conversation ${id}`,scope_revision:1,repository_ids:[],messages:[],runs:[],plans:[],...extra});
+const conversation=(id='a',extra={})=>({id,title:`Conversation ${id}`,scope_revision:1,repository_ids:['r1'],messages:[],runs:[],plans:[],...extra});
 const plan=()=>({id:'p',title:'Plan',latest_version_id:'v',version:{id:'v',version:1,content_hash:'hash',content:{goal:'Goal',user_request:'Request',repositories:[],citations:[],findings:[],requirements:['R'],steps:[],validation:[],risks:[],assumptions:[],open_questions:[],execution_context:{execution_profile_id:'execution-1',base_choices:{}},publication:{policy:'manual_draft'}},readiness:{state:'ready',blocking_reasons:[],warnings:[],source_freshness:{}}}});
 const missing={status:404,body:{code:'not_found'}};
 const storage=()=>{const map=new Map();return {getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};};
@@ -61,7 +61,7 @@ test('first history failure keeps one working persistent workspace and recovers 
  },{app:true});
  assert.ok(b.panel);assert.equal(b.document.querySelectorAll('.persistent-ask').length,1);assert.equal(b.document.getElementById('thread').parentNode.hidden,true);
  assert.match(b.text(),/Conversation history unavailable/);assert.match(b.text(),/Conversation unavailable/);assert.equal(b.button('Ask'),undefined);
- historyFails=false;b.button('Retry conversation history').click();await settle();assert.equal(b.panel.querySelectorAll('a').filter(n=>n.getAttribute('href')==='#/ask/a').length,1);
+ historyFails=false;b.button('Retry conversation history').click();await settle();assert.equal(b.document.getElementById('recent-list').querySelectorAll('a').filter(n=>n.getAttribute('href')==='#/ask/a').length,1);assert.equal(b.button('Retry conversation history'),undefined);
  pageFails=false;b.button('Retry saved page').click();await settle();assert.ok(b.button('Ask'));assert.match(b.text(),/Conversation a/);
 });
 
@@ -92,53 +92,76 @@ test('navigation clears stale Ask and plan actions during delayed/error GETs and
    if(u==='/api/conversations/b')return new Promise((resolve,rejectFn)=>{reject=rejectFn;lateResolve=resolve;});
    return missing;
   },{hash});
-  const old=hash.includes('plans')?[b.button('Save immutable version'),b.button('Start session')]:[b.button('Ask'),b.button('Save repository scope')];
+  const old=hash.includes('plans')?[b.button('Save immutable version'),b.button('Start session')]:[b.button('Ask'),b.button('Generate plan')];
   b.window.location.hash='#/ask/b';await settle();assert.match(b.text(),/Loading saved Ask/);for(const button of old)button.click();await settle();assert.deepEqual(writes,[]);
   reject(new Error('B unavailable'));await settle();assert.match(b.text(),/Conversation unavailable/);for(const button of old)button.click();await settle();assert.deepEqual(writes,[]);
   b.button('Retry saved page').click();await settle();b.window.location.hash='#/ask/a';await settle();lateResolve(conversation('b'));await settle();assert.match(b.text(),/Conversation a/);assert.doesNotMatch(b.text(),/Conversation b/);
  }
 });
 
-test('history/catalog pagination deduplicates links and consumes previous page controls',async()=>{
- const repo=(id)=>({repository_id:id,name:id,status:'ready',eligible:true});
+test('history pagination in the rail deduplicates links and consumes the previous More control',async()=>{
  const b=await boot((m,u)=>{
   if(u==='/api/conversations')return {items:[conversation()],next_cursor:'next'};
   if(u==='/api/conversations?cursor=next')return {items:[conversation(),conversation('b')],next_cursor:null};
   if(u==='/api/conversations/a')return conversation();
-  if(u==='/api/context/repositories?query=')return {items:[repo('r1')],next_cursor:'next'};
-  if(u==='/api/context/repositories?query=&cursor=next')return {items:[repo('r1'),repo('r2')],next_cursor:null};
   return missing;
- });
- const more=b.button('More conversations');more.click();await settle();more.click();await settle();assert.equal(b.panel.querySelectorAll('button').filter(n=>n.textContent==='New saved conversation').length,1);assert.equal(b.button('More conversations'),undefined);assert.equal(b.panel.querySelectorAll('a').filter(n=>n.getAttribute('href')==='#/ask/a').length,1);
- b.button('Browse repository scope').click();await settle();const moreRepos=b.button('More repositories');moreRepos.click();await settle();moreRepos.click();await settle();assert.equal(b.button('More repositories'),undefined);assert.equal(b.panel.querySelectorAll('input').length,2);
+ },{app:true});
+ const rail=()=>b.document.getElementById('recent-list');
+ const more=rail().querySelectorAll('button').find(n=>n.textContent==='More conversations');more.click();await settle();more.click();await settle();
+ assert.equal(rail().querySelectorAll('button').find(n=>n.textContent==='More conversations'),undefined);
+ assert.deepEqual(rail().querySelectorAll('a').map(n=>n.getAttribute('href')),['#/ask/a','#/ask/b']);
+ assert.doesNotMatch(visibleText(rail()),/conv_|#\/ask/);
 });
 
-test('search is not dirty, confirmed discard removes prompt/scope drafts, missing scoped repos are visible',async()=>{
+test('typing a question is a draft, confirmed discard clears it, missing scoped repos are visible',async()=>{
  const c=conversation('a',{repository_ids:['unavailable']});let confirms=0;
  const b=await boot((m,u)=>u==='/api/conversations'?{items:[c]}:u==='/api/conversations/a'?c:missing);
  b.window.confirm=()=>{confirms++;return true;};await settle();assert.match(b.text(),/unavailable · repository context unavailable/);
- input(b.field('Find repositories'),'query');b.window.location.hash='#/ask';await settle();assert.equal(confirms,0);
- b.window.location.hash='#/ask/a';await settle();input(b.field('Question'),'discard me');input(b.field('Repository IDs'),'draft-scope');b.window.location.hash='#/ask';await settle();assert.equal(confirms,1);
- b.window.location.hash='#/ask/a';await settle();assert.equal(b.field('Question').value,'');assert.equal(b.field('Repository IDs').value,'unavailable');
+ b.window.location.hash='#/ask';await settle();assert.equal(confirms,0,'leaving without typing needs no confirmation');
+ b.window.location.hash='#/ask/a';await settle();input(b.field('Question'),'discard me');b.window.location.hash='#/ask';await settle();assert.equal(confirms,1);
+ b.window.location.hash='#/ask/a';await settle();assert.equal(b.field('Question').value,'');
+ assert.deepEqual(b.panel.querySelectorAll('.chip-repo .chip-label').map(n=>n.textContent),['unavailable']);
 });
 
-test('Use candidate stages union with explicit pins and scope drafts, then scope save restores focus',async()=>{
- let c=conversation('a',{repository_ids:['pin']});const mutations=[];
+test('an unscoped question routes first, asks which repository, then scopes and sends it',async()=>{
+ let c=conversation('a',{repository_ids:[]});const mutations=[],sent=[];
  const b=await boot((m,u,o)=>{
   if(u==='/api/conversations')return {items:[c]};
-  if(u==='/api/conversations/a'){if(m==='PATCH'){mutations.push(JSON.parse(o.body));c={...c,repository_ids:mutations.at(-1).repository_ids,scope_revision:2};}return c;}
-  if(u==='/api/route'){assert.deepEqual(JSON.parse(o.body).pinned_repository_ids,['pin','draft']);return {status:'needs_selection',candidates:[{name:'Candidate',repository_id:'suggested',reason:'Observed match'}]};}
+  if(u==='/api/conversations/a'){if(m==='PATCH'){mutations.push(JSON.parse(o.body));c={...c,repository_ids:mutations.at(-1).repository_ids,scope_revision:c.scope_revision+1};}return c;}
+  if(u==='/api/route'){assert.deepEqual(JSON.parse(o.body).pinned_repository_ids,[]);return {status:'needs_selection',selected_repository_ids:[],candidates:[{name:'owner/candidate',repository_id:'suggested',reason:'Observed match'}]};}
+  if(u==='/api/repositories/suggested/context')return {repository_id:'suggested',name:'owner/candidate'};
+  if(m==='POST' && u.endsWith('/messages')){sent.push(JSON.parse(o.body));return {id:'run',state:'queued'};}
   return missing;
  });
- input(b.field('Repository IDs'),'draft');input(b.field('Question'),'request');b.button('Find repository candidates').click();await settle();b.button('Use Candidate').click();await settle();
- assert.deepEqual(b.field('Repository IDs').value.split('\n'),['pin','draft','suggested']);assert.equal(mutations.length,0);assert.equal(b.document.activeElement,b.field('Repository IDs'));
- b.button('Save repository scope').focus();b.button('Save repository scope').click();await settle();assert.deepEqual(mutations[0].repository_ids,['pin','draft','suggested']);assert.equal(b.document.activeElement,b.button('Save repository scope'));assert.equal(b.field('Question').value,'request');
+ input(b.field('Question'),'request');b.button('Ask').click();await settle();
+ assert.match(b.text(),/Which repository\?/);assert.equal(sent.length,0,'nothing is sent before a repository is chosen');assert.equal(b.field('Question').value,'request');
+ b.button('candidate').click();await settle(20);
+ assert.deepEqual(mutations,[{repository_ids:['suggested'],expected_revision:1}]);
+ assert.deepEqual(sent.map(x=>x.content),['request']);
+ assert.equal(b.field('Question').value,'','the sent question does not come back as a draft');assert.equal(b.window.sessionStorage.getItem('ask-draft:a'),null);
+ assert.doesNotMatch(b.text(),/Choose a repository to continue/);
+});
+
+test('scope conflict re-applies the chip edit once, then explains a second conflict',async()=>{
+ for(const conflicts of [1,2]){
+  let c=conversation('a',{repository_ids:['r1']});let patches=0;
+  const b=await boot((m,u,o)=>{
+   if(u==='/api/conversations')return {items:[c]};
+   if(u==='/api/conversations/a'){if(m==='PATCH'){patches++;if(patches<=conflicts)return {status:409,body:{message:'Scope revision changed.'}};c={...c,repository_ids:JSON.parse(o.body).repository_ids,scope_revision:9};return c;}return {...c,scope_revision:patches?3:1};}
+   return missing;
+  });
+  b.panel.querySelectorAll('button').find(n=>n.getAttribute('aria-label')==='Remove r1').click();await settle(20);
+  assert.equal(patches,2,'one retry after the first conflict');
+  if(conflicts===1)assert.deepEqual(b.panel.querySelectorAll('.chip-repo').length,0);
+  else{assert.match(b.text(),/Someone changed this conversation's repositories\. Reload to see the latest\./);assert.equal(b.panel.querySelectorAll('.chip-repo').length,1);}
+ }
 });
 
 test('stored generation attribution overrides neither unknown labels nor configured current role; repeated export replaces display',async()=>{
  const c=conversation('a',{messages:[{role:'assistant',state:'complete',content:'Answer',model:'stored-model',destination:{kind:'local',host:'stored-host'},usage:{input_tokens:2,output_tokens:3,estimated_cost:0.01,cost_status:'estimated'}},{role:'assistant',state:'failed',error_code:'failed'}]});
  const b=await boot((m,u)=>u==='/api/conversations'?{items:[c]}:u==='/api/conversations/a'?c:missing);
- assert.match(b.text(),/Model: stored-model/);assert.match(b.text(),/stored-host/);assert.match(b.text(),/Cost: estimated 0.01 USD/);assert.match(b.text(),/Model: unknown/);
+ for(const info of b.panel.querySelectorAll('button').filter(n=>n.getAttribute('aria-label')==='Answer details'))info.click();
+ assert.match(b.text(),/stored-model · local stored-host · 2 in \/ 3 out tokens · estimated 0\.01 USD/);assert.match(b.text(),/Couldn't answer: failed\./);
  const p=plan();
  const other=await boot((m,u)=>u==='/api/conversations'?{items:[]}:u.includes('/export')?{plan_version_id:'v',content_hash:'hash',markdown:'One export only'}:u.startsWith('/api/plans/')?p:missing,{hash:'#/plans/p/v'});
  other.button('Export this saved version').click();await settle();other.button('Export this saved version').click();await settle();assert.equal(other.panel.querySelectorAll('pre').filter(n=>n.textContent==='One export only').length,1);
@@ -157,36 +180,43 @@ test('delayed first saved-page read retires legacy workspace before completing a
 });
 
 test('cancel/retry refresh preserves usable keyboard focus and stale retired controls cannot submit',async()=>{
- let run={id:'run',state:'queued'},posts=0;
+ let run={id:'run',state:'queued',assistant_message_id:'m2'},posts=0;
+ const messages=()=>[{id:'m1',role:'user',state:'complete',content:'Q',created_at:1},{id:'m2',role:'assistant',state:run.state==='queued'?'pending':run.state,content:null,created_at:2}];
  const b=await boot((m,u)=>{
-  if(u==='/api/conversations')return {items:[conversation()]};if(u==='/api/conversations/a')return conversation('a',{runs:[run]});
+  if(u==='/api/conversations')return {items:[conversation()]};if(u==='/api/conversations/a')return conversation('a',{runs:[run],messages:messages()});
   if(m==='POST' && u.endsWith('/cancel')){posts++;run={...run,state:'cancelled'};return run;}
   if(m==='POST' && u.endsWith('/retry')){posts++;run={...run,state:'queued'};return run;}
   return missing;
  });
- const cancel=b.button('Cancel request');cancel.focus();cancel.click();await settle();assert.notEqual(b.document.activeElement,b.document.body);assert.equal(b.document.activeElement.isConnected,true);cancel.click();await settle();assert.equal(posts,1);
- const retry=b.button('Retry request');retry.focus();retry.click();await settle();assert.notEqual(b.document.activeElement,b.document.body);assert.equal(b.document.activeElement.isConnected,true);assert.equal(posts,2);
+ const cancel=b.button('Cancel');cancel.focus();cancel.click();await settle();assert.notEqual(b.document.activeElement,b.document.body);assert.equal(b.document.activeElement.isConnected,true);cancel.click();await settle();assert.equal(posts,1,'a retired Cancel cannot post again');
+ const retry=b.button('Retry');retry.focus();retry.click();await settle();assert.notEqual(b.document.activeElement,b.document.body);assert.equal(b.document.activeElement.isConnected,true);assert.equal(posts,2);
  b.window.location.hash='#/ask';await settle();
 });
 
-test('browser-like NodeLists without Array helpers support history, catalog and focus restoration',async()=>{
- const repo=id=>({repository_id:id,name:id,status:'ready',eligible:true});let c=conversation();
+test('browser-like NodeLists without Array helpers support the picker, modal focus trap and chips',async()=>{
+ const repo=id=>({repository_id:id,name:`owner/${id}`,status:'ready',eligible:true,active_snapshot:{mode:'lexical_only'},active_run:null});let c=conversation();
  const b=createBrowser(html,{hash:'#/ask/a',respond:(m,u,o)=>{
-  if(u==='/api/conversations')return {items:[c],next_cursor:'next'};if(u==='/api/conversations?cursor=next')return {items:[conversation('b')]};
-  if(u==='/api/conversations/a'){if(m==='PATCH')c={...c,repository_ids:JSON.parse(o.body).repository_ids};return c;}
-  if(u==='/api/context/repositories?query=')return {items:[repo('r1')],next_cursor:'next'};if(u==='/api/context/repositories?query=&cursor=next')return {items:[repo('r2')]};
+  if(u==='/api/conversations')return {items:[c]};
+  if(u==='/api/conversations/a'){if(m==='PATCH')c={...c,repository_ids:JSON.parse(o.body).repository_ids,scope_revision:2};return c;}
+  if(u.startsWith('/api/context/repositories'))return {items:[repo('r1'),repo('r2')],next_cursor:null};
+  if(u==='/api/repositories/r1/context')return repo('r1');if(u==='/api/repositories/r2/context')return repo('r2');
   return missing;
- }});install(b);
+ }});b.window.sessionStorage=storage();b.window.localStorage=storage();install(b);
  function nodeList(items){const list={length:items.length,item:i=>items[i]??null,forEach:fn=>items.forEach(fn),[Symbol.iterator]:()=>items[Symbol.iterator]()};items.forEach((item,i)=>{list[i]=item;});return Object.freeze(list);}
  function wrap(element){const query=element.querySelectorAll;element.querySelectorAll=selector=>nodeList(query.call(element,selector));return element;}
  for(const element of b.document.descendants())wrap(element);wrap(b.document);
  const create=b.document.createElement.bind(b.document);b.document.createElement=tag=>wrap(create(tag));
  b.window.confirm=()=>true;
- const ui=await createAskPanel({host:b.document.getElementById('view-ask')});
- const button=t=>[...ui.panel.querySelectorAll('button')].find(n=>n.textContent===t);
- assert.equal(ui.panel.querySelectorAll('a').map,undefined);button('More conversations').click();await settle();assert.equal(ui.panel.querySelectorAll('a').length,2);
- button('Browse repository scope').click();await settle();button('More repositories').click();await settle();assert.equal(ui.panel.querySelectorAll('input').length,2);
- const scope=[...ui.panel.querySelectorAll('textarea')][0];input(scope,'r1');button('Save repository scope').focus();button('Save repository scope').click();await settle();assert.equal(b.document.activeElement,button('Save repository scope'));
+ const ui=await createAskPanel({host:b.document.getElementById('view-ask')});await settle();
+ const find=(root,fn)=>[...root.querySelectorAll('button')].find(fn);
+ assert.equal(ui.panel.querySelectorAll('button').find,undefined,'NodeList has no Array helpers');
+ find(ui.panel,n=>n.getAttribute('aria-label')==='Add repositories').click();await settle(40);assert.equal(b.document.querySelectorAll('.picker-row').length,2,'picker rows render');
+ const dialog=b.document.querySelector('dialog.modal');const search=dialog.querySelector('input');
+ keydown(search,'ArrowDown');assert.equal(b.document.activeElement.type,'checkbox');keydown(b.document.activeElement,'ArrowDown');
+ b.document.activeElement.click();const add=find(dialog,n=>n.textContent.startsWith('Add'));add.focus();keydown(add,'Tab');
+ assert.equal(b.document.activeElement,find(dialog,n=>n.getAttribute('aria-label')==='Close'),'Tab wraps inside the modal');
+ add.click();await settle(20);
+ assert.deepEqual(c.repository_ids,['r1','r2']);
  assert.equal(ui.panel.tagName,'MAIN');ui.focus();assert.equal(b.document.activeElement,ui.panel.querySelector('h1'));
 });
 
@@ -206,7 +236,7 @@ test('completed generation loads automatically for heading/button focus and pres
    if(u==='/api/answer-runs/r'){completed=true;return {id:'r',state:'completed'};}
    return missing;
   });
-  if(editing)b.field('Question').focus();else b.button('Reload saved conversation').focus();
+  if(editing)b.field('Question').focus();else b.button('Cancel').focus();
   await new Promise(resolve=>setTimeout(resolve,1600));await settle();
   if(editing){assert.equal(reads,1);assert.match(b.text(),/Generation finished/);assert.equal(b.document.activeElement,b.field('Question'));}
   else {assert.equal(reads,2);assert.match(b.text(),/Automatically loaded answer/);assert.equal(b.document.activeElement.tagName,'H3');}

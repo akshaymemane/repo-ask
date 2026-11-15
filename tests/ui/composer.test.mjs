@@ -148,3 +148,24 @@ test("chips:false hides repository controls", async () => {
   assert.equal(byLabel(c.root, "Add repositories"), null);
   assert.equal(textarea(c).getAttribute("placeholder"), "Guide the agent while it works…");
 });
+
+test("custom actions send with their intent, label wraps the textarea, initialText and onInput work", async () => {
+  const { make, log } = await setup();
+  const typed = [];
+  const c = make({ label: "Question or planning request", initialText: "Recovered draft", onInput: (text) => typed.push(text),
+    actions: [{ label: "Ask", intent: "answer", variant: "primary" }, { label: "Generate plan", intent: "plan" }] });
+  const label = c.root.querySelectorAll("label").find((l) => l.textContent.startsWith("Question or planning request"));
+  assert.equal(label.querySelector("textarea"), textarea(c));
+  assert.equal(textarea(c).value, "Recovered draft");
+  input(textarea(c), "Plan the retry change");
+  assert.deepEqual(typed, ["Plan the retry change"]);
+  c.root.querySelectorAll("button").find((x) => x.textContent === "Generate plan").click();
+  await settle();
+  assert.deepEqual(log.sent, [{ text: "Plan the retry change", repositoryIds: [], intent: "plan" }]);
+  input(textarea(c), "Explain it");
+  keydown(textarea(c), "Enter");
+  await settle();
+  assert.equal(log.sent[1].intent, "answer", "Enter uses the first action");
+  c.setBusy(true);
+  assert.equal(c.root.querySelectorAll("button").find((x) => x.textContent === "Generate plan").disabled, true);
+});
