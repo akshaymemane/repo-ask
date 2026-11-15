@@ -190,8 +190,8 @@ future calls even if a plan references its old version.
   `{base_url?, model}` embeds the synthetic text "dimension probe" and returns `{dimensions}`.
 - GitHub App Manifest flow. `POST /api/github/manifest/start` `{organization?}` returns
   `{action, state, manifest, expires_at}`. The browser POSTs a form field `manifest` (JSON) to
-  `action?state=...`. The manifest is read-only (`contents`/`metadata: read`), private, has its webhook
-  inactive, and sets `setup_url` to `/api/github/callback`. `GET /api/github/manifest/callback?code&state`
+  `action?state=...`. The manifest is read-only (`contents`/`metadata: read`), private, has no
+  `hook_attributes` (GitHub rejects loopback hook URLs even when inactive; verified live 2026-11-15), and sets `setup_url` to `/api/github/callback`. `GET /api/github/manifest/callback?code&state`
   validates the in-memory, single-use, 10-minute state, then calls the unauthenticated
   `POST /app-manifests/{code}/conversions` (GitHub allows 1 hour). It stores only `pem` in the vault via
   `configure(id, slug, pem)` and discards `client_secret`/`webhook_secret`, then redirects with 303 to

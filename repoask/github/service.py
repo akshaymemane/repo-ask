@@ -95,7 +95,6 @@ class GitHubService:
         callback = base + '/api/github/manifest/callback'
         manifest = {'name': 'opendevin-' + random.token_hex(3), 'url': callback, 'redirect_url': callback,
                     'setup_url': base + '/api/github/callback',
-                    'hook_attributes': {'url': base + '/api/github/webhook-disabled', 'active': False},
                     'public': False, 'default_permissions': {'contents': 'read', 'metadata': 'read'},
                     'default_events': [], 'request_oauth_on_install': False, 'setup_on_update': False}
         state, expires = random.token_urlsafe(32), self.clock() + 600000

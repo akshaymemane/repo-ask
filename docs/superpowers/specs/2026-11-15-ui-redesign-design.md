@@ -302,7 +302,7 @@ because of trailing spaces in the Setup URL).
    - name `opendevin-<user>-<short-random>`;
    - `url` and `redirect_url` pointing to `http://127.0.0.1:<port>/api/github/manifest/callback`;
    - `setup_url` set to the existing `/api/github/callback`;
-   - `hook_attributes.active: false`;
+   - no `hook_attributes` (GitHub rejects loopback webhook URLs even when inactive; verified live 2026-11-15);
    - `public: false`;
    - `default_permissions` `contents: read`, `metadata: read`;
    - `request_oauth_on_install: false`, `setup_on_update: false`.
