@@ -12,7 +12,7 @@ const notFound = {status:404, body:{error:'Not found.', code:'not_found'}};
 const conflict = code => ({status:409, body:{error:'The operation could not complete.', code}});
 const button = (root, text) => [...root.querySelectorAll('button')].find(n => n.textContent === text);
 const field = (root, text) => [...root.querySelectorAll('label')].find(n => n.textContent.startsWith(text))?.querySelector('input, textarea, select');
-function requestFor(b) { return async (path, method = 'GET', body) => { const r = await b.window.fetch(path, {method, ...(body === undefined ? {} : {body: JSON.stringify(body)})}); const v = await r.json(); if (!r.ok) { const e = new Error(v.code || 'request failed'); e.status = r.status; e.code = v.code; throw e; } return v; }; }
+function requestFor(b) { return async (path, method = 'GET', body, {signal} = {}) => { const r = await b.window.fetch(path, {method, ...(signal ? {signal} : {}), ...(body === undefined ? {} : {body: JSON.stringify(body)})}); const v = await r.json(); if (!r.ok) { const e = new Error(v.code || 'request failed'); e.status = r.status; e.code = v.code; throw e; } return v; }; }
 // `routes(method, url, options)` answers publication calls; session reads fall back to a terminal session.
 function setup(routes, {hash = '#/sessions/s', state = session()} = {}) {
   const b = createBrowser(html, {hash, respond: (m, u, o) => {
@@ -179,15 +179,25 @@ test('reconciling shows Checking GitHub with a Retry that uses a fresh key per d
   assert.match(visibleText(area), /In progress · Opening the draft pull request/); ui.close();
 });
 
-test('a lost retry response resends the same retry key', async () => {
+test('a lost or malformed retry response resends the same retry key; only a confirmed one clears it', async () => {
   let retries = 0;
   const b = setup((m, u) => {
     if (u === '/api/sessions/s/publication') return publication({state:'reconciling', error_code:'branch_outcome_unknown'});
-    if (u === '/api/publications/pub1/retry') { if (++retries === 1) throw new Error('offline'); return {status:202, body:publication({state:'creating_branch'})}; }
+    if (u === '/api/publications/pub1/retry') {
+      retries += 1;
+      if (retries === 1) throw new Error('offline');
+      if (retries === 2) return {status:202, body:{accepted:true}};
+      if (retries === 3) return {status:202, body:publication({state:'reconciling', error_code:'pr_outcome_unknown'})};
+      return conflict('reconciliation_pending');
+    }
   });
   const {ui, area} = await open(b);
-  button(area, 'Retry').click(); await settle(); button(area, 'Retry').click(); await settle();
-  const [first, second] = posts(b, '/retry'); assert.equal(first.idempotency_key, second.idempotency_key); ui.close();
+  for (let i = 0; i < 4; i++) { button(area, 'Retry').click(); await settle(); }
+  const keys = posts(b, '/retry').map(x => x.idempotency_key);
+  assert.equal(keys.length, 4);
+  assert.equal(keys[1], keys[0], 'network error keeps the key'); assert.equal(keys[2], keys[0], 'malformed success keeps the key');
+  assert.notEqual(keys[3], keys[2], 'a validated confirmed response clears the key');
+  ui.close();
 });
 
 test('reload recovers a published intent without previewing again', async () => {
@@ -279,4 +289,81 @@ test('Pull request author card is hidden when the publication settings route is 
   }, {hash:'#/settings/agent'});
   const ui = createExecutionSettings({request:requestFor(b), pollMs:1e6}); b.document.body.append(ui.element); await ui.refresh(); await settle();
   assert.equal(ui.element.querySelector('.publication-identity').hidden, true); assert.doesNotMatch(visibleText(ui.element), /Pull request author/); ui.close();
+});
+
+test('an intent created after the first not_found read is found by the bounded recheck', async () => {
+  let reads = 0;
+  const b = setup((m, u) => {
+    if (u === '/api/sessions/s/publication') return ++reads < 3 ? notFound : publication({state:'queued', policy:'on_success_draft'});
+    if (u === '/api/publications/pub1') return publication({state:'preparing', policy:'on_success_draft'});
+  }, {state: session({publication:{policy:'on_success_draft'}})});
+  const {ui, area} = await open(b, 20);
+  assert.ok(button(area, 'Create draft PR')); assert.equal(reads, 1);
+  await until(() => /Publishing draft pull request/.test(visibleText(area)));
+  assert.equal(button(area, 'Create draft PR'), undefined); assert.equal(reads, 3);
+  await until(() => /In progress · Checking the base branch/.test(visibleText(area)));
+  await new Promise(r => setTimeout(r, 40)); await settle();
+  assert.equal(reads, 3, 'rechecks stop once an intent exists'); ui.close();
+});
+
+test('rechecks while no intent exists are bounded and stop when the page is left', async () => {
+  let reads = 0;
+  const b = setup((m, u) => { if (u === '/api/sessions/s/publication') { reads += 1; return notFound; } });
+  const {ui} = await open(b, 1);
+  await until(() => reads >= 4);
+  b.window.location.hash = '#/settings'; await settle();
+  const left = reads; await new Promise(r => setTimeout(r, 60)); await settle();
+  assert.equal(reads, left, 'no reads after leaving');
+  const b2 = setup((m, u) => { if (u === '/api/sessions/s/publication') { reads += 1; return notFound; } });
+  reads = 0; const second = await open(b2, 1);
+  await new Promise(r => setTimeout(r, 400)); await settle();
+  assert.equal(reads, 9, 'one recovery read plus at most eight backoff rechecks'); second.ui.close(); ui.close();
+});
+
+test('leaving the page aborts an unresolved publication read and ignores its late answer', async () => {
+  let release, signal;
+  const b = setup((m, u, o) => { if (u === '/api/sessions/s/publication') { signal = o.signal; return new Promise(r => { release = r; }); } });
+  const {ui, area} = await open(b);
+  assert.match(visibleText(area), /Checking for an existing draft pull request/); assert.ok(signal); assert.equal(signal.aborted, false);
+  b.window.location.hash = '#/settings'; await settle();
+  assert.equal(signal.aborted, true);
+  release(publication({state:'published', pull_request_number:3, pull_request_url:'https://github.com/octo/demo/pull/3', pull_request_state:'open'})); await settle();
+  assert.doesNotMatch(area.textContent, /Draft PR #3/); assert.equal(b.requests.filter(r => r.url === '/api/publications/pub1').length, 0); ui.close();
+});
+
+test('identity fields are read-only while a save is in flight and keep the saved values after it', async () => {
+  let finish; const patches = [];
+  const b = setup((m, u, o) => {
+    if (u === '/api/settings/publication' && m === 'GET') return {commit_name:'Old', commit_email:'old@example.com'};
+    if (u === '/api/settings/publication' && m === 'PATCH') { patches.push(JSON.parse(o.body)); return new Promise(r => { finish = r; }); }
+    if (u.startsWith('/api/execution-profiles')) return {items:[], next_cursor:null};
+    if (u === '/api/settings/execution') return {max_active_sessions:1};
+    if (u === '/api/settings/model-roles') return {settings:{local_only:false}};
+  }, {hash:'#/settings/agent'});
+  const ui = createExecutionSettings({request:requestFor(b), pollMs:1e6}); b.document.body.append(ui.element); await ui.refresh(); await settle();
+  const card = ui.element.querySelector('.publication-identity'), name = field(card, 'Commit author name'), email = field(card, 'Commit author email');
+  input(name, 'Ada'); input(email, 'ada@example.com'); button(card, 'Save pull request author').click(); await settle();
+  assert.equal(patches.length, 1); assert.equal(name.readOnly, true); assert.equal(email.readOnly, true); assert.equal(card.querySelector('form').getAttribute('aria-busy'), 'true');
+  assert.equal(button(card, 'Save pull request author').disabled, true);
+  finish({commit_name:'Ada', commit_email:'ada@example.com'}); await settle();
+  assert.equal(name.readOnly, false); assert.equal(email.readOnly, false); assert.equal(card.querySelector('form').hasAttribute('aria-busy'), false);
+  assert.equal(name.value, 'Ada'); assert.match(visibleText(card), /Pull request author saved\. It applies/); ui.close();
+});
+
+test('round-2 shapes: base observation, GitHub blocker codes, publication check summary and publication_stopped', async () => {
+  const b = setup((m, u) => {
+    if (u === '/api/sessions/s/publication') return notFound;
+    if (u === '/api/sessions/s/publication-preview') return preview({head_branch:'opendevin/s-<suffix>', base_observation:{sha:'9'.repeat(40), diverged:true}, blocking_reasons:['base_overlap', 'divergence_unknown', 'timeout'], publishable:false});
+  });
+  const {ui, area} = await open(b);
+  button(area, 'Create draft PR').click(); await settle();
+  const text = visibleText(area);
+  assert.match(text, /base branch has moved since the session started \(now 999999999999\)/); assert.match(text, /opendevin\/s-<suffix>/);
+  assert.match(text, /changed some of the same files/); assert.match(text, /too far to check safely/); assert.match(text, /did not answer in time/);
+  assert.equal(button(area, 'Publish draft PR').disabled, true); ui.close();
+  for (const [checks, shown] of [[{status:'unavailable'}, 'unavailable'], [{fully_validated:true}, 'all passed'], [{fully_validated:false}, 'not fully validated']]) {
+    const b2 = setup((m, u) => u === '/api/sessions/s/publication' ? publication({state:'blocked', error_code:'publication_stopped', checks}) : undefined);
+    const opened = await open(b2);
+    assert.match(visibleText(opened.area), new RegExp(`Local checks${shown}`)); assert.match(visibleText(opened.area), /Publishing stopped because/); assert.match(visibleText(opened.area), /Code: publication_stopped/); opened.ui.close();
+  }
 });

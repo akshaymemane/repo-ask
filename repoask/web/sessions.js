@@ -11,9 +11,9 @@ const storage = {
   get(key) { try { return JSON.parse(window.sessionStorage?.getItem(key) || 'null'); } catch { return null; } },
   set(key, value) { try { if (value === null) window.sessionStorage?.removeItem(key); else window.sessionStorage?.setItem(key, JSON.stringify(value)); } catch {} },
 };
-export async function executionRequest(path, method = 'GET', body) {
+export async function executionRequest(path, method = 'GET', body, {signal} = {}) {
   let response;
-  try { response = await fetch(path, {method, cache: 'no-store', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)})}); }
+  try { response = await fetch(path, {method, cache: 'no-store', headers: {'Content-Type': 'application/json'}, ...(signal ? {signal} : {}), ...(body === undefined ? {} : {body: JSON.stringify(body)})}); }
   catch { throw new Error(method === 'GET' ? 'Connection unavailable. Reconnect to reload saved state.' : 'Connection lost; outcome unknown. Retry the same request to reconcile saved state.'); }
   let value;
   try { value = await response.json(); } catch { throw new Error('Response unavailable; outcome unknown. Reload saved state or retry the same request.'); }
@@ -97,8 +97,16 @@ const PUBLICATION_TEXT = {
   validation: 'Check the title (1 to 256 characters) and the description.',
   bad_request: 'The request was not accepted. Preview again and retry.',
   not_found: 'The session or its publication was not found.',
+  publication_stopped: 'Publishing stopped because the operation was superseded or its job ended.',
+  base_overlap: 'The base branch has since changed some of the same files. Nothing was rebased or overwritten.',
+  timeout: 'GitHub did not answer in time.',
+  upstream_unavailable: 'GitHub was unavailable.',
+  rate_limited: 'GitHub is rate limiting requests. Try again later.',
+  auth: "OpenDevin's GitHub App could not authenticate. Reconnect GitHub in Settings.",
+  capability_missing: "OpenDevin's GitHub App lacks a permission this needs. It needs Contents and Pull requests write access.",
+  repository_unavailable: "The repository isn't available to OpenDevin's GitHub App.",
 };
-const publicationFix = code => code === 'publication_identity_required' ? ['Set the pull request author in Settings', '#/settings/agent'] : /permission/.test(code) ? ['Review GitHub access in Settings', '#/settings/github'] : null;
+const publicationFix = code => code === 'publication_identity_required' ? ['Set the pull request author in Settings', '#/settings/agent'] : /permission|^auth$|^capability_missing$|^repository_unavailable$/.test(code) ? ['Review GitHub access in Settings', '#/settings/github'] : null;
 function explainCode(parent, code, fallback) {
   const known = /^[a-z_]{1,80}$/.test(code || '') ? code : null;
   parent.append(el('p', (known && PUBLICATION_TEXT[known]) || fallback || `Publishing stopped: ${human(known || 'unknown')}.`));
@@ -110,7 +118,11 @@ const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
   let mode = 'waiting', session = null, preview = null, key = null, unknown = false, draft = null, pub = null, notice = null;
-  let busy = false, dead = false, timer, retryKey = null, recovering = false;
+  let busy = false, dead = false, timer, retryKey = null, recovering = false, recheckTimer = null, rechecks = 0, seenUpdate;
+  // Publication reads are cancelled when the page is left; late answers are fenced by alive() as well.
+  const reads = new AbortController();
+  const read = path => request(path, 'GET', undefined, {signal: reads.signal});
+  const RECHECK_LIMIT = 8;
   const heading = el('h2', 'Draft pull request'); heading.setAttribute('tabindex', '-1');
   const announcer = el('p', '', 'publication-status'); announcer.setAttribute('role', 'status'); announcer.setAttribute('aria-live', 'polite');
   const body = el('div', undefined, 'publication-area');
@@ -172,6 +184,9 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
     const title = el('h3', 'Review draft pull request'); title.setAttribute('tabindex', '-1'); title.dataset.focus = 'review'; body.append(title);
     const changes = [Number.isFinite(stats.files) ? count(stats.files, 'file') : null, Number.isFinite(stats.additions) ? `+${stats.additions}` : null, Number.isFinite(stats.deletions) ? `−${stats.deletions}` : null].filter(Boolean).join(' · ') || 'unknown';
     facts(body, [['Repository', p.repository || `${p.repository_id || 'unknown'} (GitHub access not confirmed)`], ['Base branch', p.base_branch || 'unknown'], ['Head branch', `${p.head_branch || 'session branch'} (published as a new branch)`], ['Changes', changes], ['Policy', human(p.policy)]]);
+    const observed = p.base_observation && typeof p.base_observation === 'object' ? p.base_observation : {};
+    if (observed.diverged === true) body.append(el('p', `The base branch has moved since the session started${typeof observed.sha === 'string' ? ` (now ${observed.sha.slice(0, 12)})` : ''}. The commit keeps the session base as its parent; nothing is rebased.`, 'session-warning'));
+    else if (observed.diverged === false) body.append(el('p', 'The base branch has not moved since the session started.', 'detail-muted'));
     const paths = Array.isArray(p.changed_paths) ? p.changed_paths.filter(x => typeof x === 'string') : [];
     const list = el('ul', undefined, 'publication-paths'); for (const path of paths) list.append(el('li', path));
     if (!paths.length) body.append(el('p', 'No changed paths reported; nothing would be published.'));
@@ -230,7 +245,8 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
       body.append(steps, el('p', 'You can leave this page; publishing continues in the background.', 'detail-muted'));
     }
     showNotice(body);
-    facts(body, [['Base branch', p.base_branch || 'unknown'], ['Head branch', p.head_branch || 'not yet assigned'], ['Commit', p.commit_sha || 'not yet created'], ['Publication', p.id]]);
+    const checks = p.checks && typeof p.checks === 'object' ? p.checks : null;
+    facts(body, [['Base branch', p.base_branch || 'unknown'], ['Head branch', p.head_branch || 'not yet assigned'], ['Commit', p.commit_sha || 'not yet created'], ['Local checks', !checks || checks.status === 'unavailable' ? 'unavailable' : checks.fully_validated === true ? 'all passed' : 'not fully validated'], ['Publication', p.id]]);
   }
   function stateText(p) {
     if (p.state === 'published') return `Draft PR #${p.pull_request_number ?? '?'} published${p.pull_request_state ? ` · ${human(p.pull_request_state)}` : ''}.`;
@@ -252,7 +268,7 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
   async function poll() {
     if (!alive() || !pub) return;
     try {
-      const value = await request(`/api/publications/${enc(pub.id)}`);
+      const value = await read(`/api/publications/${enc(pub.id)}`);
       if (!alive()) return;
       if (!validPublication(value) || value.id !== pub.id) throw new Error('Unsupported publication response.');
       if (!busy) followPublication(value); else schedule();
@@ -261,17 +277,42 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
   async function recover(take = false) {
     if (recovering || dead) return; recovering = true; mode = 'loading'; notice = null; render(null, take || undefined);
     try {
-      const value = await request(`/api/sessions/${enc(sessionID)}/publication`);
+      const value = await read(`/api/sessions/${enc(sessionID)}/publication`);
       if (!alive()) return;
       if (!validPublication(value)) throw new Error('Unsupported publication response.');
       followPublication(value, take ? 'progress' : null, take);
     } catch (e) {
       if (!alive()) return;
       // not_found means no intent yet; an unrouted 404 means this build has no publication API.
-      if (e.code === 'not_found') { mode = 'idle'; render(take ? 'create' : null, take || undefined); }
+      if (e.code === 'not_found') { mode = 'idle'; render(take ? 'create' : null, take || undefined); scheduleRecheck(); }
       else if (e.status === 404) { mode = 'unavailable'; render(); }
       else { mode = 'recoverError'; notice = {message: e.message}; render(take ? 'check-again' : null, take || undefined); }
     } finally { recovering = false; }
+  }
+  // While no intent exists, recheck with bounded backoff: an automatic (on_success_draft) intent, or one made
+  // in another tab, can appear after the first read. Stops on leave, once an intent exists, or at the limit.
+  function scheduleRecheck() {
+    clearTimeout(recheckTimer); recheckTimer = null;
+    if (!alive() || pub || rechecks >= RECHECK_LIMIT || !['idle', 'review'].includes(mode)) return;
+    const delay = Math.min(pollMs * 2 ** rechecks, pollMs * 32); rechecks += 1;
+    recheckTimer = setTimeout(recheck, delay); recheckTimer?.unref?.();
+  }
+  async function recheck() {
+    recheckTimer = null;
+    if (!alive() || pub) return;
+    if (busy || recovering || !['idle', 'review'].includes(mode)) { scheduleRecheck(); return; }
+    try {
+      const value = await read(`/api/sessions/${enc(sessionID)}/publication`);
+      if (!alive() || pub) return;
+      if (validPublication(value) && !busy) {
+        notice = mode === 'review' ? {message: 'This session already has a publication intent, so the review was closed and its progress is shown instead.'} : null;
+        followPublication(value); return;
+      }
+    } catch (e) {
+      if (!alive()) return;
+      if (e.status === 404 && e.code !== 'not_found') { mode = 'unavailable'; render(); return; }
+    }
+    scheduleRecheck();
   }
   async function startPreview(b) {
     if (busy || dead) return;
@@ -313,14 +354,14 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
       if (e.status === undefined) {
         unknown = true; notice = {message: 'Connection lost; the outcome is unknown. Publish again to reconcile: the same request key is resent, so a second pull request cannot be created.'};
         announce('Publish outcome unknown. Checking saved state…'); render('publish', take);
-        try { const found = await request(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) { notice = null; followPublication(found, 'progress', inside(section, document.activeElement) || take); } } catch {}
+        try { const found = await read(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) { notice = null; followPublication(found, 'progress', inside(section, document.activeElement) || take); } } catch {}
         return;
       }
       if (e.code === 'stale_diff' || e.code === 'idempotency_conflict') notice = {code: e.code, offerPreview: true};
       else notice = {code: e.code, message: e.message};
       announce(`Not published: ${PUBLICATION_TEXT[e.code] || e.message}`);
       render(e.code === 'stale_diff' || e.code === 'idempotency_conflict' ? 'notice-preview' : 'publish', take);
-      if (e.code === 'idempotency_conflict') { try { const found = await request(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) followPublication(found, 'progress', inside(section, document.activeElement)); } catch {} }
+      if (e.code === 'idempotency_conflict') { try { const found = await read(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) followPublication(found, 'progress', inside(section, document.activeElement)); } catch {} }
     }
   }
   async function retryPublication(b) {
@@ -330,9 +371,10 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
     busy = true; b.disabled = true; retryKey ||= newPublicationKey(); notice = null; announce('Checking GitHub before retrying…');
     try {
       const value = await request(`/api/publications/${enc(pub.id)}/retry`, 'POST', {idempotency_key: retryKey});
-      retryKey = null; if (!alive()) return;
-      if (!validPublication(value) || value.id !== pub.id) throw new Error('Retry outcome unknown. Retry again to reconcile.');
-      busy = false; followPublication(value, 'progress', take);
+      if (!alive()) return;
+      // An unsupported success body is an unknown outcome: keep the key so the next Retry resends it.
+      if (!validPublication(value) || value.id !== pub.id) throw new Error('Retry outcome unknown. Retry again to reconcile with the same request');
+      retryKey = null; busy = false; followPublication(value, 'progress', take);
     } catch (e) {
       if (!alive()) return;
       busy = false; if (e.status !== undefined) retryKey = null;
@@ -358,10 +400,12 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
     update(s) {
       const wasTerminal = session && terminal.has(session.state); session = s;
       if (!terminal.has(s.state)) { if (mode === 'waiting') render(); return; }
-      if (!wasTerminal && mode === 'waiting') recover();
+      if (!wasTerminal && mode === 'waiting') { seenUpdate = s.updated_at; recover(); return; }
+      // A later session change (for example an automatic publication) restarts the bounded recheck.
+      if (s.updated_at !== seenUpdate) { seenUpdate = s.updated_at; if (!pub && ['idle', 'review'].includes(mode)) { rechecks = 0; if (!recheckTimer) scheduleRecheck(); } }
     },
     sourceLost() { if (mode === 'review' && !busy) { preview = null; key = null; unknown = false; draft = null; mode = 'idle'; notice = {code: 'source_unavailable'}; render(); } },
-    dispose() { dead = true; clearTimeout(timer); },
+    dispose() { dead = true; clearTimeout(timer); clearTimeout(recheckTimer); reads.abort(); },
   };
 }
 
@@ -743,12 +787,15 @@ function createPublicationIdentity(request) {
     form.addEventListener('submit', async e => {
       e.preventDefault(); if (saving || !form.isConnected) return;
       if (!check()) { status.textContent = 'Fix the highlighted fields.'; (nameError.textContent ? name : email).focus(); return; }
-      saving = true; save.disabled = true; status.textContent = 'Saving pull request author…'; const token = generation;
+      // Fields are read-only while the save is in flight, so nothing typed can be silently overwritten.
+      const sent = {commit_name: name.value.trim(), commit_email: email.value.trim()}, typed = [name.value, email.value];
+      saving = true; save.disabled = true; name.readOnly = email.readOnly = true; form.setAttribute('aria-busy', 'true'); status.textContent = 'Saving pull request author…'; const token = generation;
       try {
-        const saved = await request('/api/settings/publication', 'PATCH', {commit_name: name.value.trim(), commit_email: email.value.trim()});
+        const saved = await request('/api/settings/publication', 'PATCH', sent);
         if (token !== generation) return;
         if (typeof saved?.commit_name !== 'string' || typeof saved?.commit_email !== 'string') throw new Error('Save outcome unknown. Save again to confirm');
-        name.value = saved.commit_name; email.value = saved.commit_email; dirty = false; status.textContent = 'Pull request author saved. It applies to draft pull requests published from now on.';
+        if (name.value === typed[0] && email.value === typed[1]) { name.value = saved.commit_name; email.value = saved.commit_email; dirty = false; status.textContent = 'Pull request author saved. It applies to draft pull requests published from now on.'; }
+        else status.textContent = 'Pull request author saved. Newer edits in these fields are not saved yet.';
       } catch (error) {
         if (token !== generation) return;
         if (error.code === 'validation' || error.code === 'bad_request') {
@@ -756,7 +803,7 @@ function createPublicationIdentity(request) {
           if (check()) { setError(name, nameError, 'OpenDevin rejected this name. Use plain text without control characters.'); setError(email, emailError, 'OpenDevin rejected this email. Use a single plain address.'); }
           status.textContent = 'Not saved. Fix the highlighted fields.'; name.focus();
         } else status.textContent = error.status === undefined ? `${error.message} Save again to confirm the author.` : `Not saved: ${error.message}.`;
-      } finally { if (token === generation) { saving = false; save.disabled = false; } }
+      } finally { if (token === generation) { saving = false; save.disabled = false; name.readOnly = email.readOnly = false; form.removeAttribute('aria-busy'); } }
     });
   }
   async function load() {
