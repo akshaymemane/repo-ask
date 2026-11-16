@@ -11,9 +11,9 @@ const storage = {
   get(key) { try { return JSON.parse(window.sessionStorage?.getItem(key) || 'null'); } catch { return null; } },
   set(key, value) { try { if (value === null) window.sessionStorage?.removeItem(key); else window.sessionStorage?.setItem(key, JSON.stringify(value)); } catch {} },
 };
-export async function executionRequest(path, method = 'GET', body) {
+export async function executionRequest(path, method = 'GET', body, {signal} = {}) {
   let response;
-  try { response = await fetch(path, {method, cache: 'no-store', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)})}); }
+  try { response = await fetch(path, {method, cache: 'no-store', headers: {'Content-Type': 'application/json'}, ...(signal ? {signal} : {}), ...(body === undefined ? {} : {body: JSON.stringify(body)})}); }
   catch { throw new Error(method === 'GET' ? 'Connection unavailable. Reconnect to reload saved state.' : 'Connection lost; outcome unknown. Retry the same request to reconcile saved state.'); }
   let value;
   try { value = await response.json(); } catch { throw new Error('Response unavailable; outcome unknown. Reload saved state or retry the same request.'); }
@@ -66,12 +66,355 @@ function eventText(event, sourceAllowed) {
   }
 }
 
+// ---- Draft pull request (F06) --------------------------------------------------------------
+// Renders only mapped fields of the safe public preview/publication projections: never tokens,
+// object bodies or raw GitHub responses. There is deliberately no merge action anywhere.
+const PUBLICATION_STATES = new Set(['queued', 'preparing', 'creating_objects', 'creating_branch', 'creating_pr', 'reconciling', 'published', 'blocked', 'failed', 'no_changes']);
+const PUBLICATION_DONE = new Set(['published', 'blocked', 'failed', 'no_changes']);
+const PUBLICATION_STEPS = [['queued', 'Waiting to start'], ['preparing', 'Checking the base branch'], ['creating_objects', 'Creating the commit'], ['creating_branch', 'Creating the branch'], ['creating_pr', 'Opening the draft pull request']];
+const SAFE_PR_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
+const PUBLICATION_TEXT = {
+  publication_identity_required: 'Set the commit author name and email used for pull requests.',
+  publication_permission_denied: "OpenDevin's GitHub App can't write to this repository. It needs Contents and Pull requests write access.",
+  automatic_policy_not_satisfied: 'The saved policy publishes automatically only after a fully validated, reviewable result.',
+  stale_diff: "The session's changes no longer match the preview you reviewed.",
+  idempotency_conflict: 'A different publish request already exists for this session.',
+  source_unavailable: 'Source is unavailable under the current repository access or retention policy.',
+  rejected_paths: "Some changed paths were rejected by the artifact policy, so this change can't be published.",
+  session_snapshot_invalid: "The session's saved checkpoint couldn't be verified for publishing.",
+  session_unavailable: "The session's saved changes aren't available for publishing.",
+  base_conflict: 'The base branch has since changed some of the same files. Nothing was rebased or overwritten.',
+  divergence_unknown: 'The base branch moved too far to check safely for overlapping changes.',
+  branch_collision: 'A branch with this name already points to different work.',
+  pull_request_invalid: "GitHub's pull request response couldn't be verified.",
+  pull_request_mismatch: "The pull request GitHub returned doesn't match this change.",
+  pull_request_conflict: 'More than one pull request matches this change.',
+  github_unavailable: 'GitHub was unavailable.',
+  repository_purged: 'The repository was removed from OpenDevin, so publishing stopped.',
+  reconciliation_pending: "GitHub hasn't confirmed the earlier step yet. OpenDevin keeps checking; try again in a moment.",
+  pr_outcome_unknown: "GitHub didn't confirm whether the pull request was created.",
+  branch_outcome_unknown: "GitHub didn't confirm whether the branch was created.",
+  validation: 'Check the title (1 to 256 characters) and the description.',
+  bad_request: 'The request was not accepted. Preview again and retry.',
+  not_found: 'The session or its publication was not found.',
+  publication_stopped: 'Publishing stopped because the operation was superseded or its job ended.',
+  base_overlap: 'The base branch has since changed some of the same files. Nothing was rebased or overwritten.',
+  timeout: 'GitHub did not answer in time.',
+  upstream_unavailable: 'GitHub was unavailable.',
+  rate_limited: 'GitHub is rate limiting requests. Try again later.',
+  auth: "OpenDevin's GitHub App could not authenticate. Reconnect GitHub in Settings.",
+  capability_missing: "OpenDevin's GitHub App lacks a permission this needs. It needs Contents and Pull requests write access.",
+  repository_unavailable: "The repository isn't available to OpenDevin's GitHub App.",
+};
+const publicationFix = code => code === 'publication_identity_required' ? ['Set the pull request author in Settings', '#/settings/agent'] : /permission|^auth$|^capability_missing$|^repository_unavailable$/.test(code) ? ['Review GitHub access in Settings', '#/settings/github'] : null;
+function explainCode(parent, code, fallback) {
+  const known = /^[a-z_]{1,80}$/.test(code || '') ? code : null;
+  parent.append(el('p', (known && PUBLICATION_TEXT[known]) || fallback || `Publishing stopped: ${human(known || 'unknown')}.`));
+  const fix = known && publicationFix(known); if (fix) link(parent, fix[0], fix[1]);
+  if (known) parent.append(el('small', `Code: ${known}`, 'publication-code'));
+}
+const newPublicationKey = () => `pub-${globalThis.crypto.randomUUID()}`;
+const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
+  let mode = 'waiting', session = null, preview = null, key = null, unknown = false, draft = null, pub = null, notice = null;
+  let busy = false, dead = false, timer, retryKey = null, recovering = false, recheckTimer = null, rechecks = 0, seenUpdate;
+  // Publication reads are cancelled when the page is left; late answers are fenced by alive() as well.
+  const reads = new AbortController();
+  const read = path => request(path, 'GET', undefined, {signal: reads.signal});
+  const RECHECK_LIMIT = 8;
+  const heading = el('h2', 'Draft pull request'); heading.setAttribute('tabindex', '-1');
+  const announcer = el('p', '', 'publication-status'); announcer.setAttribute('role', 'status'); announcer.setAttribute('aria-live', 'polite');
+  const body = el('div', undefined, 'publication-area');
+  section.replaceChildren(heading, announcer, body);
+  const alive = () => !dead && isLive();
+  const announce = text => { if (announcer.textContent !== text) announcer.textContent = text; };
+  const validPublication = v => Boolean(v) && typeof v.id === 'string' && v.id && v.session_id === sessionID && PUBLICATION_STATES.has(v.state);
+  const blocked = () => !preview || preview.publishable !== true || (Array.isArray(preview.blocking_reasons) && preview.blocking_reasons.length > 0);
+  // Focus moves only as a consequence of the user's own action inside this area; polling never steals it.
+  function render(focusKey = null, take = inside(section, document.activeElement)) {
+    const previous = inside(section, document.activeElement) ? document.activeElement?.dataset?.focus : null;
+    body.replaceChildren(); ({waiting, loading: () => body.append(el('p', 'Checking for an existing draft pull request…')), unavailable, idle, review, follow, recoverError})[mode]();
+    if (!take) return;
+    const wanted = focusKey || (document.activeElement === document.body || !document.activeElement?.isConnected ? previous : null);
+    if (!wanted && document.activeElement !== document.body && document.activeElement?.isConnected) return;
+    const target = wanted && [...section.querySelectorAll('[data-focus]')].find(n => n.dataset.focus === wanted && !n.disabled);
+    (target || heading).focus();
+  }
+  function policyLines() {
+    const policy = session?.publication?.policy || 'unavailable';
+    body.append(el('p', `Saved publication policy: ${human(policy)}.`, 'detail-muted'), el('p', policy === 'on_success_draft' ? 'The saved launch policy authorizes a remote branch and draft PR only after server success and publication checks.' : 'An explicit publication action is required after review.', 'detail-muted'));
+  }
+  function showNotice(parent) {
+    if (!notice) return;
+    const box = el('div', undefined, 'publication-notice');
+    if (notice.code) explainCode(box, notice.code, notice.message); else box.append(el('p', notice.message));
+    if (notice.offerPreview) { const again = button(box, 'Preview again', b => startPreview(b)); again.dataset.focus = 'notice-preview'; }
+    parent.append(box);
+  }
+  function waiting() { body.append(el('p', "Publishing isn't available yet. You can create a draft pull request after the session finishes.")); policyLines(); }
+  function unavailable() { body.append(el('p', "Publishing isn't available yet in this build.")); policyLines(); }
+  function recoverError() {
+    body.append(el('p', `Couldn't check for an existing draft pull request: ${notice?.message || 'unavailable'}.`));
+    const again = button(body, 'Check again', () => recover(true)); again.dataset.focus = 'check-again';
+  }
+  function idle() {
+    body.append(el('p', 'Review the changes, checks and description, then publish them as a draft pull request on a new branch. OpenDevin never merges, force-pushes or changes the base branch.'));
+    const create = button(body, busy ? 'Preparing preview…' : 'Create draft PR', b => startPreview(b)); create.dataset.focus = 'create'; create.classList.add('publication-primary'); create.disabled = busy;
+    showNotice(body); policyLines();
+  }
+  function facts(parent, entries) { const dl = el('dl', undefined, 'session-facts'); for (const [label, value] of entries) dl.append(el('dt', label), el('dd', value)); parent.append(dl); }
+  function renderChecks(parent, checks) {
+    const box = el('div', undefined, 'publication-checks'); box.append(el('h4', 'Checks'));
+    const c = checks && typeof checks === 'object' ? checks : {};
+    const summary = c.summary && typeof c.summary === 'object' ? c.summary : {};
+    const items = Array.isArray(c.items) ? c.items : [];
+    const tally = {...summary}; if (!Object.keys(tally).length) for (const item of items) tally[item.status] = (tally[item.status] || 0) + 1;
+    const counts = Object.entries(tally).filter(([, n]) => Number.isFinite(n)).map(([status, n]) => `${n} ${human(status)}`).join(' · ');
+    const failing = ['failed', 'unavailable', 'error', 'not_run', 'timed_out'].filter(s => tally[s] > 0);
+    if (c.fully_validated === true) box.append(el('p', `All recorded checks passed${counts ? ` (${counts})` : ''}.`));
+    else {
+      box.append(el('p', failing.length ? `Not fully validated: ${failing.map(s => `${tally[s]} ${human(s)}`).join(', ')}. The default description discloses this; reviewers see it on GitHub.` : `Not fully validated${counts ? ` (${counts})` : ': no passing check run was recorded'}. The default description discloses this.`, 'session-warning'));
+    }
+    if (items.length) { const list = el('ul'); for (const item of items) list.append(el('li', `Check ${scalar(item.ordinal)} · ${human(item.status)}${item.required ? ' · required' : ''}`)); box.append(list); }
+    parent.append(box);
+  }
+  function review() {
+    const p = preview, stats = p.stats && typeof p.stats === 'object' ? p.stats : {};
+    const title = el('h3', 'Review draft pull request'); title.setAttribute('tabindex', '-1'); title.dataset.focus = 'review'; body.append(title);
+    const changes = [Number.isFinite(stats.files) ? count(stats.files, 'file') : null, Number.isFinite(stats.additions) ? `+${stats.additions}` : null, Number.isFinite(stats.deletions) ? `−${stats.deletions}` : null].filter(Boolean).join(' · ') || 'unknown';
+    facts(body, [['Repository', p.repository || `${p.repository_id || 'unknown'} (GitHub access not confirmed)`], ['Base branch', p.base_branch || 'unknown'], ['Head branch', `${p.head_branch || 'session branch'} (published as a new branch)`], ['Changes', changes], ['Policy', human(p.policy)]]);
+    const observed = p.base_observation && typeof p.base_observation === 'object' ? p.base_observation : {};
+    if (observed.diverged === true) body.append(el('p', `The base branch has moved since the session started${typeof observed.sha === 'string' ? ` (now ${observed.sha.slice(0, 12)})` : ''}. The commit keeps the session base as its parent; nothing is rebased.`, 'session-warning'));
+    else if (observed.diverged === false) body.append(el('p', 'The base branch has not moved since the session started.', 'detail-muted'));
+    const paths = Array.isArray(p.changed_paths) ? p.changed_paths.filter(x => typeof x === 'string') : [];
+    const list = el('ul', undefined, 'publication-paths'); for (const path of paths) list.append(el('li', path));
+    if (!paths.length) body.append(el('p', 'No changed paths reported; nothing would be published.'));
+    else if (paths.length <= 6) { body.append(el('h4', `Changed paths (${paths.length})`), list); }
+    else { const more = el('details'); const summary = el('summary', `${paths.length} changed paths`); summary.dataset.focus = 'paths'; more.append(summary, list); body.append(more); }
+    renderChecks(body, p.checks);
+    const reasons = Array.isArray(p.blocking_reasons) ? p.blocking_reasons : [];
+    if (reasons.length || p.publishable !== true) {
+      const box = el('section', undefined, 'publication-blockers'); box.setAttribute('aria-label', "Can't publish yet"); box.append(el('h4', "Can't publish yet"));
+      for (const code of reasons) { const item = el('div'); explainCode(item, code); box.append(item); }
+      if (!reasons.length) box.append(el('p', 'The server did not mark this change publishable.'));
+      box.append(el('p', 'After fixing these, choose Preview again.', 'detail-muted')); body.append(box);
+    }
+    const form = el('form', undefined, 'publication-form'); body.append(form);
+    const titleLabel = el('label', 'Pull request title'); const titleInput = el('input'); titleInput.type = 'text'; titleInput.maxLength = 256; titleInput.required = true; titleInput.value = draft.title; titleInput.dataset.focus = 'title'; titleLabel.append(titleInput);
+    const bodyLabel = el('label', 'Pull request description'); const bodyInput = el('textarea'); bodyInput.maxLength = 65536; bodyInput.rows = 8; bodyInput.value = draft.body; bodyInput.dataset.focus = 'body'; bodyLabel.append(bodyInput);
+    // After an unknown outcome the exact request must be resent, so its fields are frozen until a new preview.
+    titleInput.readOnly = bodyInput.readOnly = unknown;
+    titleInput.addEventListener('input', () => { draft.title = titleInput.value; submit.disabled = busy || blocked() || !draft.title.trim(); });
+    bodyInput.addEventListener('input', () => { draft.body = bodyInput.value; });
+    form.append(titleLabel, bodyLabel);
+    showNotice(form);
+    const actions = el('div', undefined, 'publication-actions'); form.append(actions);
+    const submit = el('button', busy ? 'Publishing…' : unknown ? 'Publish again (same request)' : 'Publish draft PR', 'button publication-primary'); submit.type = 'submit'; submit.dataset.focus = 'publish'; actions.append(submit);
+    submit.disabled = busy || blocked() || !draft.title.trim();
+    if (blocked()) submit.setAttribute('aria-describedby', 'publication-blocked-note');
+    const again = button(actions, 'Preview again', b => startPreview(b)); again.dataset.focus = 'preview-again'; again.disabled = busy;
+    const cancel = button(actions, 'Cancel', () => { if (busy) return; preview = null; key = null; unknown = false; notice = null; mode = 'idle'; announce('Draft pull request review closed.'); render('create', true); }); cancel.dataset.focus = 'cancel'; cancel.disabled = busy;
+    const note = el('p', blocked() ? 'Publishing is disabled until the issues above are fixed.' : 'Creates one new branch and one draft pull request. Nothing is merged.', 'detail-muted'); note.id = 'publication-blocked-note'; form.append(note);
+    form.addEventListener('submit', e => { e.preventDefault(); publish(); });
+  }
+  function follow() {
+    const p = pub, s = p.state;
+    const title = el('h3', s === 'published' ? `Draft PR #${p.pull_request_number ?? '?'}` : s === 'no_changes' ? 'Nothing to publish' : s === 'blocked' || s === 'failed' ? "Couldn't publish the draft pull request" : s === 'reconciling' ? 'Checking GitHub…' : 'Publishing draft pull request');
+    title.setAttribute('tabindex', '-1'); title.dataset.focus = 'progress'; body.append(title);
+    if (s === 'published') {
+      const number = Number.isSafeInteger(p.pull_request_number) && p.pull_request_number > 0 ? p.pull_request_number : null;
+      if (number && typeof p.pull_request_url === 'string' && SAFE_PR_URL.test(p.pull_request_url)) {
+        const a = el('a', `Draft PR #${number}`, 'publication-pr-link'); a.setAttribute('href', p.pull_request_url); a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); a.dataset.focus = 'pr-link';
+        const line = el('p'); line.append(a, el('span', ' (opens GitHub in a new tab)', 'detail-muted')); body.append(line);
+      } else body.append(el('p', 'GitHub confirmed the draft pull request, but its address could not be verified, so no link is shown. Open it from the repository on GitHub.', 'session-warning'));
+      body.append(el('p', `Status on GitHub: ${p.pull_request_state ? human(p.pull_request_state) : 'unknown'}. OpenDevin never merges; review and merge on GitHub.`));
+      const refreshBtn = button(body, busy ? 'Refreshing…' : 'Refresh status', b => refreshStatus(b)); refreshBtn.dataset.focus = 'refresh'; refreshBtn.disabled = busy;
+    } else if (s === 'no_changes') {
+      body.append(el('p', "The session's checkpoint has no file changes, so nothing was published: no branch, commit or pull request was created."));
+    } else if (s === 'blocked' || s === 'failed') {
+      explainCode(body, p.error_code, p.error_code ? undefined : s === 'failed' ? 'Publishing failed.' : 'Publishing was blocked.');
+      body.append(el('p', 'Nothing was merged or force-pushed. A session has one publication intent; this one is final and kept for audit.', 'detail-muted'));
+    } else if (s === 'reconciling') {
+      body.append(el('p', "An earlier step's outcome on GitHub is unknown. OpenDevin never repeats it blindly; it first checks what GitHub recorded."));
+      if (p.error_code) explainCode(body, p.error_code);
+      const retryBtn = button(body, busy ? 'Retrying…' : 'Retry', b => retryPublication(b)); retryBtn.dataset.focus = 'retry'; retryBtn.disabled = busy;
+    } else {
+      const steps = el('ol', undefined, 'publication-steps'), at = PUBLICATION_STEPS.findIndex(([state]) => state === s);
+      PUBLICATION_STEPS.forEach(([, label], i) => { const li = el('li', `${i < at ? 'Done' : i === at ? 'In progress' : 'Pending'} · ${label}`, i < at ? 'is-done' : i === at ? 'is-current' : 'is-pending'); if (i === at) li.setAttribute('aria-current', 'step'); steps.append(li); });
+      body.append(steps, el('p', 'You can leave this page; publishing continues in the background.', 'detail-muted'));
+    }
+    showNotice(body);
+    const checks = p.checks && typeof p.checks === 'object' ? p.checks : null;
+    facts(body, [['Base branch', p.base_branch || 'unknown'], ['Head branch', p.head_branch || 'not yet assigned'], ['Commit', p.commit_sha || 'not yet created'], ['Local checks', !checks || checks.status === 'unavailable' ? 'unavailable' : checks.fully_validated === true ? 'all passed' : 'not fully validated'], ['Publication', p.id]]);
+  }
+  function stateText(p) {
+    if (p.state === 'published') return `Draft PR #${p.pull_request_number ?? '?'} published${p.pull_request_state ? ` · ${human(p.pull_request_state)}` : ''}.`;
+    if (p.state === 'reconciling') return 'Checking GitHub…';
+    if (p.state === 'no_changes') return 'Nothing to publish: no file changes.';
+    if (p.state === 'blocked' || p.state === 'failed') return `Publishing ${p.state === 'blocked' ? 'blocked' : 'failed'}: ${PUBLICATION_TEXT[p.error_code] || human(p.error_code)}`;
+    return `Publishing: ${(PUBLICATION_STEPS.find(([state]) => state === p.state) || [, human(p.state)])[1]}…`;
+  }
+  function followPublication(value, focusKey = null, take = false) {
+    const changed = !pub || pub.state !== value.state || pub.pull_request_state !== value.pull_request_state || pub.error_code !== value.error_code || pub.head_branch !== value.head_branch || pub.commit_sha !== value.commit_sha;
+    pub = value; preview = null; key = null; unknown = false; draft = null;
+    if (mode !== 'follow' || changed || focusKey) { mode = 'follow'; render(focusKey, take || undefined); }
+    announce(stateText(pub)); schedule();
+  }
+  function schedule() {
+    clearTimeout(timer);
+    if (pub && !PUBLICATION_DONE.has(pub.state) && alive()) { timer = setTimeout(poll, pollMs); timer?.unref?.(); }
+  }
+  async function poll() {
+    if (!alive() || !pub) return;
+    try {
+      const value = await read(`/api/publications/${enc(pub.id)}`);
+      if (!alive()) return;
+      if (!validPublication(value) || value.id !== pub.id) throw new Error('Unsupported publication response.');
+      if (!busy) followPublication(value); else schedule();
+    } catch (e) { if (!alive()) return; announce(`Reconnecting to publication status… ${e.message}`); schedule(); }
+  }
+  async function recover(take = false) {
+    if (recovering || dead) return; recovering = true; mode = 'loading'; notice = null; render(null, take || undefined);
+    try {
+      const value = await read(`/api/sessions/${enc(sessionID)}/publication`);
+      if (!alive()) return;
+      if (!validPublication(value)) throw new Error('Unsupported publication response.');
+      followPublication(value, take ? 'progress' : null, take);
+    } catch (e) {
+      if (!alive()) return;
+      // not_found means no intent yet; an unrouted 404 means this build has no publication API.
+      if (e.code === 'not_found') { mode = 'idle'; render(take ? 'create' : null, take || undefined); scheduleRecheck(); }
+      else if (e.status === 404) { mode = 'unavailable'; render(); }
+      else { mode = 'recoverError'; notice = {message: e.message}; render(take ? 'check-again' : null, take || undefined); }
+    } finally { recovering = false; }
+  }
+  // While no intent exists, recheck with bounded backoff: an automatic (on_success_draft) intent, or one made
+  // in another tab, can appear after the first read. Stops on leave, once an intent exists, or at the limit.
+  function scheduleRecheck() {
+    clearTimeout(recheckTimer); recheckTimer = null;
+    if (!alive() || pub || rechecks >= RECHECK_LIMIT || !['idle', 'review'].includes(mode)) return;
+    const delay = Math.min(pollMs * 2 ** rechecks, pollMs * 32); rechecks += 1;
+    recheckTimer = setTimeout(recheck, delay); recheckTimer?.unref?.();
+  }
+  async function recheck() {
+    recheckTimer = null;
+    if (!alive() || pub) return;
+    if (busy || recovering || !['idle', 'review'].includes(mode)) { scheduleRecheck(); return; }
+    try {
+      const value = await read(`/api/sessions/${enc(sessionID)}/publication`);
+      if (!alive() || pub) return;
+      if (validPublication(value) && !busy) {
+        notice = mode === 'review' ? {message: 'This session already has a publication intent, so the review was closed and its progress is shown instead.'} : null;
+        followPublication(value); return;
+      }
+    } catch (e) {
+      if (!alive()) return;
+      if (e.status === 404 && e.code !== 'not_found') { mode = 'unavailable'; render(); return; }
+    }
+    scheduleRecheck();
+  }
+  async function startPreview(b) {
+    if (busy || dead) return;
+    const take = inside(section, document.activeElement) || document.activeElement === b;
+    busy = true; notice = null; b.disabled = true; announce('Preparing a preview of the draft pull request…');
+    try {
+      const value = await request(`/api/sessions/${enc(sessionID)}/publication-preview`, 'POST', {});
+      if (!alive()) return;
+      if (!value || value.session_id !== sessionID || typeof value.diff_hash !== 'string' || !Number.isSafeInteger(value.intent_version)) throw new Error('Unsupported preview response.');
+      // A new preview is a new review step: it gets a fresh idempotency key.
+      preview = value; key = newPublicationKey(); unknown = false;
+      draft = {title: typeof value.title === 'string' ? value.title : '', body: typeof value.body === 'string' ? value.body : ''};
+      busy = false; mode = 'review';
+      announce(blocked() ? "Preview ready. This change can't be published yet; see the reasons listed." : 'Preview ready. Review the details, then publish the draft pull request.');
+      render('review', take);
+    } catch (e) {
+      if (!alive()) return;
+      busy = false; preview = null; key = null; unknown = false;
+      notice = {code: e.code, message: `Preview unavailable: ${e.message}.`};
+      if (e.code === 'idempotency_conflict') { recover(take); return; }
+      mode = 'idle'; announce(`Preview unavailable: ${PUBLICATION_TEXT[e.code] || e.message}`); render('create', take);
+    } finally { if (alive()) busy = false; }
+  }
+  async function publish() {
+    if (busy || dead || mode !== 'review' || blocked() || !draft.title.trim()) return;
+    const take = inside(section, document.activeElement);
+    busy = true; render('publish', take);
+    announce('Publishing the draft pull request…');
+    // Exactly the contract fields; the same key is reused for double clicks and unknown outcomes.
+    const payload = {title: draft.title, body: draft.body, expected_diff_hash: preview.diff_hash, intent_version: preview.intent_version, idempotency_key: key};
+    try {
+      const value = await request(`/api/sessions/${enc(sessionID)}/pull-requests`, 'POST', payload);
+      if (!alive()) return;
+      if (!validPublication(value)) { const e = new Error('Publish outcome unknown.'); throw e; }
+      busy = false; notice = null; followPublication(value, 'progress', take);
+    } catch (e) {
+      if (!alive()) return;
+      busy = false;
+      if (e.status === undefined) {
+        unknown = true; notice = {message: 'Connection lost; the outcome is unknown. Publish again to reconcile: the same request key is resent, so a second pull request cannot be created.'};
+        announce('Publish outcome unknown. Checking saved state…'); render('publish', take);
+        try { const found = await read(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) { notice = null; followPublication(found, 'progress', inside(section, document.activeElement) || take); } } catch {}
+        return;
+      }
+      if (e.code === 'stale_diff' || e.code === 'idempotency_conflict') notice = {code: e.code, offerPreview: true};
+      else notice = {code: e.code, message: e.message};
+      announce(`Not published: ${PUBLICATION_TEXT[e.code] || e.message}`);
+      render(e.code === 'stale_diff' || e.code === 'idempotency_conflict' ? 'notice-preview' : 'publish', take);
+      if (e.code === 'idempotency_conflict') { try { const found = await read(`/api/sessions/${enc(sessionID)}/publication`); if (alive() && validPublication(found) && !busy) followPublication(found, 'progress', inside(section, document.activeElement)); } catch {} }
+    }
+  }
+  async function retryPublication(b) {
+    if (busy || dead || !pub) return;
+    const take = inside(section, document.activeElement) || document.activeElement === b;
+    // A fresh key per deliberate retry; only an unknown outcome resends the same key.
+    busy = true; b.disabled = true; retryKey ||= newPublicationKey(); notice = null; announce('Checking GitHub before retrying…');
+    try {
+      const value = await request(`/api/publications/${enc(pub.id)}/retry`, 'POST', {idempotency_key: retryKey});
+      if (!alive()) return;
+      // An unsupported success body is an unknown outcome: keep the key so the next Retry resends it.
+      if (!validPublication(value) || value.id !== pub.id) throw new Error('Retry outcome unknown. Retry again to reconcile with the same request');
+      retryKey = null; busy = false; followPublication(value, 'progress', take);
+    } catch (e) {
+      if (!alive()) return;
+      busy = false; if (e.status !== undefined) retryKey = null;
+      notice = e.code ? {code: e.code} : {message: e.message};
+      announce(e.code === 'reconciliation_pending' ? 'GitHub has not confirmed the earlier step yet.' : `Retry not started: ${PUBLICATION_TEXT[e.code] || e.message}`);
+      render('retry', take); schedule();
+    }
+  }
+  async function refreshStatus(b) {
+    if (busy || dead || !pub) return;
+    const take = inside(section, document.activeElement) || document.activeElement === b;
+    busy = true; b.disabled = true; announce('Refreshing pull request status from GitHub…');
+    try {
+      const value = await request(`/api/publications/${enc(pub.id)}/refresh`, 'POST', {});
+      if (!alive()) return;
+      if (!validPublication(value) || value.id !== pub.id) throw new Error('Unsupported publication response.');
+      busy = false; notice = null; pub = value; mode = 'follow'; render('refresh', take);
+      announce(`Pull request status: ${value.pull_request_state ? human(value.pull_request_state) : 'unknown'}.`);
+    } catch (e) { if (!alive()) return; busy = false; notice = {message: `Status refresh unavailable: ${e.message}`}; render('refresh', take); announce(notice.message); }
+  }
+  render();
+  return {
+    update(s) {
+      const wasTerminal = session && terminal.has(session.state); session = s;
+      if (!terminal.has(s.state)) { if (mode === 'waiting') render(); return; }
+      if (!wasTerminal && mode === 'waiting') { seenUpdate = s.updated_at; recover(); return; }
+      // A later session change (for example an automatic publication) restarts the bounded recheck.
+      if (s.updated_at !== seenUpdate) { seenUpdate = s.updated_at; if (!pub && ['idle', 'review'].includes(mode)) { rechecks = 0; if (!recheckTimer) scheduleRecheck(); } }
+    },
+    sourceLost() { if (mode === 'review' && !busy) { preview = null; key = null; unknown = false; draft = null; mode = 'idle'; notice = {code: 'source_unavailable'}; render(); } },
+    dispose() { dead = true; clearTimeout(timer); clearTimeout(recheckTimer); reads.abort(); },
+  };
+}
+
 export function createSessionPanel({host, request = executionRequest, onAvailable = () => {}, pollMs = 2000, shell = null}) {
   let listControls = [];
   const panel = el('div', undefined, 'sessions-panel'); host.append(panel);
   let epoch = 0, timer, active = false, currentID = null, refreshBusy = false, current, cursor = 0, sourceAllowed = true, messageCursor = null;
   const events = new Map(), history = new Map(); let messageSending = false, targetEdited = false, pendingMessage, retryKey, listCursor, listItems = new Map(), listFilters;
-  let diffSignature, checksSignature, lastChecks = null, lastConfirmed = null, plan = null;
+  let diffSignature, checksSignature, lastChecks = null, lastConfirmed = null, plan = null, publicationArea = null;
   let status, summary, origin, phase, activity, patches, checks, progress, publication, messageRows, questionArea, compose, send, responseTo, stop, retry, moreEvents, moreMessages;
   function publishRecent(items) {
     shell?.setRecent(items.map(s => { const b = phaseBadge(s), seconds = elapsedSeconds(s);
@@ -97,6 +440,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     checks.replaceChildren(el('h2', 'Validation checks'), el('p', 'Source-bearing check output cleared.'));
     progress.replaceChildren(el('h2', 'Progress'), el('p', 'Plan steps unavailable or redacted under current source policy.'));
     questionArea.replaceChildren(); if (revoke) { compose.value = ''; responseTo.value = ''; } send.disabled = true; compose.disabled = true; responseTo.disabled = true;
+    if (revoke) publicationArea?.sourceLost();
   }
   function renderSummary() {
     const s = current, x = s.execution || {}, u = s.usage || {}, outcome = s.outcome || {};
@@ -142,11 +486,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     for (const step of steps) list.append(el('li', step.title || 'Untitled step'));
     progress.append(list, el('p', 'The agent does not report per-step completion. Follow the activity and checks for confirmed progress.', 'detail-muted'));
   }
-  function renderPublication() {
-    const policy = current?.publication?.policy || 'unavailable';
-    publication.replaceChildren(el('h2', 'Pull request'), el('p', "Publishing isn't available yet."), el('p', `Saved publication policy: ${human(policy)}.`),
-      el('p', policy === 'on_success_draft' ? 'The saved launch policy authorizes a remote branch and draft PR only after server success and publication checks.' : 'An explicit publication action is required after review.'));
-  }
+  function renderPublication() { if (current) publicationArea?.update(current); }
   function renderEvents() {
     activity.replaceChildren(el('h2', 'Activity timeline'));
     const list = el('ol'); let group = null;
@@ -344,7 +684,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     }
   }
   function open() {
-    clearTimeout(timer); ++epoch; refreshBusy = false; active = /^#\/sessions(?:\/[^/]+)?$/.test(location.hash); if (!active) return;
+    clearTimeout(timer); ++epoch; refreshBusy = false; publicationArea?.dispose(); publicationArea = null; active = /^#\/sessions(?:\/[^/]+)?$/.test(location.hash); if (!active) return;
     const token = epoch; try { currentID = location.hash.startsWith('#/sessions/') ? decodeURIComponent(location.hash.slice(11)) : null; } catch { currentID = null; }
     const openedID = currentID;
     panel.replaceChildren(); panel.classList.toggle('session-detail', location.hash.startsWith('#/sessions/')); status = el('p'); status.setAttribute('role', 'status'); panel.append(status);
@@ -396,12 +736,13 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       tab.addEventListener('click', () => select(i));
       tab.addEventListener('keydown', event => { const next = {ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1}[event.key]; if (next === undefined) return; event.preventDefault(); select(next); tabs[next][0].focus(); });
     });
+    publicationArea = createPublicationArea({section: publication, sessionID: currentID, request, pollMs, isLive: () => live(token)});
     select(0); renderProgress();
     request('/api/sessions?limit=25').then(page => { if (live(token) && Array.isArray(page?.items)) publishRecent(page.items); }, () => {});
     refresh(token);
   }
   window.addEventListener('hashchange', open);
-  return {panel, open, refresh: () => refresh(epoch), close() { active = false; ++epoch; clearTimeout(timer); }, focus() { host.querySelector('h1')?.focus(); }};
+  return {panel, open, refresh: () => refresh(epoch), close() { active = false; ++epoch; clearTimeout(timer); publicationArea?.dispose(); }, focus() { host.querySelector('h1')?.focus(); }};
 }
 
 const runnerFields = [
@@ -412,14 +753,80 @@ const agentFields = [
 ];
 function field(parent, label, value, type = 'text') { const wrap = el('label', label, 'setting-field'); const input = el('input'); input.type = type; input.value = value ?? ''; wrap.append(input); parent.append(wrap); return input; }
 function checkText(check) { return !check ? 'Not tested. A real bounded synthetic coding test is required.' : `Synthetic coding test: ${human(check.status)}${check.error_code ? ` · ${human(check.error_code)}` : ''} · Checked ${time(check.checked_at)} · CLI ${check.cli_version || 'unknown'} · Resolved image ${check.image_id || 'unknown'}`; }
+// Settings → Coding agent: the commit identity for draft PRs (GET/PATCH /api/settings/publication).
+// An unrouted 404 hides the card; the API reports a content-free `validation` code, mapped inline.
+const AUTHOR_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function createPublicationIdentity(request) {
+  const box = el('section', undefined, 'setting-box publication-identity'); box.hidden = true;
+  let generation = 0, saving = false, dirty = false;
+  const headingID = 'publication-identity-title';
+  function fieldWithError(form, label, value, type, id) {
+    const wrap = el('div', undefined, 'publication-identity-field');
+    const input = field(wrap, label, value, type); input.id = `${id}-input`;
+    const error = el('p', '', 'field-error'); error.id = `${id}-error`; error.setAttribute('aria-live', 'polite');
+    input.setAttribute('aria-describedby', error.id); wrap.append(error); form.append(wrap);
+    input.addEventListener('input', () => { dirty = true; if (error.textContent) { error.textContent = ''; input.removeAttribute('aria-invalid'); } });
+    return [input, error];
+  }
+  function setError(input, error, text) { error.textContent = text; if (text) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid'); }
+  function render(value) {
+    dirty = false;
+    const title = el('h3', 'Pull request author'); title.id = headingID; box.setAttribute('aria-labelledby', headingID);
+    box.replaceChildren(title, el('p', 'Draft pull request commits use this name and email as author and committer. OpenDevin never reads them from your local Git configuration.'));
+    const form = el('form', undefined, 'settings-form'); form.noValidate = true; box.append(form);
+    const [name, nameError] = fieldWithError(form, 'Commit author name', value?.commit_name || '', 'text', 'publication-identity-name'); name.maxLength = 100; name.setAttribute('autocomplete', 'name');
+    const [email, emailError] = fieldWithError(form, 'Commit author email', value?.commit_email || '', 'email', 'publication-identity-email'); email.maxLength = 254; email.setAttribute('autocomplete', 'email');
+    const save = el('button', 'Save pull request author', 'button'); save.type = 'submit'; form.append(save);
+    const status = el('p', value?.commit_name && value?.commit_email ? '' : 'Not set. Draft pull requests are blocked until an author is saved.', 'page-status'); status.setAttribute('role', 'status'); form.append(status);
+    const check = () => {
+      const n = name.value.trim(), m = email.value.trim();
+      setError(name, nameError, n && n.length <= 100 ? '' : 'Enter the name to show as the commit author.');
+      setError(email, emailError, m.length >= 3 && m.length <= 254 && AUTHOR_EMAIL.test(m) ? '' : 'Enter a valid email address, such as you@example.com.');
+      return !nameError.textContent && !emailError.textContent;
+    };
+    form.addEventListener('submit', async e => {
+      e.preventDefault(); if (saving || !form.isConnected) return;
+      if (!check()) { status.textContent = 'Fix the highlighted fields.'; (nameError.textContent ? name : email).focus(); return; }
+      // Fields are read-only while the save is in flight, so nothing typed can be silently overwritten.
+      const sent = {commit_name: name.value.trim(), commit_email: email.value.trim()}, typed = [name.value, email.value];
+      saving = true; save.disabled = true; name.readOnly = email.readOnly = true; form.setAttribute('aria-busy', 'true'); status.textContent = 'Saving pull request author…'; const token = generation;
+      try {
+        const saved = await request('/api/settings/publication', 'PATCH', sent);
+        if (token !== generation) return;
+        if (typeof saved?.commit_name !== 'string' || typeof saved?.commit_email !== 'string') throw new Error('Save outcome unknown. Save again to confirm');
+        if (name.value === typed[0] && email.value === typed[1]) { name.value = saved.commit_name; email.value = saved.commit_email; dirty = false; status.textContent = 'Pull request author saved. It applies to draft pull requests published from now on.'; }
+        else status.textContent = 'Pull request author saved. Newer edits in these fields are not saved yet.';
+      } catch (error) {
+        if (token !== generation) return;
+        if (error.code === 'validation' || error.code === 'bad_request') {
+          // The server does not say which field failed; point at whichever one our rules flag, else both.
+          if (check()) { setError(name, nameError, 'OpenDevin rejected this name. Use plain text without control characters.'); setError(email, emailError, 'OpenDevin rejected this email. Use a single plain address.'); }
+          status.textContent = 'Not saved. Fix the highlighted fields.'; name.focus();
+        } else status.textContent = error.status === undefined ? `${error.message} Save again to confirm the author.` : `Not saved: ${error.message}.`;
+      } finally { if (token === generation) { saving = false; save.disabled = false; name.readOnly = email.readOnly = false; form.removeAttribute('aria-busy'); } }
+    });
+  }
+  async function load() {
+    // Typed, unsaved values survive a background reload of the Coding agent section.
+    if (saving || (dirty && box.isConnected && !box.hidden)) return;
+    const token = ++generation;
+    try { const value = await request('/api/settings/publication'); if (token !== generation) return; box.hidden = false; render(value); }
+    catch (e) {
+      if (token !== generation) return; saving = false;
+      if (e.status === 404) { box.hidden = true; box.replaceChildren(); return; }
+      box.hidden = false; box.replaceChildren(el('h3', 'Pull request author'), el('p', `Pull request author unavailable: ${e.message}. Reload execution settings to try again.`));
+    }
+  }
+  return {element: box, load};
+}
 export function createExecutionSettings({request = executionRequest, onAvailable = () => {}, isVisible = () => true, pollMs = 2000} = {}) {
   const element = el('section', undefined, 'connected-panel execution-settings');
   const heading = el('h2', 'Execution profiles'); heading.setAttribute('tabindex', '-1');
   const status = el('p'); status.setAttribute('role','status');
-  const rows = el('div'), editor = el('section', undefined, 'setting-box'), settingsHost = el('div');
+  const rows = el('div'), editor = el('section', undefined, 'setting-box'), settingsHost = el('div'), identity = createPublicationIdentity(request);
   element.append(heading, status);
   button(element, 'Reload execution settings', () => refresh());
-  element.append(el('p', 'Execution uses the installed Claude Code CLI with its normal CLI login. Sign in through that CLI on this machine before testing. Never paste CLI tokens, keys or authentication files here. Docker and a locally provisioned compatible image are required; runtime tests never install a toolchain or pull images automatically.'), el('p', 'Claude Code sends prompts and permitted source to its external model destination. Workspace local-only policy blocks this adapter, including synthetic tests. For repository execution, turn off local-only in Settings → Privacy and explicitly allow source sharing on this execution profile. Source consent does not grant repository access or publication permission.'), settingsHost, rows, editor);
+  element.append(el('p', 'Execution uses the installed Claude Code CLI with its normal CLI login. Sign in through that CLI on this machine before testing. Never paste CLI tokens, keys or authentication files here. Docker and a locally provisioned compatible image are required; runtime tests never install a toolchain or pull images automatically.'), el('p', 'Claude Code sends prompts and permitted source to its external model destination. Workspace local-only policy blocks this adapter, including synthetic tests. For repository execution, turn off local-only in Settings → Privacy and explicitly allow source sharing on this execution profile. Source consent does not grant repository access or publication permission.'), settingsHost, identity.element, rows, editor);
   let generation = 0, mutating = false, unknownWrite = false, pageCursor = null, profiles = new Map(), timer, pendingTests = new Map(), editorDirty = false;
   const current = token => token === generation;
   function preserveFocus(fn) { const restore = inside(element, document.activeElement); fn(); if (restore && isVisible() && (document.activeElement === document.body || !document.activeElement?.isConnected)) heading.focus(); }
@@ -515,6 +922,7 @@ export function createExecutionSettings({request = executionRequest, onAvailable
   async function refresh(append = false) {
     if (mutating) { status.textContent = 'A settings mutation is pending. Wait before reloading saved profiles.'; return; }
     const token = ++generation; clearTimeout(timer); status.textContent = 'Loading execution settings…';
+    if (!append) identity.load();
     try {
       const results = await Promise.allSettled([request(`/api/execution-profiles?limit=50${append && pageCursor ? `&cursor=${enc(pageCursor)}` : ''}`), request('/api/settings/execution'), request('/api/settings/model-roles')]);
       if (!current(token)) return;
