@@ -297,3 +297,14 @@ test("focusing the Ask heading overlays it instead of shifting the page (a shift
   assert.equal(focused.position, "absolute", "focused heading stays out of the layout flow");
   assert.match(focused.outline || "", /solid/);
 });
+
+test("the landing hint is styled to the composer's width, centered under it", async () => {
+  const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
+  const b = await boot((m, u) => u === "/api/conversations" ? { items: [] } : { status: 404, body: { code: "not_found" } });
+  const hint = b.ui.panel.querySelectorAll("p").find((p) => p.textContent.startsWith("Pick repositories"));
+  const composer = b.ui.panel.querySelector(".composer-v2");
+  assert.ok(hint.classList.contains("landing-hint"), "hint carries its class");
+  const style = declaredStyle(hint, css);
+  assert.equal(style.width, declaredStyle(composer, css).width);
+  assert.equal(style["text-align"], "center");
+});

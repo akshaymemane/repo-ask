@@ -322,7 +322,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         try { window.sessionStorage?.removeItem('ask-draft:new'); window.sessionStorage?.setItem('ask-autosend', JSON.stringify({conversation: created.id, intent, text})); } catch {}
         draft = false; acceptedHash = `#/ask/${enc(created.id)}`; location.hash = acceptedHash; await load(); await refreshHistory();
       }});
-    body.append(composer.root, el('p', 'Pick repositories with + or type @, or just ask and OpenDevin suggests them. Ask plans changes; it never edits your code.', 'landing-hint'));
+    const hint = el('p', 'Pick repositories with + or type @, or just ask and OpenDevin suggests them. Ask plans changes; it never edits your code.'); hint.className = 'landing-hint';
+    body.append(composer.root, hint);
     composerHandle = composer;
     if (roles) gate(roles);
     else request('/api/settings/model-roles').then(settings => { if (!roles) gate(settings); }, () => {});
