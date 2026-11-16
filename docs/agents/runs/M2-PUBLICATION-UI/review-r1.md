@@ -1,0 +1,14 @@
+Reviewed as independent Codex reviewer against `0695f0c..1d5f4c1`, using the task acceptance, handoff, F06 spec, publication contract, API/service shapes, and review template. Files were not edited. Review identity: Git commit `1d5f4c1d7dd54f1b2996c071f9b8a4b19c8d9717`; no separate hashed review packet was supplied.
+
+| Severity | File:line | Failure scenario and fix |
+|---|---|---|
+| Major | [sessions.js:361](/Users/apple/workspace/vibe-coding/opendevin-review-m2-pubui/repoask/web/sessions.js:361) | Publication recovery runs only on the first terminal observation. If automatic publication creates its intent after that GET returns `not_found`, the page stays on “Create draft PR” and never follows progress or displays the resulting PR. Recheck while automatic publication is pending, or trigger recovery from subsequent session publication updates. Add a delayed-intent test. |
+| Major | [sessions.js:333](/Users/apple/workspace/vibe-coding/opendevin-review-m2-pubui/repoask/web/sessions.js:333) | Retry clears `retryKey` before validating the response. An unsupported response is then treated as an unknown outcome, but clicking Retry generates a different key. This violates same-key recovery and can conflict with the already-enqueued retry. Clear the key only after validating a confirmed response; test malformed success responses as well as thrown network errors. |
+| Minor | [sessions.js:748](/Users/apple/workspace/vibe-coding/opendevin-review-m2-pubui/repoask/web/sessions.js:748) | Identity fields remain editable during PATCH. Typing a new name/email before the response arrives is silently overwritten by the saved response, and `dirty` becomes false. Disable editing during save or preserve edits made after submission. Test with a deferred response. |
+| Minor | [sessions.js:364](/Users/apple/workspace/vibe-coding/opendevin-review-m2-pubui/repoask/web/sessions.js:364) | Leaving the page clears timers and fences late responses, but does not cancel an in-flight publication GET. A stalled request remains outstanding after disposal. Add cancellation for publication reads and test navigation while a request is unresolved. |
+
+Coverage included exact publish fields, double-click suppression, network-error key reuse, retry semantics, reload recovery, terminal polling, safe PR links, text-only rendering, identity validation, accessibility hooks, and CSS scope. No merge action, token rendering, raw GitHub-body rendering, or `innerHTML` use was found in the new publication code. The PR link uses an anchored `github.com` regex and `rel="noopener noreferrer"`.
+
+Independently ran `node --test tests/ui/*.test.mjs`: **219 passed; four environment-blocked** by temporary-directory restrictions. All 17 new publication tests passed. They exercise observable behavior, but omit the races above. Real browser/accessibility and round-2 backend integration remain unverified; rerun affected checks after fixes.
+
+Verdict: request changes
