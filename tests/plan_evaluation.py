@@ -117,7 +117,8 @@ def _wait(predicate, timeout, interval=0.25):
     return None
 
 
-def evaluate(provider_spec, secret_value=None, *, provider_transport=None, tasks=None, task_timeout=600, log=None):
+def evaluate(provider_spec, secret_value=None, *, provider_transport=None, tasks=None, task_timeout=600, log=None,
+             rate_limit_retries=4, rate_limit_wait=30):
     tasks = tasks or load_tasks()
     with tempfile.TemporaryDirectory() as tmp:
         platform, services, indexing, conversations = compose(
@@ -141,8 +142,16 @@ def evaluate(provider_spec, secret_value=None, *, provider_transport=None, tasks
                 conversation = conversations.create(repository_ids=[ids[name] for name in task['pins']])['id']
                 started = time.monotonic()
                 run = conversations.send(conversation, task['prompt'], 'eval-' + task['id'], intent='plan')
-                final = _wait(lambda: (lambda r: r if r['state'] in ('completed', 'failed') else None)(
-                    conversations.get_run(run['id'])), task_timeout) or conversations.get_run(run['id'])
+                retries = 0
+                while True:
+                    final = _wait(lambda: (lambda r: r if r['state'] in ('completed', 'failed') else None)(
+                        conversations.get_run(run['id'])), task_timeout) or conversations.get_run(run['id'])
+                    # Quota pauses measure the provider tier, not plan quality: wait and retry.
+                    if final.get('error_code') != 'provider_rate_limited' or retries >= rate_limit_retries:
+                        break
+                    retries += 1
+                    time.sleep(rate_limit_wait)
+                    conversations.retry(run['id'])
                 plans = conversations.get(conversation)['plans']
                 version = plans[0]['version'] if plans else None
                 checks = score(task, final, version, source_lines)
@@ -158,6 +167,7 @@ def evaluate(provider_spec, secret_value=None, *, provider_transport=None, tasks
                     'cited_paths': sorted({c['path'] for c in content.get('citations', [])}),
                     'roles': {r['repository_id']: r['role'] for r in content.get('repositories', [])},
                     'usage': generation.get('usage'), 'seconds': round(time.monotonic() - started, 2),
+                    'rate_limit_retries': retries,
                 }
                 results.append(result)
                 if log:
@@ -183,8 +193,8 @@ def main(argv=None):
     parser.add_argument('--adapter', default='openai_compatible', choices=('openai_compatible', 'ollama'))
     parser.add_argument('--endpoint', required=True)
     parser.add_argument('--model', required=True)
-    parser.add_argument('--context-limit', type=int, default=32768)
-    parser.add_argument('--max-output-tokens', type=int, default=8192)
+    parser.add_argument('--context-limit', type=int, default=8192)
+    parser.add_argument('--max-output-tokens', type=int, default=4096)
     parser.add_argument('--timeout', type=int, default=300)
     parser.add_argument('--output', type=Path, help='Write content-free JSON evidence here.')
     args = parser.parse_args(argv)

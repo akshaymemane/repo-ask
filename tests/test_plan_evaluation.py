@@ -71,6 +71,24 @@ class PlanEvaluationTests(unittest.TestCase):
         self.assertEqual(planner.calls, 2)  # one repair attempt, then a durable failure
         self.assertFalse(report['gate_passed'])
 
+    def test_rate_limited_task_is_retried_rather_than_scored(self):
+        tasks = plan_evaluation.load_tasks()
+        tasks['tasks'] = tasks['tasks'][:1]
+
+        class QuotaThenPlan(ScriptedPlanner):
+            def send(self, request, *, cancel_event=None):
+                if self.calls == 0:
+                    self.calls += 1
+                    return TransportResponse(429, {'retry-after': '1'}, b'{"error":{"code":"rate_limit_exceeded"}}')
+                return super().send(request, cancel_event=cancel_event)
+
+        planner = QuotaThenPlan()
+        report = plan_evaluation.evaluate(SPEC, provider_transport=planner, tasks=tasks, task_timeout=30,
+                                          rate_limit_wait=0)
+        result = report['results'][0]
+        self.assertTrue(result['passed'], result)
+        self.assertEqual(result['rate_limit_retries'], 1)
+
     def test_requirement_terms_match_whole_tokens(self):
         self.assertTrue(plan_evaluation._mentions('5', ['at most 5 attempts']))
         self.assertFalse(plan_evaluation._mentions('5', ['retry 15 times']))
