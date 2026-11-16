@@ -2,6 +2,8 @@
 
 import base64
 import copy
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 from unittest import TestCase
 
@@ -77,6 +79,7 @@ class Client:
         return self.ref
     def create_pull_request(self, token, owner, name, title, body, head, base):
         self.calls.append(('create_pr',head,base,True))
+        self.pr_body=body
         self.pr=self._pr(head,base)
         if self.unknown_pr:
             self.unknown_pr=False;raise GitHubError('timeout')
@@ -319,7 +322,10 @@ class PublicationTests(TestCase):
     def test_manual_failed_checks_body_and_automatic_success(self):
         self.sessions.value['validations']={'fully_validated':False,'summary':{'failed':1,'unavailable':1}}
         preview=self.svc.preview('ses')
-        self.svc.publish('ses',preview['title'],preview['body'],'f'*40,1,'manual');self.run_job()
+        pub=self.svc.publish('ses',preview['title'],preview['body'],'f'*40,1,'manual');self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertIn('"failed":1',self.github.client.pr_body)
+        self.assertIn('"unavailable":1',self.github.client.pr_body)
         with self.platform.store.read() as db:row=db.execute('SELECT body FROM publications').fetchone()
         self.assertIn('"failed":1',row[0]);self.assertIn('"unavailable":1',row[0])
         self.setUp();self.sessions.value['policy']='on_success_draft';pub=self.publish();self.run_job()
@@ -390,3 +396,102 @@ class PublicationTests(TestCase):
         pub=self.publish();self.github.client.pull_requests=lambda *args:[{'head':[], 'base':{}}]
         self.run_job();self.assertEqual(self.svc.get(pub['id'])['error_code'],'pull_request_invalid')
         self.assertFalse(any(c[0]=='create_pr' for c in self.github.client.calls))
+
+    def test_retry_pending_read_never_orphans_old_job(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        original=self.github.client.get_ref;reads=[]
+        def flaky(*args):
+            reads.append(1)
+            if len(reads)==1:raise GitHubError('timeout')
+            return original(*args)
+        self.github.client.get_ref=flaky
+        with self.assertRaises(PublicationError) as caught:self.svc.retry(pub['id'],'retry')
+        self.assertEqual(caught.exception.code,'reconciliation_pending')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],1)
+        self.svc.retry(pub['id'],'retry');self.run_job()
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(sum(c[0]=='create_ref' for c in self.github.client.calls),1)
+        self.assertEqual(sum(c[0]=='create_pr' for c in self.github.client.calls),1)
+
+    def test_overlapping_recovery_retry_and_leased_worker(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        entered=Event();release=Event();original=self.github.client.get_ref
+        def paused(*args):
+            entered.set()
+            if not release.wait(5):raise AssertionError('recovery not released')
+            return original(*args)
+        self.github.client.get_ref=paused
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            recovery=pool.submit(self.svc.recover)
+            self.assertTrue(entered.wait(5))
+            retry=pool.submit(self.svc.retry,pub['id'],'same')
+            release.set()
+            self.assertEqual(recovery.result(timeout=5),{'resolved':1,'pending':0})
+            retry.result(timeout=5)
+        lease=self.platform.jobs.claim('replacement',kinds=['publication.run'])
+        self.assertEqual(self.svc.recover(),{'resolved':0,'pending':0})
+        self.assertEqual(self.svc.retry(pub['id'],'same')['state'],'creating_pr')
+        self.svc.run(lease.job,None)
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+
+    def test_public_reads_persist_checks_without_snapshot_and_legacy_unavailable(self):
+        pub=self.publish()
+        def forbidden(*args):raise AssertionError('public read loaded source snapshot')
+        self.sessions.publication_snapshot=forbidden
+        self.assertEqual(self.svc.get(pub['id'])['checks'],{'fully_validated':True})
+        self.svc._state(pub['id'],'preparing')
+        with self.platform.store.transaction() as db:
+            db.execute("DELETE FROM publication_events WHERE type='publication.checks'")
+        self.assertEqual(self.svc.get(pub['id'])['checks'],{'status':'unavailable'})
+
+    def test_snapshot_loads_are_constant_for_blob_step_outside_write_lock(self):
+        for i in range(20):
+            self.sessions.value['checkpoint']['changed']['file%d'%i]='YQ=='
+            self.sessions.value['checkpoint']['modes']['file%d'%i]='100644'
+        original=self.sessions.publication_snapshot;calls=[]
+        def counted(*args):
+            calls.append(1)
+            # Snapshot IO must allow a write transaction, not nest inside one.
+            with self.platform.store.transaction() as db:db.execute('SELECT 1')
+            return original(*args)
+        self.sessions.publication_snapshot=counted
+        pub=self.publish();calls.clear();self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertLess(len(calls),15)
+        self.assertEqual(sum(c[0]=='blob' for c in self.github.client.calls),21)
+
+    def test_refresh_malformed_or_wrong_number_returns_safe_state(self):
+        pub=self.publish();self.run_job()
+        for value in (None,[],{'number':8,'state':'closed'},{'number':True,'state':'closed'}):
+            self.github.client.pull_request=lambda *args:value
+            self.assertEqual(self.svc.refresh(pub['id'])['pull_request_state'],'open')
+
+    def test_no_commit_reconciliation_needs_no_remote_access(self):
+        pub=self.publish()
+        self.svc._state(pub['id'],'reconciling')
+        def forbidden(*args):raise AssertionError('unexpected remote read')
+        self.github.mint_installation_token=forbidden
+        self.assertEqual(self.svc.reconcile(pub['id'])['state'],'queued')
+
+    def test_purge_during_recovery_does_not_abort_startup(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        def purged(*args):
+            self.svc.purge_repository(self.repo)
+            raise PublicationError('repository_purged')
+        self.github.client.get_ref=purged
+        self.assertEqual(self.svc.recover(),{'resolved':1,'pending':0})
+        self.assertEqual(self.svc.get(pub['id'])['error_code'],'repository_purged')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+
+    def test_blob_step_rechecks_lightweight_source_policy(self):
+        self.sessions.value['checkpoint']['changed']['second.py']='YQ=='
+        self.sessions.value['checkpoint']['modes']['second.py']='100644'
+        self.sessions.source_policy=lambda ident:{'available':self.sessions.value['source_available']}
+        pub=self.publish()
+        self.github.client.on_blob=lambda:self.sessions.value.update(source_available=False)
+        self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['error_code'],'source_unavailable')
+        self.assertEqual(sum(c[0]=='blob' for c in self.github.client.calls),1)
+        self.assertFalse(any(c[0] in ('tree','create_ref','create_pr') for c in self.github.client.calls))

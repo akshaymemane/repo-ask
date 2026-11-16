@@ -11,11 +11,28 @@ import hashlib
 import json
 import re
 import sqlite3
+from functools import wraps
+from threading import RLock
+
+from repoask.platform.errors import InvalidTransition
 
 from repoask.github.errors import GitHubError
 from repoask.platform.clock import new_id, now_ms
 from repoask.platform.worker import UnknownOutcomeError
 from .errors import PublicationError
+
+# One local coordinator process owns publication. Serialize recovery readers
+# with retries across service instances; SQLite still rechecks durable job identity.
+RECOVERY_LOCK = RLock()
+
+
+def serialized_recovery(method):
+    @wraps(method)
+    def call(*args, **kwargs):
+        with RECOVERY_LOCK:
+            return method(*args, **kwargs)
+    return call
+
 
 RUN_JOB = ContextVar('publication_run_job', default=None)
 
@@ -228,6 +245,8 @@ class PublicationService:
                             expected_diff_hash, snap['checkpoint_artifact_id'], snap['patch_artifact_id'], snap['base_sha'],
                             snap['base_branch'], branch, title, body, identity['commit_name'], identity['commit_email'],
                             stamp, message, 'queued', now, now))
+                self._event(db, ident, 'publication.checks',
+                            {'fully_validated': snap['validations'].get('fully_validated') is True})
                 self._event(db, ident, 'publication.state', {'state': 'queued'})
         except sqlite3.IntegrityError:
             raise PublicationError('idempotency_conflict') from None
@@ -245,12 +264,11 @@ class PublicationService:
                                     'head_sha','pull_request_id','pull_request_number','pull_request_url',
                                     'pull_request_state','error_code','created_at','updated_at','finished_at')}
         result['checks'] = {'status': 'unavailable'}
-        try:
-            snap = self._snapshot(row['session_id'])
-            validations = snap['validations']
-            result['checks'] = {'fully_validated': validations.get('fully_validated') is True}
-        except PublicationError:
-            pass
+        with self.store.read() as db:
+            event = db.execute("SELECT payload_json FROM publication_events WHERE publication_id=? "
+                               "AND type='publication.checks' ORDER BY seq DESC LIMIT 1", (row['id'],)).fetchone()
+        if event:
+            result['checks'] = json.loads(event['payload_json'])
         return result
 
     def get(self, publication_id):
@@ -305,7 +323,7 @@ class PublicationService:
                     {'contents':'write','pull_requests':'write'})['token']
         return snap, repo, token
 
-    def _fence(self, ident, job, context):
+    def _fence(self, ident, job, context, *, snapshot=True):
         with self.store.read() as db:
             row = dict(self._row(db, ident))
         current_job = self.jobs.get(row['job_id'])
@@ -314,7 +332,17 @@ class PublicationService:
                 current_job.lease_expires_at < self.jobs.clock() or
                 current_job.cancel_requested or (context and context.cancel_requested)):
             raise PublicationError(row['error_code'] or 'publication_stopped')
-        self._bound_snapshot(row)
+        if snapshot:
+            self._bound_snapshot(row)
+        elif hasattr(self.sessions, 'source_policy'):
+            # Blob objects share one bound capture. Check live source authority
+            # without decoding that capture again for every file.
+            try:
+                available = self.sessions.source_policy(row['session_id'])['available']
+            except Exception:
+                raise PublicationError('source_unavailable') from None
+            if not available:
+                raise PublicationError('source_unavailable')
         self._check_access(row['repository_id'])
 
     def _divergence(self, snap, repo, token, current):
@@ -397,7 +425,9 @@ class PublicationService:
             self._divergence(snap, repo, token, current)
             base = self.github.client.commit(token, repo['owner'], repo['name'], row['expected_base_sha'])
             self._state(ident, 'creating_objects', remote_base_sha=current, base_tree_sha=base['tree_sha'])
-            entries = self._entries(snap['checkpoint'], self.github.client, token, repo['owner'], repo['name'], authority)
+            authority()
+            entries = self._entries(snap['checkpoint'], self.github.client, token, repo['owner'], repo['name'],
+                                    lambda: self._fence(ident, job, context, snapshot=False))
             authority()
             tree = self.github.client.create_tree(token, repo['owner'], repo['name'], base['tree_sha'], entries)
             identity = {'name': row['commit_name'], 'email': row['commit_email'], 'date': row['commit_date']}
@@ -519,15 +549,16 @@ class PublicationService:
             raise PublicationError('pull_request_conflict')
         return matches[0] if matches else None
 
+    @serialized_recovery
     def reconcile(self, publication_id):
         with self.store.read() as db:
             row = dict(self._row(db, publication_id))
         if row['state'] != 'reconciling':
             return self._public(row)
         try:
-            repo, token = self._read_remote(row['repository_id'])
             if not row['commit_sha']:
                 return self._state(publication_id, 'queued')
+            repo, token = self._read_remote(row['repository_id'])
             if row['pull_request_number']:
                 return self._confirm_pr(publication_id, row, repo, token, {'number': row['pull_request_number']})
             try:
@@ -548,6 +579,8 @@ class PublicationService:
                 return self._state(publication_id, 'creating_pr', error=None)
             return self._confirm_pr(publication_id, dict(row, head_sha=head), repo, token, found)
         except PublicationError as exc:
+            if self.get(publication_id)['state'] in TERMINAL:
+                return self.get(publication_id)
             return self._state(publication_id, 'blocked', error=exc.code)
         except GitHubError:
             return self.get(publication_id)
@@ -556,35 +589,58 @@ class PublicationService:
         with self.store.read() as db:
             return self._row(db, ident)['job_id']
 
+    @serialized_recovery
     def recover(self):
         self.jobs.reconcile_expired()
         with self.store.read() as db:
             rows = [dict(r) for r in db.execute("SELECT p.* FROM publications p JOIN jobs j ON j.id=p.job_id WHERE j.state='needs_reconciliation'")]
         summary = {'resolved': 0, 'pending': 0}
         for row in rows:
-            if row['state'] not in TERMINAL:
-                self._state(row['id'], 'reconciling')
+            try:
+                # Recheck both identities while holding the write lock. A stale
+                # observation must never overwrite a replacement worker's state.
+                with self.store.transaction() as db:
+                    current = db.execute("SELECT p.* FROM publications p JOIN jobs j ON j.id=p.job_id "
+                                         "WHERE p.id=? AND p.job_id=? AND j.state='needs_reconciliation'",
+                                         (row['id'], row['job_id'])).fetchone()
+                    if current is None:
+                        continue
+                    if current['state'] not in TERMINAL:
+                        db.execute("UPDATE publications SET state='reconciling',updated_at=? WHERE id=?",
+                                   (self.clock(), row['id']))
+                        self._event(db, row['id'], 'publication.state', {'state': 'reconciling'})
                 result = self.reconcile(row['id'])
-            else:
-                result = self._public(row)
-            if result['state'] != 'reconciling':
-                self.jobs.resolve_reconciliation(row['job_id'], outcome='succeeded' if result['state'] == 'published' else 'failed')
-                summary['resolved'] += 1
-            else:
+                if result['state'] != 'reconciling':
+                    try:
+                        self.jobs.resolve_reconciliation(row['job_id'],
+                            outcome='succeeded' if result['state'] == 'published' else 'failed')
+                    except InvalidTransition:
+                        if self.jobs.get(row['job_id']).state == 'needs_reconciliation':
+                            raise
+                    summary['resolved'] += 1
+                else:
+                    summary['pending'] += 1
+            except (PublicationError, GitHubError, InvalidTransition):
                 summary['pending'] += 1
         return summary
 
+    @serialized_recovery
     def retry(self, publication_id, idempotency_key):
         if not isinstance(idempotency_key, str) or not KEY.fullmatch(idempotency_key):
             raise PublicationError('validation')
         self.recover()
-        resolved = self.reconcile(publication_id)
+        resolved = self.get(publication_id)
         if resolved['state'] not in ('queued','creating_branch','creating_pr'):
             if resolved['state'] in TERMINAL:
                 return resolved
             raise PublicationError('reconciliation_pending')
         with self.store.transaction() as db:
             row = self._row(db, publication_id)
+            current_job = db.execute('SELECT state FROM jobs WHERE id=?', (row['job_id'],)).fetchone()
+            if current_job['state'] == 'needs_reconciliation' or row['state'] == 'reconciling':
+                raise PublicationError('reconciliation_pending')
+            if row['state'] in TERMINAL:
+                return self._public(row)
             desired_key = 'publication.retry:' + publication_id + ':' + idempotency_key
             active = db.execute("SELECT idempotency_key FROM jobs WHERE kind='publication.run' AND payload=? "
                                 "AND state IN ('queued','leased') ORDER BY created_at,id LIMIT 1",
@@ -607,6 +663,8 @@ class PublicationService:
         try:
             repo, token = self._read_remote(row['repository_id'])
             pr = self.github.client.pull_request(token, repo['owner'], repo['name'], row['pull_request_number'])
+            if not isinstance(pr, dict) or type(pr.get('number')) is not int or pr['number'] != row['pull_request_number']:
+                raise PublicationError('pull_request_invalid')
             state = 'merged' if pr.get('merged') is True else pr.get('state')
             if state not in ('open','closed','merged'):
                 raise PublicationError('pull_request_invalid')

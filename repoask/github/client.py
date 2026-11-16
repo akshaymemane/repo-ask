@@ -262,7 +262,9 @@ class GitHubClient:
         files = value.get('files') if isinstance(value, dict) else None
         total = value.get('total_commits') if isinstance(value, dict) else None
         if (not isinstance(files, list) or len(files) > 300 or type(total) is not int
-                or any(not isinstance(f, dict) or not isinstance(f.get('filename'), str) for f in files)):
+                or any(not isinstance(f, dict) or not isinstance(f.get('filename'), str)
+                       or (f.get('previous_filename') is not None and not isinstance(f['previous_filename'], str))
+                       for f in files)):
             raise GitHubError('malformed_output')
         return {'files': files, 'complete': len(files) < 300 and value.get('status') in ('ahead', 'identical')}
 

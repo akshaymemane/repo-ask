@@ -99,3 +99,14 @@ class ClientTests(unittest.TestCase):
                 result=self.client(Response(200,{},{'files':[], 'total_commits':1,'status':status})).compare(
                     'token','acme','repo','a'*40,'b'*40)
                 self.assertEqual(result['complete'],status in ('ahead','identical'))
+
+    def test_publication_compare_previous_filename_shape(self):
+        for previous in (False,123,[],{}):
+            with self.subTest(previous=previous), self.assertRaises(GitHubError) as caught:
+                self.client(Response(200,{}, {'files':[{'filename':'new','previous_filename':previous}],
+                    'total_commits':1,'status':'ahead'})).compare('t','a','b','a'*40,'b'*40)
+            self.assertEqual(caught.exception.code,'malformed_output')
+        for entry in ({'filename':'new'},{'filename':'new','previous_filename':None},
+                      {'filename':'new','previous_filename':'old'}):
+            self.assertTrue(self.client(Response(200,{}, {'files':[entry],'total_commits':1,'status':'ahead'}))
+                            .compare('t','a','b','a'*40,'b'*40)['complete'])
