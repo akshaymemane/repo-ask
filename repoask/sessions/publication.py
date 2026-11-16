@@ -40,7 +40,8 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
                 or len(set(deleted)) != len(deleted) or set(changed) & set(deleted)):
             raise ValueError()
         paths = set(changed) | set(deleted)
-        if set(modes) != paths or len(paths) > limits['runner']['max_files']:
+        if (set(modes) != paths or len(changed) > limits['runner']['max_files']
+                or len(deleted) > limits['runner']['max_files']):
             raise ValueError()
         files = {f['path']: f for f in pt['files']}
         if set(files) != paths or len(files) != len(pt['files']):
