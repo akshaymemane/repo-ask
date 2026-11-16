@@ -861,8 +861,10 @@ let settingsPage = null;
 const modelsHost = node("div", undefined, "models-host");
 const modelsSimple = node("div", undefined, "models-simple");
 const modelsAdvanced = node("details", undefined, "existing-app");
-modelsAdvanced.append(node("summary", "All provider profiles (advanced)"));
+modelsAdvanced.append(node("summary", "Advanced: all provider profiles"));
 modelsHost.append(modelsSimple, modelsAdvanced);
+// The job pickers and the profile list show the same profiles; a change in either refreshes both.
+function mountSimpleModels() { mountModels(modelsSimple, { request: featureRequest, onChange: loadProviders }); }
 function settingsSection() {
   const match = /^#\/settings\/([a-z]+)/.exec(location.hash);
   return match ? match[1] : "github";
@@ -882,7 +884,7 @@ function renderSettings() {
     const code = (/[?&]github=([a-z_]{1,64})/.exec(location.hash) || [])[1] || "";
     settingsPage.setAgent(connectedUI.executionReady ? executionUI.element : null);
     settingsPage.show(settingsSection(), { code });
-    if (settingsSection() === "models") mountModels(modelsSimple, { request: featureRequest });
+    if (settingsSection() === "models") mountSimpleModels();
   }
   if (restore && state.route === "settings" && focused?.isConnected) focused.focus();
 }
@@ -1068,7 +1070,12 @@ let providerProfiles = [];
 let providerSettings;
 let providerEditor;
 let providerLoadGeneration = 0;
-const providerSummaryText = () => connectedUI.savedAskReady ? "Profiles configure saved Ask, planning, summaries and embeddings. Execution profiles below configure repository tools separately. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only." : "Profiles configure inference, not an implementation runner. Legacy Ask continues using its startup model. Costs are unknown unless pricing and actual usage are available. Tests send synthetic content only.";
+const providerSummaryText = () => connectedUI.savedAskReady ? "Every saved model connection. Choose which one does each job above. Tests send synthetic content only; costs show only when pricing is set." : "Profiles configure inference, not an implementation runner. Legacy Ask keeps its startup model. Tests send synthetic content only; costs show only when pricing is set.";
+const ADAPTER_NAMES = { ollama: "Ollama", openai_compatible: "OpenAI compatible", claude_cli: "Claude Code CLI" };
+const CAPABILITY_NAMES = { chat: "Chat", structured_output: "Structured output", embeddings: "Embeddings" };
+const hostOf = (endpoint) => { try { return new URL(endpoint).host; } catch { return String(endpoint); } };
+// Short visible text; the accessible name still says which profile the button acts on.
+function labelledAction(text, label, handler) { const button = action(text, handler); button.setAttribute("aria-label", label); return button; }
 let providerMutationPending = false;
 async function providerMutation(path, method, payload) {
   if (providerMutationPending) throw new Error("A provider update is pending. Wait for it to finish before submitting another change.");
@@ -1087,9 +1094,10 @@ async function loadProviders() {
   }
   const restore = inside(providerPanel, document.activeElement);
   const generation = ++providerLoadGeneration;
-  providerPanel.replaceChildren(node("h2", "Model providers and roles"));
+  const header = node("div", undefined, "panel-header");
+  header.append(node("h2", "Provider profiles"), action("Reload provider settings", loadProviders));
+  providerPanel.replaceChildren(header);
   const output = notice(providerPanel); output.textContent = "Loading provider settings…";
-  providerPanel.append(action("Reload provider settings", loadProviders));
   try {
     const [profiles, settings] = await Promise.all([featureRequest("/api/provider-profiles"), featureRequest("/api/settings/model-roles")]);
     if (generation !== providerLoadGeneration) return;
@@ -1097,42 +1105,35 @@ async function loadProviders() {
     providerProfiles = profiles.profiles; providerSettings = settings;
     connectedUI.providersReady = true;
     output.textContent = providerSummaryText();
-    const policy = node("form", undefined, "settings-form");
-    const local = toggle(policy, "Local-only inference and embeddings (blocks remote destinations)", settings.settings.local_only);
-    const savePolicy = submitButton(policy, "Save destination policy"); const policyStatus = notice(policy);
-    policy.addEventListener("submit", event => { event.preventDefault(); perform(savePolicy, policyStatus, async () => {
-      await providerMutation("/api/settings/model-roles", "PATCH", { local_only: local.checked }); await loadProviders(); await executionUI.refresh();
-    }); });
-    providerPanel.append(policy, node("p", "External source sharing requires a separate profile opt-in. Disabling local-only does not authorize source sharing. Model profiles cannot execute repository tools or publish PRs."));
+    const list = node("div", undefined, "profile-list");
+    if (!providerProfiles.length) list.append(node("p", "No provider profiles yet. Pick a model above, or create one below.", "detail-muted"));
     for (const profile of providerProfiles) {
-      const box = node("section", undefined, "setting-box"); const version = profile.version;
-      box.append(node("h3", profile.name), node("p", `${version.adapter} · ${version.model} · Version ${version.version}`),
-        node("p", `Destination: ${version.endpoint} · Capabilities: ${version.config.capabilities.join(", ")} · Credential ${version.credential_configured ? "configured" : "not configured"}`),
-        node("p", `External source sharing ${version.config.allow_external_source ? "allowed by profile (workspace policy still applies)" : "disabled"}`));
-      const status = notice(box);
-      box.append(action(`Edit ${profile.name} / rotate credential`, () => { renderProviderEditor(profile); providerEditor.querySelector("input")?.focus(); }));
-      const test = action(`Test ${profile.name}`, () => perform(test, status, async () => {
+      const box = node("article", undefined, "profile-row"); const version = profile.version;
+      const info = node("div", undefined, "profile-info");
+      const title = node("div", undefined, "profile-title");
+      title.append(node("strong", profile.name), node("span", `Version ${version.version}`, "profile-version"));
+      const capabilities = version.config.capabilities.map(cap => CAPABILITY_NAMES[cap] ?? cap).join(", ");
+      info.append(title,
+        node("p", `${ADAPTER_NAMES[version.adapter] ?? version.adapter} · ${version.model} · ${hostOf(version.endpoint)}`, "profile-meta"),
+        node("p", `${capabilities} · ${version.credential_configured ? "Credential saved" : "No credential"} · ${version.config.allow_external_source ? "May receive repository source (workspace policy still applies)" : "Never receives repository source"}`, "profile-meta"));
+      const actions = node("div", undefined, "profile-actions");
+      const status = node("p", "", "page-status profile-status"); status.setAttribute("role", "status");
+      actions.append(labelledAction("Edit", `Edit ${profile.name}`, () => { renderProviderEditor(profile); providerEditor.querySelector("input")?.focus(); }));
+      const test = labelledAction("Test", `Test ${profile.name}`, () => perform(test, status, async () => {
         const result = await providerMutation(`/api/provider-profiles/${encodeURIComponent(profile.id)}/test`, "POST", { capabilities: version.config.capabilities });
-        status.textContent = `Test ${result.status}: ${Object.entries(result.capabilities || {}).map(([cap, value]) => `${cap}: ${value.status}${value.error_code ? ` (${value.error_code})` : ""}`).join(" · ")}. Destination ${result.destination?.kind || "unknown"}: ${result.destination?.host || "unknown"}. Synthetic content only; cost unknown.`;
-      })); box.append(test);
-      const remove = action(`Delete ${profile.name}`, () => {
-        const confirm = action(`Confirm delete ${profile.name}`, () => perform(confirm, status, async () => {
+        status.textContent = `Test ${result.status}: ${Object.entries(result.capabilities || {}).map(([cap, value]) => `${CAPABILITY_NAMES[cap] ?? cap} ${value.status}${value.error_code ? ` (${value.error_code})` : ""}`).join(" · ")}. Sent to ${result.destination?.host || "an unknown destination"} (${result.destination?.kind || "unknown"}). Synthetic content only; cost unknown.`;
+      })); actions.append(test);
+      const remove = labelledAction("Delete", `Delete ${profile.name}`, () => {
+        const confirm = labelledAction("Delete", `Confirm delete ${profile.name}`, () => perform(confirm, status, async () => {
           await providerMutation(`/api/provider-profiles/${encodeURIComponent(profile.id)}`, "DELETE", {}); await loadProviders();
         }));
-        status.replaceChildren(node("span", "Deletion revokes credentials and removes active roles; historical metadata remains. "), confirm, action("Cancel deletion", () => { status.textContent = "Deletion cancelled."; }));
-      }); box.append(remove); providerPanel.append(box);
+        confirm.classList.add("btn-danger");
+        status.replaceChildren(node("span", `Delete ${profile.name}? Its credential is revoked and any job using it is cleared. Past history stays. `), confirm, labelledAction("Cancel", "Cancel deletion", () => { status.textContent = "Deletion cancelled."; }));
+      }); actions.append(remove);
+      box.append(info, actions, status); list.append(box);
     }
-    const roles = node("section", undefined, "setting-box"); roles.append(node("h3", "Default model roles"));
-    for (const role of ["ask", "planning", "summary", "embedding"]) {
-      const value = settings.roles[role] || {}; const form = node("form", undefined, "settings-form");
-      const select = choose(form, `${role} profile`, [["", "Unassigned"], ...providerProfiles.map(p => [p.id, p.name])], value.profile_id || "");
-      form.append(node("p", `${value.status || "unknown"} · Destination: ${value.destination ? `${value.destination.kind}: ${value.destination.host}` : "none"} · Version ${value.version_id || "none"}`));
-      const save = submitButton(form, `Save ${role} role`); const status = notice(form);
-      form.addEventListener("submit", event => { event.preventDefault(); perform(save, status, async () => {
-        await providerMutation("/api/settings/model-roles", "PATCH", { assignments: { [role]: select.value || null } }); await loadProviders();
-      }); }); roles.append(form);
-    }
-    providerPanel.append(roles);
+    providerPanel.append(list);
+    if (modelsSimple.isConnected) mountSimpleModels();
     providerEditor = node("section", undefined, "setting-box"); providerPanel.append(providerEditor); renderProviderEditor();
   } catch (error) {
     if (generation === providerLoadGeneration) output.textContent = `Provider settings unavailable: ${error.message}`;
@@ -1140,26 +1141,47 @@ async function loadProviders() {
 }
 function renderProviderEditor(profile = null) {
   const version = profile?.version; const config = version?.config || {};
-  providerEditor.replaceChildren(node("h3", profile ? `Edit ${profile.name}` : "Create provider profile"));
-  const form = node("form", undefined, "settings-form"); form.setAttribute("autocomplete", "off");
+  providerEditor.replaceChildren(node("h3", profile ? `Edit ${profile.name}` : "New provider profile"));
+  const form = node("form", undefined, "settings-form profile-form"); form.setAttribute("autocomplete", "off");
   const name = control(form, "Profile name", profile?.name || ""); name.required = true; name.maxLength = 100;
   const adapter = choose(form, "Adapter", [["ollama", "Ollama"], ["openai_compatible", "OpenAI compatible"], ["claude_cli", "Claude Code CLI (your login)"]], version?.adapter || "ollama");
   const endpoint = control(form, "Base URL / destination", version?.endpoint || "http://127.0.0.1:11434", "url"); endpoint.required = true;
-  form.append(node("p", "Use the /v1 base for OpenAI compatible APIs. Only loopback HTTP or HTTPS is supported. Requests go to this destination; redirects are rejected. Claude Code CLI uses https://api.anthropic.com, a model alias such as sonnet, and no credential."));
+  endpoint.parentNode.classList.add("field-wide");
+  // The hint follows the adapter so people only read the rule that applies to them.
+  const hint = node("p", "", "field-hint"); endpoint.parentNode.append(hint);
+  const showHint = () => { hint.textContent = adapter.value === "claude_cli" ? "Claude Code CLI uses https://api.anthropic.com, a model alias such as sonnet, and no credential."
+    : `${adapter.value === "openai_compatible" ? "Use the /v1 base. " : ""}Loopback HTTP or HTTPS only. Requests go to this destination; redirects are rejected.`; };
+  adapter.addEventListener("change", showHint); showHint();
   const model = control(form, "Model identifier", version?.model || ""); model.required = true;
   const secret = control(form, profile ? "New credential (leave blank to retain current credential)" : "Credential (optional for local Ollama)", "", "password");
+  const capsGroup = node("fieldset", undefined, "field-group field-wide"); capsGroup.append(node("legend", "Capabilities"));
   const caps = {};
-  for (const cap of ["chat", "structured_output", "embeddings"]) caps[cap] = toggle(form, cap, config.capabilities ? config.capabilities.includes(cap) : cap === "chat");
+  for (const cap of ["chat", "structured_output", "embeddings"]) caps[cap] = toggle(capsGroup, CAPABILITY_NAMES[cap], config.capabilities ? config.capabilities.includes(cap) : cap === "chat");
+  form.append(capsGroup);
   const dimensions = control(form, "Embedding dimensions (required for embeddings)", config.embedding_dimensions || "", "number"); dimensions.min = "1"; dimensions.max = "16384";
-  const timeout = control(form, "Timeout seconds", config.timeout_seconds ?? 60, "number"); timeout.min = "1"; timeout.max = "600"; timeout.required = true;
-  const context = control(form, "Context token limit", config.context_limit ?? 8192, "number"); context.min = "256"; context.max = "2000000"; context.required = true;
-  const output = control(form, "Maximum output tokens", config.max_output_tokens ?? 1024, "number"); output.min = "1"; output.max = "131072"; output.required = true;
-  const external = toggle(form, "Allow sending repository source to this external destination", config.allow_external_source);
-  const inputPrice = control(form, "Input price USD per million tokens (blank = unknown)", config.input_price_per_million ?? "", "number");
-  const outputPrice = control(form, "Output price USD per million tokens (blank = unknown)", config.output_price_per_million ?? "", "number");
+  const showDimensions = () => { dimensions.parentNode.hidden = !caps.embeddings.checked; };
+  caps.embeddings.addEventListener("change", showDimensions); showDimensions();
+  const limits = node("fieldset", undefined, "field-group field-wide field-columns"); limits.append(node("legend", "Limits"));
+  const timeout = control(limits, "Timeout seconds", config.timeout_seconds ?? 60, "number"); timeout.min = "1"; timeout.max = "600"; timeout.required = true;
+  const context = control(limits, "Context token limit", config.context_limit ?? 8192, "number"); context.min = "256"; context.max = "2000000"; context.required = true;
+  const output = control(limits, "Maximum output tokens", config.max_output_tokens ?? 1024, "number"); output.min = "1"; output.max = "131072"; output.required = true;
+  form.append(limits);
+  const pricing = node("details", undefined, "field-wide field-details");
+  pricing.append(node("summary", "Pricing (optional, shows cost estimates)"));
+  const prices = node("div", undefined, "field-columns");
+  const inputPrice = control(prices, "Input price USD per million tokens (blank = unknown)", config.input_price_per_million ?? "", "number");
+  const outputPrice = control(prices, "Output price USD per million tokens (blank = unknown)", config.output_price_per_million ?? "", "number");
   for (const price of [inputPrice, outputPrice]) { price.min = "0"; price.max = "1000000"; price.step = "any"; }
-  const save = submitButton(form, profile ? "Save new profile version" : "Create profile");
-  if (profile) form.append(action("Cancel edit / new profile", () => renderProviderEditor()));
+  pricing.append(prices); if (inputPrice.value !== "" || outputPrice.value !== "") pricing.open = true;
+  form.append(pricing);
+  const sharing = node("fieldset", undefined, "field-group field-wide"); sharing.append(node("legend", "Repository source"));
+  const external = toggle(sharing, "Allow sending repository source to this external destination", config.allow_external_source);
+  sharing.append(node("p", "Off by default. Local-only mode in Privacy still blocks remote destinations.", "field-hint"));
+  form.append(sharing);
+  const formActions = node("div", undefined, "form-actions field-wide");
+  const save = submitButton(formActions, profile ? "Save new profile version" : "Create profile"); save.classList.add("btn-primary");
+  if (profile) formActions.append(action("Cancel edit / new profile", () => renderProviderEditor()));
+  form.append(formActions);
   const status = notice(form);
   form.addEventListener("submit", event => {
     event.preventDefault(); if (save.disabled) return;

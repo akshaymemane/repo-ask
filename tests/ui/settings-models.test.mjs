@@ -1,6 +1,7 @@
 // Models section: discovered Ollama models, one dropdown per job, CPU warning, short provider form.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createBrowser, input, install, settle, visibleText } from "./dom.mjs";
 
@@ -44,8 +45,8 @@ const change = (sel, value) => { sel.value = value; sel.dispatchEvent(new (sel.o
 
 test("Ollama card shows discovered models and each job has one dropdown", async () => {
   const { host } = await setup();
-  assert.match(visibleText(host), /Ollama · this computer/);
-  assert.match(visibleText(host), /● connected · 3 models found/);
+  assert.match(visibleText(host), /Ollama.*Connected · 3 models/);
+  assert.match(visibleText(host), /Runs models on this computer\./);
   assert.deepEqual(host.querySelectorAll("select").map((s) => s.getAttribute("aria-label")), ["Answering questions", "Writing plans", "Smarter code search", "Repository summaries"]);
   assert.deepEqual(optionTexts(select(host, "Smarter code search")), ["Off", "nomic-embed-text:latest"]);
   assert.ok(!optionTexts(select(host, "Answering questions")).includes("nomic-embed-text:latest"));
@@ -98,7 +99,7 @@ test("unreachable Ollama says how to fix it", async () => {
 
 test("Add OpenAI-compatible provider keeps advanced fields folded and posts the short form", async () => {
   const { b, host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  host.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Add OpenAI-compatible provider").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
@@ -116,7 +117,7 @@ test("Add OpenAI-compatible provider keeps advanced fields folded and posts the 
 
 test("a remote provider offers the source-sharing opt-in and sends it with structured output", async () => {
   const { b, host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  host.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Add OpenAI-compatible provider").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
@@ -137,7 +138,7 @@ test("a remote provider offers the source-sharing opt-in and sends it with struc
 
 test("source-sharing consent is cleared when a remote destination changes", async () => {
   const { b, host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  host.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Add OpenAI-compatible provider").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
@@ -157,7 +158,7 @@ test("source-sharing consent is cleared when a remote destination changes", asyn
 
 test("hiding source consent clears it before a later remote destination", async () => {
   const { b, host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  host.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Add OpenAI-compatible provider").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
@@ -180,7 +181,7 @@ test("hiding source consent clears it before a later remote destination", async 
 
 test("unchecking structured output keeps a chat-only profile", async () => {
   const { b, host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  host.querySelectorAll("button").find((x) => x.getAttribute("aria-label") === "Add OpenAI-compatible provider").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
   const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
@@ -197,7 +198,7 @@ test("unchecking structured output keeps a chat-only profile", async () => {
 
 test("Claude subscription setup creates a Sonnet claude_cli profile, tests it, and never sends a credential", async () => {
   const { b, host, calls } = await setup();
-  assert.match(visibleText(host), /Claude · your subscription/);
+  assert.match(visibleText(host), /Claude subscription/);
   host.querySelectorAll("button").find((x) => x.textContent === "Set up").click();
   await settle();
   const dialog = b.document.querySelector("dialog.modal");
@@ -213,7 +214,7 @@ test("Claude subscription setup creates a Sonnet claude_cli profile, tests it, a
     config: { capabilities: ["chat", "structured_output"], timeout_seconds: 300, context_limit: 32768, max_output_tokens: 8192, allow_external_source: true } });
   assert.ok(!("secret_value" in post[2]));
   assert.ok(calls.some(([m, p]) => m === "POST" && p === "/api/provider-profiles/prof_2/test"));
-  assert.match(visibleText(host), /● set up · sonnet/);
+  assert.match(visibleText(host), /Set up · sonnet/);
   assert.ok(select(host, "Writing plans").querySelectorAll("option").some((o) => o.value === "p:prof_2"), "the profile can be chosen for plans");
 });
 
@@ -230,4 +231,14 @@ test("a failed Claude test explains the fix and retesting updates the same profi
   await settle(20);
   assert.equal(calls.filter(([m, p]) => m === "POST" && p === "/api/provider-profiles").length, 1);
   assert.ok(calls.some(([m, p]) => m === "PATCH" && p === "/api/provider-profiles/prof_2"));
+});
+
+test("every model source is a row in one providers card, and every job picker has the same width", async () => {
+  const { host } = await setup();
+  const cards = host.querySelectorAll(".setting-card");
+  assert.equal(cards.length, 2, "providers card and jobs card, nothing floating outside");
+  assert.deepEqual(cards[0].querySelectorAll(".source-name strong").map((n) => n.textContent), ["Ollama", "Claude subscription", "OpenAI-compatible server"]);
+  assert.ok(cards[0].querySelector(".status-pill.is-good"), "Ollama status is a pill, not inline text");
+  const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
+  assert.match(css, /\.job-row select \{ flex: none; width: min\(320px, 55%\); \}/);
 });

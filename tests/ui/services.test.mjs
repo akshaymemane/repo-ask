@@ -23,10 +23,20 @@ test('UI profile CRUD, roles and local policy persist through real FeatureAPI an
   browser.window.location.hash='#/settings/models';await settle();
   let form=button('Create profile').closest('form');input(form,'Profile name').value='Real local profile';input(form,'Model identifier').value='synthetic';form.requestSubmit();await settle();
   assert.match(visibleText(root),/Real local profile/);
-  form=button('Save ask role').closest('form');const select=input(form,'ask profile');select.value=select.querySelectorAll('option')[1].value;form.requestSubmit();await settle();
-  assert.match(visibleText(root),/untested · Destination: local: 127\.0\.0\.1:11434/);
-  button('Edit Real local profile / rotate credential').click();form=button('Save new profile version').closest('form');input(form,'Model identifier').value='synthetic-v2';form.requestSubmit();await settle();assert.match(visibleText(root),/synthetic-v2 · Version 2/);
-  form=button('Save destination policy').closest('form');input(form,'Local-only inference').checked=false;form.requestSubmit();await settle();assert.equal(input(button('Save destination policy').closest('form'),'Local-only inference').checked,false);
-  button('Delete Real local profile').click();button('Confirm delete Real local profile').click();await settle();assert.equal(button('Delete Real local profile'),undefined);
+  const api=(method,path,body)=>JSON.parse(execFileSync('python3',[bridge,directory],{input:JSON.stringify({method,path,query:'',body}),encoding:'utf8'})).body;
+  const labelled=label=>root.querySelectorAll('button').find(x=>x.getAttribute('aria-label')===label);
+  // Jobs are assigned with the pickers at the top of Models; the new profile is listed there without a reload.
+  const ask=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='Answering questions');
+  ask.value=ask.querySelectorAll('option').find(o=>o.textContent.startsWith('Real local profile')).value;ask.dispatchEvent({type:'change',bubbles:true});await settle();
+  const assigned=api('GET','/api/settings/model-roles').roles.ask;
+  assert.equal(assigned.status,'untested');assert.equal(assigned.destination.host,'127.0.0.1:11434');
+  labelled('Edit Real local profile').click();form=button('Save new profile version').closest('form');input(form,'Model identifier').value='synthetic-v2';form.requestSubmit();await settle();
+  assert.match(visibleText(root),/synthetic-v2/);assert.match(visibleText(root),/Version 2/);
+  // Local-only lives in Privacy only.
+  browser.window.location.hash='#/settings/privacy';await settle();
+  root.querySelector('[role="switch"]').click();await settle();
+  assert.equal(api('GET','/api/settings/model-roles').settings.local_only,false);
+  browser.window.location.hash='#/settings/models';await settle();
+  labelled('Delete Real local profile').click();labelled('Confirm delete Real local profile').click();await settle();assert.equal(labelled('Delete Real local profile'),undefined);
  } finally {rmSync(directory,{recursive:true,force:true});}
 });

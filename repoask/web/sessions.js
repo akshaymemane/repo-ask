@@ -419,7 +419,7 @@ export function createExecutionSettings({request = executionRequest, onAvailable
   const rows = el('div'), editor = el('section', undefined, 'setting-box'), settingsHost = el('div');
   element.append(heading, status);
   button(element, 'Reload execution settings', () => refresh());
-  element.append(el('p', 'Execution uses the installed Claude Code CLI with its normal CLI login. Sign in through that CLI on this machine before testing. Never paste CLI tokens, keys or authentication files here. Docker and a locally provisioned compatible image are required; runtime tests never install a toolchain or pull images automatically.'), el('p', 'Claude Code sends prompts and permitted source to its external model destination. Workspace local-only policy blocks this adapter, including synthetic tests. For repository execution, disable local-only in Model providers and explicitly allow source sharing on this execution profile. Source consent does not grant repository access or publication permission.'), settingsHost, rows, editor);
+  element.append(el('p', 'Execution uses the installed Claude Code CLI with its normal CLI login. Sign in through that CLI on this machine before testing. Never paste CLI tokens, keys or authentication files here. Docker and a locally provisioned compatible image are required; runtime tests never install a toolchain or pull images automatically.'), el('p', 'Claude Code sends prompts and permitted source to its external model destination. Workspace local-only policy blocks this adapter, including synthetic tests. For repository execution, turn off local-only in Settings → Privacy and explicitly allow source sharing on this execution profile. Source consent does not grant repository access or publication permission.'), settingsHost, rows, editor);
   let generation = 0, mutating = false, unknownWrite = false, pageCursor = null, profiles = new Map(), timer, pendingTests = new Map(), editorDirty = false;
   const current = token => token === generation;
   function preserveFocus(fn) { const restore = inside(element, document.activeElement); fn(); if (restore && isVisible() && (document.activeElement === document.body || !document.activeElement?.isConnected)) heading.focus(); }
@@ -506,7 +506,7 @@ export function createExecutionSettings({request = executionRequest, onAvailable
   }
   function renderSettings(settings, privacy) {
     settingsHost.replaceChildren(); const form = el('form', undefined, 'settings-form');
-    form.append(el('p', `Workspace local-only: ${typeof privacy.settings?.local_only === 'boolean' ? privacy.settings.local_only ? 'enabled — remote execution and synthetic tests are blocked' : 'disabled — profile source consent is still required' : 'unknown — inspect Model providers before testing'}.`));
+    form.append(el('p', `Workspace local-only: ${typeof privacy.settings?.local_only === 'boolean' ? privacy.settings.local_only ? 'enabled — remote execution and synthetic tests are blocked' : 'disabled — profile source consent is still required' : 'unknown — check Settings → Privacy before testing'}.`));
     const count = field(form, 'Maximum active implementation sessions', settings.max_active_sessions, 'number'); count.min = '1'; count.max = '4'; count.step = '1'; count.required = true;
     form.append(el('p', 'Applies to future launches; changing this limit does not terminate active work.'));
     const save = el('button', 'Save execution concurrency', 'button'); save.type = 'submit'; form.append(save);
