@@ -923,6 +923,23 @@
       "next_action": "Integrated after independent approval; user restart is required before migration 12 is applied to the live app."
     },
     {
+      "id": "ASK-MODEL-GATE",
+      "milestone": "post-M1",
+      "title": "Disable Ask actions when their model role is unassigned",
+      "state": "integrated",
+      "feature_ids": ["F04", "F07", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["M1-INTEGRATE"],
+      "handoff": "docs/agents/runs/ASK-MODEL-GATE/handoff.md",
+      "submitted_sha": "41fcec3",
+      "reviewer_session": "Codex coordinator / independent review round 1",
+      "review_commit": "b2527b5",
+      "review_verdict": "approved",
+      "integration_sha": "b2527b5",
+      "next_action": "Integrated after independent approval; no further action required."
+    },
+    {
       "id": "M4-CODEX-SESSION-ADAPTER",
       "milestone": "M4",
       "title": "Codex CLI coding-agent adapter for sessions",
