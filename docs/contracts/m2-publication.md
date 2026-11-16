@@ -77,6 +77,13 @@ Publish accepts exactly `title`, `body`, `expected_diff_hash`, `intent_version`,
 `idempotency_key`. Retry accepts exactly `idempotency_key`. Mutation bodies and list
 fields remain bounded by the shared API limits.
 
+Coordinator additions (M2-INTEGRATE, 2026-11-16) so the browser can recover state and set the
+required commit identity: `GET /api/sessions/{id}/publication` returns that session's one
+publication or `not_found`; `POST /api/publications/{id}/refresh` (empty body) reads current PR
+state through `refresh`; `GET`/`PATCH /api/settings/publication` read and set exactly
+`commit_name` and `commit_email` through `settings`/`update_settings`. None of these mint a write
+token except `refresh`, which reads only.
+
 ## Deterministic remote state machine
 
 1. Revalidate the snapshot and mint the repository-scoped token.

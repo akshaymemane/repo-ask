@@ -60,11 +60,13 @@ def error_status(code):
 
 
 class FeatureAPI:
-    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None, select_context=None, execution_profiles=None, sessions=None, public_base_url='http://127.0.0.1:8765'):
+    def __init__(self, platform, github, providers, *, indexing=None, conversations=None, plans=None, routing=None, purge_context=None, select_context=None, execution_profiles=None, sessions=None, publications=None, public_base_url='http://127.0.0.1:8765'):
         self.platform, self.github, self.providers = platform, github, providers
         self.public_base_url = public_base_url
         from .session_api import ExecutionAPI
         self.execution_api = ExecutionAPI(execution_profiles,sessions)
+        from .publication_api import PublicationAPI
+        self.publication_api = PublicationAPI(platform, publications)
         self.ask = None
         if all(service is not None for service in (conversations, plans, routing)):
             from .ask_api import AskAPI
@@ -85,6 +87,9 @@ class FeatureAPI:
         if method != 'GET' and raw_query:
             raise ValueError('Mutation query parameters are not supported.')
         response = self.execution_api.dispatch(method,path,raw_query,body)
+        if response is not None:
+            return response
+        response = self.publication_api.dispatch(method, path, raw_query, body)
         if response is not None:
             return response
         if self.context is not None:

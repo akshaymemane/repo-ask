@@ -39,7 +39,7 @@ class ApplicationServices:
         self.github = GitHubService(platform.store, platform.jobs, platform.secrets, transport=github_transport)
         self.providers = ProviderService(platform.store, platform.secrets, transport=provider_transport)
         self.indexing = self.routing = self.plans = self.conversations = None
-        self.execution_profiles = self.sessions = None
+        self.execution_profiles = self.sessions = self.publications = None
         self.scheduler = None
         self.legacy_index = None
         self.legacy_sources = {}
@@ -62,6 +62,7 @@ class ApplicationServices:
                               conversations=self.conversations, purge_context=self.purge_context,
                               select_context=self.select_context,
                               execution_profiles=self.execution_profiles, sessions=self.sessions,
+                              publications=self.publications,
                               public_base_url=self.public_base_url)
 
     def enable_context(self, indexing):
@@ -81,7 +82,7 @@ class ApplicationServices:
         self.github.register_purge_hook('ask', conversations.purge_repository)
         self._rebuild_api()
 
-    def enable_execution(self, execution_profiles=None, sessions=None, *, data_dir=None):
+    def enable_execution(self, execution_profiles=None, sessions=None, *, data_dir=None, publications=None):
         """Compose the dedicated execution runtime before application workers start.
 
         Tests may inject the two services as a pair. Production constructs the
@@ -102,6 +103,12 @@ class ApplicationServices:
             sessions = SessionService(self.platform, self.indexing, self.github, self.providers,
                                       self.plans, execution_profiles, data_dir=data_dir)
         self.execution_profiles, self.sessions = execution_profiles, sessions
+        # Draft publication reads the trusted session snapshot; it registers its own purge hook.
+        if publications is None:
+            from .publication import PublicationService
+            publications = PublicationService(self.platform, self.github, sessions)
+        self.publications = publications
+        self.handlers['publication.run'] = publications.run
         self._rebuild_api()
         return self.execution_status()
 
@@ -272,6 +279,9 @@ class ApplicationServices:
                              worker_id=new_id('worker'), lease_ms=120000)
         if self.sessions is not None:
             self.sessions.start()
+        # Lost or expired publication runs are reconciled against GitHub before new work is claimed.
+        if self.publications is not None and callable(getattr(self.publications, 'recover', None)):
+            self.publications.recover()
         self.thread = Thread(target=self._run, name='opendevin-background-jobs')
         self.thread.start()
 
