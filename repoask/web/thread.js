@@ -123,9 +123,15 @@ export function renderThread(host, view, handlers) {
     ...view.plans.map((plan) => ({ at: plan.created_at ?? Infinity, kind: "plan", plan })),
   ].sort((a, b) => a.at - b.at);
   const lastUser = timeline.findLastIndex((item) => item.kind === "message" && item.message.role === "user");
+  const planIds = new Set(view.plans.map((plan) => plan.id));
+  // The server's "Plan saved: <id>" receipt adds nothing when the plan card itself is shown.
+  const receipt = (message) => message.role === "assistant" && /^Plan saved: \S+$/.test(message.content ?? "")
+    && planIds.has(message.content.slice("Plan saved: ".length));
   const nodes = [];
   timeline.forEach((item, index) => {
-    if (item.kind === "message") {
+    if (item.kind === "message" && receipt(item.message)) {
+      // The plan card follows in the timeline.
+    } else if (item.kind === "message") {
       nodes.push(item.message.role === "user" ? el("div", item.message.content, "msg-user") : assistant(item.message, view, handlers));
     } else if (item.kind === "scope") {
       nodes.push(el("p", `${item.event.kind === "added" ? "Added" : "Removed"} ${item.event.name}`, "thread-event"));

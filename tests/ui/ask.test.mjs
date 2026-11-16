@@ -23,8 +23,11 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   const side=b.document.getElementById('side-panel');
   const button=text=>[...panel.querySelectorAll('button'),...side.querySelectorAll('button')].find(x=>x.textContent===text);
   const field=label=>[...panel.querySelectorAll('label'),...side.querySelectorAll('label')].find(x=>x.textContent.startsWith(label)).querySelector('textarea');
-  const planTab=()=>side.querySelectorAll('[role="tab"]').find(x=>x.textContent===seed.plan.title)?.click();
-  assert.equal(side.hidden,false);assert.match(visibleText(panel),/The editor is open in the details panel/);
+  const planTab=()=>side.querySelectorAll('[role="tab"]').find(x=>x.textContent===`Edit · ${seed.plan.title}`)?.click();
+  // The main pane shows the saved plan as a document; editing opens on request.
+  assert.match(visibleText(panel),/What you asked/);assert.doesNotMatch(visibleText(panel),/SHA256/);
+  button('Edit plan').click();await settle();
+  assert.equal(side.hidden,false);
   assert.match(visibleText(side),/implementation_not_permitted/);
   assert.equal(button('Start session').disabled,true);
   side.querySelectorAll('button').find(x=>x.textContent.includes('worker.py:1')).click();await settle();
@@ -39,8 +42,9 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   assert.deepEqual(latest.version.content.requirements,['Preserve mail','Bound retries']);
   assert.equal(call(`/api/plans/${seed.plan.id}?version_id=${seed.plan.version.id}`).body.version.content.goal,'Bound delivery retries');
   assert.equal(call(`/api/plans/${seed.plan.id}/versions`,'POST',{content:latest.version.content,parent_version_id:seed.plan.version.id}).status,409);
+  assert.match(visibleText(panel),/Human edited goal/);button('Edit plan').click();await settle();
   button('Export this saved version').click();await settle();assert.match(visibleText(side),new RegExp(latest.version.content_hash));assert.match(visibleText(side),/Human edited goal/);
-  const old=side.querySelectorAll('a').find(x=>x.textContent==='Previous version');old.click();await settle(30);assert.equal(field('goal').value,'Bound delivery retries');
+  const old=side.querySelectorAll('a').find(x=>x.textContent==='Previous version');old.click();await settle(30);button('Edit plan').click();await settle();assert.equal(field('goal').value,'Bound delivery retries');
   b.window.location.hash=`#/ask/${seed.conversation.id}`;await settle(30);assert.match(visibleText(panel),/Durable UI test/);
   input(field('Question or planning request'),'How does mail delivery work?');button('Ask').click();await settle(30);
   const c=call(`/api/conversations/${seed.conversation.id}`).body;assert.equal(c.messages.filter(x=>x.role==='user').length,1);assert.equal(c.runs.length,1);

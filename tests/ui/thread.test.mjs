@@ -128,3 +128,13 @@ test("provider limits and refusals read as plain sentences", async () => {
   assert.match(mod.errorWords("invalid_output"), /didn't pass validation/);
   assert.equal(mod.errorWords("some_new_code"), "some new code");
 });
+
+test("the server's 'Plan saved' receipt is hidden when its plan card is shown", async () => {
+  const { host, render } = await setup();
+  const plan = { id: "plan_abc", title: "Add retries", steps: 2, version: 1, ready: false, created_at: NOW - 40000 };
+  render({ messages: [user(), answer({ content: "Plan saved: plan_abc", citations: [] })], plans: [plan] });
+  assert.doesNotMatch(visibleText(host), /Plan saved/);
+  assert.match(visibleText(host), /Add retries · 2 steps · v1/);
+  render({ messages: [user(), answer({ content: "Plan saved: plan_other", citations: [] })], plans: [plan] });
+  assert.match(visibleText(host), /Plan saved: plan_other/, "an unmatched receipt still shows");
+});
