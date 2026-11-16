@@ -730,6 +730,52 @@ class SessionService:
                     files=files, rejected=patch['rejected'], hidden_by_current_exclusions=hidden,
                     stats=patch['stats'], captured_at=artifact['created_at'])
 
+    def publication_snapshot(self, session_id):
+        """Trusted internal export of the latest verified capture, never a UI diff.
+
+        No runner calls, source acquisition or file reconstruction happen here.
+        Terminal state and artifact identity make the captured bytes immutable;
+        live source authority is checked again immediately before returning them.
+        """
+        from .publication import verify_capture
+
+        _ident(session_id, 'session_id')
+        with self.store.read() as db:
+            row = dict(self._row(db, session_id))
+            repos = db.execute("SELECT * FROM session_repositories WHERE session_id=? AND role='write'",
+                               (session_id,)).fetchall()
+            runner = db.execute('SELECT state FROM session_runners WHERE session_id=?', (session_id,)).fetchone()
+            checkpoint = self._latest_artifact(db, session_id, 'checkpoint')
+            patch = self._latest_artifact(db, session_id, 'patch')
+        if not self.source_policy(session_id)['available']:
+            raise SessionError('source_unavailable')
+        if row['state'] not in TERMINAL:
+            raise SessionError('session_not_terminal')
+        outcome = _loads(row['outcome_json'], {})
+        if (runner is None or runner['state'] != 'terminated'
+                or outcome.get('containment', {}).get('confirmed') is not True):
+            raise SessionError('containment_unverified')
+        if (outcome.get('source_redacted') or outcome.get('artifacts_stale')
+                or outcome.get('edits_since_last_checkpoint_may_be_lost')):
+            raise SessionError('stale_artifacts')
+        if len(repos) != 1:
+            raise SessionError('session_snapshot_invalid')
+        repo = dict(repos[0])
+        cp, pt = verify_capture(repo, checkpoint, patch, outcome, _loads(row['limits_json'], {}))
+        policy = _loads(row['publication_json'], {}).get('policy')
+        if policy not in ('manual_draft', 'on_success_draft'):
+            raise SessionError('session_snapshot_invalid')
+        validations = self.validations(session_id)
+        if not self.source_policy(session_id)['available'] or not validations['source_available']:
+            raise SessionError('source_unavailable')
+        # These are service-owned, redacted projections, never private runner state.
+        return {'session_id': session_id, 'plan_id': row['plan_id'], 'plan_version_id': row['plan_version_id'],
+                'repository_id': repo['repository_id'], 'base_sha': repo['base_sha'],
+                'base_branch': repo['base_branch'], 'session_branch': repo['session_branch'],
+                'diff_hash': patch['sha256'], 'checkpoint_artifact_id': checkpoint['id'],
+                'patch_artifact_id': patch['id'], 'checkpoint': cp, 'patch': pt,
+                'policy': policy, 'outcome': outcome, 'validations': validations, 'source_available': True}
+
     def validations(self, session_id):
         _ident(session_id, 'session_id')
         live, _ = self._live_source(session_id)
