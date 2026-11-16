@@ -121,3 +121,35 @@ class PublicationRecoveryTests(TestCase):
             self.assertIn('recover', [c[0] for c in fake.calls])
         finally:
             services.close()
+
+
+class PlanPreflightWiringTests(TestCase):
+    def test_execution_connects_plan_readiness_to_session_preflight(self):
+        platform = Platform.open(None)
+        self.addCleanup(platform.close)
+        class Plans:
+            execution_preflight = None
+        class PreflightSessions(Sessions):
+            def preflight(self, content): return {'blocking_reasons': [], 'warnings': []}
+        services = ApplicationServices(platform)
+        services.enable_context(Context())
+        plans, sessions = Plans(), PreflightSessions()
+        services.enable_ask(object(), plans, Conversations())
+        services.enable_execution(object(), sessions, publications=FakePublications())
+        self.assertEqual(plans.execution_preflight, sessions.preflight)
+
+    def test_an_explicit_plan_preflight_is_kept(self):
+        platform = Platform.open(None)
+        self.addCleanup(platform.close)
+        explicit = lambda content: {'blocking_reasons': ['x'], 'warnings': []}
+        class Plans:
+            pass
+        class PreflightSessions(Sessions):
+            def preflight(self, content): return {}
+        services = ApplicationServices(platform)
+        services.enable_context(Context())
+        plans = Plans()
+        plans.execution_preflight = explicit
+        services.enable_ask(object(), plans, Conversations())
+        services.enable_execution(object(), PreflightSessions(), publications=FakePublications())
+        self.assertIs(plans.execution_preflight, explicit)

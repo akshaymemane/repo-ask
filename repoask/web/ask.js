@@ -336,9 +336,9 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     await repoNames((c?.repositories || []).map(r=>r.repository_id), token); if(token!==epoch)return;
     const nameFor=repository=>knownNames.get(repository) || repository;
     const doc=renderPlanDocument(v,{nameFor,onCitation:(citation,trigger)=>cite(citation,token,trigger)});
-    // Identifiers and the parked implementation (M2) controls are folded so editable fields lead.
+    // Identifiers and the execution/publication controls are folded so editable fields lead.
     const info=el('details');info.className='plan-editor-more';info.append(el('summary','Version details'));
-    const impl=el('details');impl.className='plan-editor-more';impl.append(el('summary','Implementation (M2): execution and publication'));
+    const impl=el('details');impl.className='plan-editor-more';impl.append(el('summary','Execution and publication'));
     editor.replaceChildren(el('h3',`Edit plan · version ${v.version}`),el('p','Saving creates a new version. This version never changes.'),info);
     info.append(el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));
     planEditor=editor;

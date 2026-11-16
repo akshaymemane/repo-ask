@@ -49,7 +49,7 @@ test("a saved plan reads as a document with names, not identifiers", async () =>
 
 test("readiness codes become sentences and identifiers are folded into Version details", async () => {
   const { doc, text } = await render(version());
-  assert.match(text, /Implementation isn't set up yet/);
+  assert.match(text, /Choose a tested execution profile: Edit plan → Execution and publication/);
   assert.match(text, /Turn on "Allow changes" in Repositories/);
   assert.match(text, /The repository has changed since it was indexed/);
   assert.doesNotMatch(text, /execution_not_configured|implementation_not_permitted|blocking_questions/);

@@ -103,6 +103,9 @@ class ApplicationServices:
             sessions = SessionService(self.platform, self.indexing, self.github, self.providers,
                                       self.plans, execution_profiles, data_dir=data_dir)
         self.execution_profiles, self.sessions = execution_profiles, sessions
+        # Plan readiness asks the session service whether a saved version could launch now.
+        if getattr(self.plans, 'execution_preflight', False) is None and callable(getattr(sessions, 'preflight', None)):
+            self.plans.execution_preflight = sessions.preflight
         # Draft publication reads the trusted session snapshot; it registers its own purge hook.
         if publications is None:
             from .publication import PublicationService

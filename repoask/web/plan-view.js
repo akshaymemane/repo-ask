@@ -5,7 +5,7 @@ import { button, el } from "./ui.js";
 
 const READINESS = {
   blocking_questions: () => "Answer the blocking questions above.",
-  execution_not_configured: () => "Implementation isn't set up yet. Sessions arrive with M2.",
+  execution_not_configured: () => "Choose a tested execution profile: Edit plan → Execution and publication, then save a new version.",
   implementation_not_permitted: () => "Changes aren't allowed for this repository yet. Turn on \"Allow changes\" in Repositories.",
   base_choice_required: () => "The repository changed after this plan was made. Keep the pinned commit or regenerate the plan.",
   exactly_one_write_target_required: () => "Choose exactly one repository to change. A session edits one repository at a time.",
