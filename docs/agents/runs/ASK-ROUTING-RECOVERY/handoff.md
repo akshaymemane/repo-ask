@@ -46,7 +46,7 @@ No contract, API or schema changes.
 
 | Scenario | Command or check | Result |
 | --- | --- | --- |
-| UI suite | `node --test tests/ui/*.test.mjs` | 196 pass, 0 fail (after review fixes) |
+| UI suite | `node --test tests/ui/*.test.mjs` | 199 pass, 0 fail (after review fixes) |
 | Python suite | `.venv/bin/python -m unittest discover -s tests` | 523 OK, 9 skipped |
 | New tests fail without fix | Ran each new test against the base files | Notice test: 2 notices instead of 1. Overlay test: `position` not `absolute` |
 | Routing on fresh store | `POST /api/route` | "How does checkout create an order?" → `needs_selection` with all four; "What does the outbox table store?" → orders-db; "quantum flux capacitor" → `no_match` |
@@ -67,11 +67,14 @@ the same files. These rounds are author-side checks, not the independent approva
 | 1 | HIGH: resuming sent the original question even after the user edited or cleared it | Fixed. `resumePending()` sends the current composer text, sends nothing when it is empty, and is shared by `onPickRoute` and `onScopeChange` (`onPickRoute` had the same flaw before this change) |
 | 1 | HIGH: silent routing errors removed the screen-reader announcement | Fixed. The composer has a visually hidden `aria-live` announcer; silent failures and the auto-send path announce there, and the card stays the only visible notice |
 | 2 | HIGH: a manual submit during a resumed send returned early, so the composer cleared the text; a later 4xx lost the question | Fixed. `send()` throws "Still sending the previous question." while pending; `resumePending()` clears only text that still matches what it sent |
-| 3 | HIGH: text typed while a send is in flight is discarded on success (`send()` clears the stored draft and `load()` rebuilds the composer) | **Open, already on base.** The same lines exist on `9f143e7` and apply to every Ask send, not only resumed ones. Left out of scope; needs a decision (fix here or as a separate card) |
+| 3 | HIGH: text typed while a send is in flight is discarded on success (`send()` clears the stored draft and `load()` rebuilds the composer) | Fixed at the user's request, although the bug was already on `9f143e7` and affected every Ask send. `send()` saves differing composer text as the draft before `load()`; `composer.submit()` clears only the sent text |
+| 4 | HIGH: a send that finished after the user left (discarding drafts) restored the discarded text | Fixed. The draft is saved only while `token === epoch`; a stale completion removes it as before |
+| 5 | Branch `9f143e7..working tree` | **PASS**, no findings |
 
-Tests added for rounds 1–2 (each failed before its fix): edited or cleared draft on resume,
-announcer content, and overlapping submit followed by a rejected send.
-After the fixes: UI suite 196 pass, 0 fail.
+Rounds 4 and 5 reviewed the whole branch against `9f143e7`. Tests added (each failed before
+its fix): edited or cleared draft on resume, announcer content, overlapping submit followed by
+a rejected send, typing during a normal and a resumed send, and a stale send after leaving.
+After the fixes: UI suite 199 pass, 0 fail.
 
 ## Risks and next action
 
@@ -89,4 +92,6 @@ After the fixes: UI suite 196 pass, 0 fail.
   scratchpad data dir.
 - Reviewer: independent (Codex). Scope: `ask.js` resume path (pending-question state, epoch
   guards, error handling when the scope update succeeds but the send fails), the silent
-  error contract between `ask.js` and `composer.js`, and the accuracy of the README text.
+  error contract between `ask.js` and `composer.js`, draft preservation in `send()` and
+  `composer.submit()` (which now changes every Ask send, not only resumed ones), and the
+  accuracy of the README text. Review the branch head against base `9f143e7`.

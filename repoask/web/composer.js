@@ -126,8 +126,11 @@ export function createComposer({ request, placeholder = "Ask about your code, or
       const payload = { text, repositoryIds: chips.map((chip) => chip.id) };
       if (intent !== undefined) payload.intent = intent;
       await onSend(payload);
-      textarea.value = "";
-      writeDraft(draftKey, "");
+      // Keep anything typed while sending; only the sent text is cleared.
+      if (textarea.value.trim() === text) {
+        textarea.value = "";
+        writeDraft(draftKey, "");
+      }
     } catch (failure) {
       if (failure?.silent) announcer.textContent = failure.message;
       else error.textContent = failure?.message || "Could not send.";

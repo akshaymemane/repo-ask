@@ -240,8 +240,11 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         throw error;
       } finally {pending=false;}
       sendAttempt=null;persistAttempt();renderPending();
-      try{window.sessionStorage?.removeItem(`ask-draft:${id}`);}catch{}
-      if(token===epoch){draft=false;say('');await load();}await refreshHistory();
+      // Text typed while the request was in flight becomes the draft the rebuilt composer starts with,
+      // unless the user has since left the conversation (leaving discards drafts).
+      const typed=token!==epoch || composer.value.trim()===content?'':composer.value;
+      try{if(typed.trim())window.sessionStorage?.setItem(`ask-draft:${id}`,typed);else window.sessionStorage?.removeItem(`ask-draft:${id}`);}catch{}
+      if(token===epoch){draft=Boolean(typed.trim());say('');await load();}await refreshHistory();
     }
     const activeRuns = () => (c.runs || []).filter(r=>['queued','running'].includes(r.state));
     const composer = createComposer({request, draftKey: `ask-draft:${id}`, label: 'Question or planning request',

@@ -227,6 +227,68 @@ test("submitting while a resumed question is still sending keeps the text, even 
   assert.equal(box().value, "How does checkout create an order?", "the question survives the failed send");
 });
 
+async function holdSend({ scoped }) {
+  let release = null;
+  let conversation = { id: "conv_h", title: "Held", scope_revision: 1, repository_ids: scoped ? ["gh:1"] : [], messages: [], runs: [], plans: [] };
+  const b = await boot((m, u, o) => {
+    if (u === "/api/conversations" && m === "GET") return { items: [conversation] };
+    if (u === "/api/conversations/conv_h") { if (m === "PATCH") conversation = { ...conversation, repository_ids: JSON.parse(o.body).repository_ids, scope_revision: 2 }; return conversation; }
+    if (u === "/api/route") return { status: "no_match", candidates: [], selected_repository_ids: [] };
+    if (u === "/api/conversations/conv_h/messages") return new Promise((resolve) => { release = () => { conversation = { ...conversation, messages: [{ id: "m1", role: "user", content: JSON.parse(o.body).content, state: "complete", created_at: 1 }] }; resolve({ id: "run", state: "queued" }); }; });
+    if (u.startsWith("/api/context/repositories")) return { items: Object.values(REPOS), next_cursor: null };
+    const m2 = /^\/api\/repositories\/(.+)\/context$/.exec(u);
+    if (m2) return REPOS[decodeURIComponent(m2[1])];
+    return { status: 404, body: { code: "not_found" } };
+  }, { hash: "#/ask/conv_h" });
+  await settle(20);
+  return { b, box: () => b.ui.panel.querySelector("textarea"), release: () => release(), sent: () => release !== null };
+}
+
+test("text typed while a send is in flight survives the successful send", async () => {
+  const h = await holdSend({ scoped: true });
+  input(h.box(), "First question");
+  keydown(h.box(), "Enter");
+  await settle(20);
+  assert.ok(h.sent());
+  input(h.box(), "Follow-up typed while sending");
+  h.release();
+  await settle(60);
+  assert.equal(h.box().value, "Follow-up typed while sending");
+  assert.equal(h.b.window.sessionStorage.getItem("ask-draft:conv_h"), "Follow-up typed while sending");
+});
+
+test("text typed while a resumed question is sending survives the successful send", async () => {
+  const h = await holdSend({ scoped: false });
+  input(h.box(), "First question");
+  keydown(h.box(), "Enter");
+  await settle(40);
+  h.b.button("Choose…").click();
+  await settle(30);
+  h.b.document.querySelectorAll(".picker-row").find((r) => visibleText(r).includes("rcnl-app")).querySelector("input").click();
+  h.b.document.querySelectorAll("dialog.modal button").find((n) => n.textContent.startsWith("Add")).click();
+  await settle(60);
+  assert.ok(h.sent());
+  input(h.box(), "Follow-up typed while sending");
+  h.release();
+  await settle(60);
+  assert.equal(h.box().value, "Follow-up typed while sending");
+  assert.equal(h.b.window.sessionStorage.getItem("ask-draft:conv_h"), "Follow-up typed while sending");
+});
+
+test("a send that finishes after the draft was discarded by leaving does not bring it back", async () => {
+  const h = await holdSend({ scoped: true });
+  input(h.box(), "First question");
+  keydown(h.box(), "Enter");
+  await settle(20);
+  input(h.box(), "Discarded follow-up");
+  h.b.window.location.hash = "#/ask";
+  await settle(40);
+  assert.equal(h.b.window.sessionStorage.getItem("ask-draft:conv_h"), null);
+  h.release();
+  await settle(60);
+  assert.equal(h.b.window.sessionStorage.getItem("ask-draft:conv_h"), null);
+});
+
 test("focusing the Ask heading overlays it instead of shifting the page (a shift swallowed the next click)", async () => {
   const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
   const b = await boot((m, u) => u === "/api/conversations" ? { items: [] } : { status: 404, body: { code: "not_found" } });
