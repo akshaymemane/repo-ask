@@ -23,6 +23,18 @@ class ProcessContainmentError(RuntimeError):
     pass
 
 
+class ProcessLimitsError(ValueError):
+    """Rejected limits before any process was started."""
+
+
+class ProcessSpawnError(OSError):
+    """The subprocess could not be started; no process exists to contain.
+
+    Raised only at the spawn boundary, so callers can tell it apart from an
+    OSError raised by an ``on_line``/``on_started`` callback after containment.
+    """
+
+
 class _LeaderExit:
     """Observe leader exit without reaping, so its process group cannot be reused."""
     def __init__(self, pid):
@@ -111,14 +123,17 @@ def run_stream(
     if (isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or
         not 0 < timeout_seconds <= 3600 or type(max_output_bytes) is not int or
         not 1024 <= max_output_bytes <= 4_194_304):
-        raise ValueError("invalid process limits")
+        raise ProcessLimitsError("invalid process limits")
     if stop_event is not None and stop_event.is_set():
         return ProcessOutcome(None, "cancelled", True, 0)
-    process = subprocess.Popen(
-        argv, cwd=cwd, env=dict(env), stdin=stdin_file if stdin_file is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        start_new_session=True, close_fds=True,
-    )
+    try:
+        process = subprocess.Popen(
+            argv, cwd=cwd, env=dict(env), stdin=stdin_file if stdin_file is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True, close_fds=True,
+        )
+    except (OSError, ValueError) as exc:
+        raise ProcessSpawnError("spawn_failed") from exc
     watcher = selector = None
     try:
         watcher = _LeaderExit(process.pid)

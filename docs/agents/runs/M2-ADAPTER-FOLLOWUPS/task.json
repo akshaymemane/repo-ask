@@ -1,0 +1,19 @@
+{
+  "id": "M2-ADAPTER-FOLLOWUPS",
+  "title": "Adapter prelaunch stop/deadline and callback error classification",
+  "state": "running",
+  "base_sha": "1653d74",
+  "branch": "task/m2-adapter-followups",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-followups",
+  "owner": "Claude integration agent",
+  "depends_on": ["M2-ADAPTER-SPIKE"],
+  "source": "docs/agents/runs/M2-ADAPTER-SPIKE/review-r2.md minor findings 2 and 3; review-r3.md 'two round-two minor findings'",
+  "write_scope": ["repoask/execution/claude.py", "repoask/execution/adapter_process.py", "tests/test_execution_adapter.py", "repoask/sessions/attempt.py (only the adapter timeout/deadline call site, if needed)", "docs/agents/runs/M2-ADAPTER-FOLLOWUPS/**"],
+  "acceptance": [
+    "Prelaunch auth status and plugin list queries observe the session stop Event and a shared deadline; a stop during prelaunch returns promptly and the agent run cannot exceed the session deadline because of metadata time",
+    "Only the spawn boundary maps OSError/ValueError to cli_unavailable/invalid_limits; exceptions from trusted emit/on_inventory_verified callbacks propagate (after containment) with their own identity, preserving the existing contained-exit invariant and LeaseLost behavior",
+    "Regression tests for each; tests/test_execution_adapter.py and test_sessions*.py and the full suite pass"
+  ],
+  "reviewer": "Codex (opposite harness)",
+  "handoff": "docs/agents/runs/M2-ADAPTER-FOLLOWUPS/handoff.md"
+}
