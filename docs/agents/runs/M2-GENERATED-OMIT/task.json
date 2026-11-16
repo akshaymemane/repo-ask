@@ -1,0 +1,22 @@
+{
+  "id": "M2-GENERATED-OMIT",
+  "title": "Omit new generated artifacts from publication instead of blocking it",
+  "state": "running",
+  "base_sha": "62f33cd",
+  "branch": "task/m2-generated-omit",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-generated-omit",
+  "owner": "Codex runtime builder",
+  "origin": "M2-PILOT live run: validation created __pycache__/*.pyc (excluded_generated, added); publication_snapshot and the publisher refused with rejected_paths, so no Python session that runs tests could publish.",
+  "contract": "docs/contracts/m2-publication.md, 'Generated artifacts' paragraph (coordinator decision)",
+  "write_scope": ["repoask/sessions/publication.py", "repoask/sessions/service.py (publication_snapshot only)", "repoask/sessions/attempt.py (rejected_paths count / publication_eligible only)", "repoask/publication/service.py (_snapshot rejected check, preview omitted_paths, default PR body)", "tests/test_sessions_publication_snapshot.py", "tests/test_publication_service.py", "tests/test_publication_integration.py", "docs/agents/runs/M2-GENERATED-OMIT/**"],
+  "acceptance": [
+    "Only reason excluded_generated with status added is omitted; any other reason, or a generated-pattern path with status modified/deleted, still fails with rejected_paths",
+    "Omitted paths are never uploaded or included in the tree; snapshot returns them as `omitted` (paths only), preview as `omitted_paths`, default PR body lists them",
+    "outcome rejected_paths / publication_eligible (automatic policy) count only blocking rejections",
+    "Hash/consistency checks between checkpoint, patch and stats still hold with omitted entries",
+    "Focused tests for each rule, plus the combined test in tests/test_publication_integration.py extended with a session whose validation produced __pycache__ files publishing one draft PR without them",
+    "Full suite passes"
+  ],
+  "reviewer": "fresh Claude quality-reviewer with boundary checks (opposite harness)",
+  "handoff": "docs/agents/runs/M2-GENERATED-OMIT/handoff.md"
+}
