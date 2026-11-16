@@ -145,7 +145,10 @@ test("citations open in the side panel when Ask has one", async () => {
   assert.equal(side.querySelectorAll(".code-line.hl").length, 1);
 });
 
-test("choosing repositories after no match clears the routing notice and sends the waiting question", async () => {
+// Text a sighted user sees: visually hidden live regions are announced, not shown.
+const shownText = (node) => node.nodeType === 3 ? node.data : node.hidden || node.classList?.contains("sr-only") ? "" : node.childNodes.map(shownText).join("").replace(/\s+/g, " ");
+
+async function noMatchThenChoose(edit) {
   const posts = [];
   let conversation = null;
   const b = await boot((m, u, o) => {
@@ -159,23 +162,69 @@ test("choosing repositories after no match clears the routing notice and sends t
     if (m2) return REPOS[decodeURIComponent(m2[1])];
     return { status: 404, body: { code: "not_found" } };
   });
-  const box = b.ui.panel.querySelector("textarea");
-  input(box, "How does checkout create an order?");
-  keydown(box, "Enter");
+  input(b.ui.panel.querySelector("textarea"), "How does checkout create an order?");
+  keydown(b.ui.panel.querySelector("textarea"), "Enter");
   await settle(60);
   assert.equal(b.window.location.hash, "#/ask/conv_nm");
-  const text = visibleText(b.ui.panel);
-  assert.match(text, /No repository matched this question\./);
-  assert.equal(text.match(/No repository matched/g).length, 1, "routing notice is shown once, not repeated as a status line");
+  const before = { shown: shownText(b.ui.panel), announced: b.ui.panel.querySelectorAll("[aria-live]").map((n) => n.textContent).join(" ") };
+  if (edit !== undefined) input(b.ui.panel.querySelector("textarea"), edit);
   b.button("Choose…").click();
   await settle(30);
   b.document.querySelectorAll(".picker-row").find((r) => visibleText(r).includes("rcnl-app")).querySelector("input").click();
   b.document.querySelectorAll("dialog.modal button").find((n) => n.textContent.startsWith("Add")).click();
   await settle(60);
-  assert.doesNotMatch(visibleText(b.ui.panel), /No repository matched/);
+  return { b, posts, before };
+}
+
+test("choosing repositories after no match clears the routing notice and sends the waiting question", async () => {
+  const { b, posts, before } = await noMatchThenChoose();
+  assert.match(before.shown, /No repository matched this question\./);
+  assert.equal(before.shown.match(/No repository matched/g).length, 1, "routing notice is shown once, not repeated as a status line");
+  assert.match(before.announced, /No repository matched/, "the routing outcome is still announced to screen readers");
+  assert.doesNotMatch(shownText(b.ui.panel), /No repository matched/);
   assert.equal(posts.length, 1);
   assert.equal(posts[0].content, "How does checkout create an order?");
   assert.equal(posts[0].intent, "answer");
+});
+
+test("choosing repositories after no match sends the question as edited, and nothing once it is cleared", async () => {
+  const edited = await noMatchThenChoose("How is the order saved?");
+  assert.deepEqual(edited.posts.map((p) => p.content), ["How is the order saved?"]);
+  const cleared = await noMatchThenChoose("");
+  assert.equal(cleared.posts.length, 0);
+  assert.doesNotMatch(shownText(cleared.b.ui.panel), /No repository matched/);
+});
+
+test("submitting while a resumed question is still sending keeps the text, even when the send then fails", async () => {
+  let reject = null;
+  let conversation = null;
+  const b = await boot((m, u, o) => {
+    if (u === "/api/conversations" && m === "GET") return { items: conversation ? [conversation] : [] };
+    if (u === "/api/conversations" && m === "POST") { conversation = { id: "conv_nm", title: JSON.parse(o.body).title, scope_revision: 1, repository_ids: [], messages: [], runs: [], plans: [] }; return conversation; }
+    if (u === "/api/conversations/conv_nm") { if (m === "PATCH") conversation = { ...conversation, repository_ids: JSON.parse(o.body).repository_ids, scope_revision: 2 }; return conversation; }
+    if (u === "/api/route") return { status: "no_match", candidates: [], selected_repository_ids: [] };
+    if (u === "/api/conversations/conv_nm/messages") return new Promise((resolve) => { reject = () => resolve({ status: 400, body: { code: "invalid", error: "Rejected." } }); });
+    if (u.startsWith("/api/context/repositories")) return { items: Object.values(REPOS), next_cursor: null };
+    const m2 = /^\/api\/repositories\/(.+)\/context$/.exec(u);
+    if (m2) return REPOS[decodeURIComponent(m2[1])];
+    return { status: 404, body: { code: "not_found" } };
+  });
+  const box = () => b.ui.panel.querySelector("textarea");
+  input(box(), "How does checkout create an order?");
+  keydown(box(), "Enter");
+  await settle(60);
+  b.button("Choose…").click();
+  await settle(30);
+  b.document.querySelectorAll(".picker-row").find((r) => visibleText(r).includes("rcnl-app")).querySelector("input").click();
+  b.document.querySelectorAll("dialog.modal button").find((n) => n.textContent.startsWith("Add")).click();
+  await settle(60);
+  assert.ok(reject, "the resumed question is being sent");
+  keydown(box(), "Enter");
+  await settle(20);
+  assert.equal(box().value, "How does checkout create an order?", "a skipped submit is not treated as sent");
+  reject();
+  await settle(60);
+  assert.equal(box().value, "How does checkout create an order?", "the question survives the failed send");
 });
 
 test("focusing the Ask heading overlays it instead of shifting the page (a shift swallowed the next click)", async () => {

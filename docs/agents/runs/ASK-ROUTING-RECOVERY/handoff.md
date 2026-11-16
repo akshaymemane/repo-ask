@@ -46,7 +46,7 @@ No contract, API or schema changes.
 
 | Scenario | Command or check | Result |
 | --- | --- | --- |
-| UI suite | `node --test tests/ui/*.test.mjs` | 194 pass, 0 fail |
+| UI suite | `node --test tests/ui/*.test.mjs` | 196 pass, 0 fail (after review fixes) |
 | Python suite | `.venv/bin/python -m unittest discover -s tests` | 523 OK, 9 skipped |
 | New tests fail without fix | Ran each new test against the base files | Notice test: 2 notices instead of 1. Overlay test: `position` not `absolute` |
 | Routing on fresh store | `POST /api/route` | "How does checkout create an order?" → `needs_selection` with all four; "What does the outbox table store?" → orders-db; "quantum flux capacitor" → `no_match` |
@@ -54,6 +54,24 @@ No contract, API or schema changes.
 | Chrome, fresh data dir | Clicked Choose… once | Picker opened on the first click |
 | Chrome, fresh data dir | Picked orders-api → Add | Card cleared; question sent automatically; Cancel → "Cancelled." with Retry |
 | Chrome, fresh data dir | Asked the checkout question | "Which repository?" card with orders-api, orders-db, notifications-worker, storefront-web |
+
+## Codex review rounds (author-run, pre-coordinator)
+
+Cross-provider review with gpt-6-astra through the Codex CLI (read-only sandbox), via
+`astra-review`. Round 1 reviewed `b0bc667`; rounds 2 and 3 reviewed the current contents of
+the same files. These rounds are author-side checks, not the independent approval
+`AGENTS.md` requires.
+
+| Round | Finding | Disposition |
+| --- | --- | --- |
+| 1 | HIGH: resuming sent the original question even after the user edited or cleared it | Fixed. `resumePending()` sends the current composer text, sends nothing when it is empty, and is shared by `onPickRoute` and `onScopeChange` (`onPickRoute` had the same flaw before this change) |
+| 1 | HIGH: silent routing errors removed the screen-reader announcement | Fixed. The composer has a visually hidden `aria-live` announcer; silent failures and the auto-send path announce there, and the card stays the only visible notice |
+| 2 | HIGH: a manual submit during a resumed send returned early, so the composer cleared the text; a later 4xx lost the question | Fixed. `send()` throws "Still sending the previous question." while pending; `resumePending()` clears only text that still matches what it sent |
+| 3 | HIGH: text typed while a send is in flight is discarded on success (`send()` clears the stored draft and `load()` rebuilds the composer) | **Open, already on base.** The same lines exist on `9f143e7` and apply to every Ask send, not only resumed ones. Left out of scope; needs a decision (fix here or as a separate card) |
+
+Tests added for rounds 1–2 (each failed before its fix): edited or cleared draft on resume,
+announcer content, and overlapping submit followed by a rejected send.
+After the fixes: UI suite 196 pass, 0 fail.
 
 ## Risks and next action
 

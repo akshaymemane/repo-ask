@@ -48,7 +48,10 @@ export function createComposer({ request, placeholder = "Ask about your code, or
   const notice = el("p", undefined, "composer-notice");
   notice.id = `composer-notice-${++noticeIds}`;
   notice.hidden = true;
-  root.append(field, row, notice, error);
+  // Announces outcomes that another visible element already explains.
+  const announcer = el("p", "", "sr-only");
+  announcer.setAttribute("aria-live", "polite");
+  root.append(field, row, notice, error, announcer);
 
   let chips = [];
   let busy = false;
@@ -118,6 +121,7 @@ export function createComposer({ request, placeholder = "Ask about your code, or
     if (!text || busy || sending || unavailable.has(intent)) return;
     sending = true;
     error.textContent = "";
+    announcer.textContent = "";
     try {
       const payload = { text, repositoryIds: chips.map((chip) => chip.id) };
       if (intent !== undefined) payload.intent = intent;
@@ -125,7 +129,8 @@ export function createComposer({ request, placeholder = "Ask about your code, or
       textarea.value = "";
       writeDraft(draftKey, "");
     } catch (failure) {
-      if (!failure?.silent) error.textContent = failure?.message || "Could not send.";
+      if (failure?.silent) announcer.textContent = failure.message;
+      else error.textContent = failure?.message || "Could not send.";
     } finally {
       sending = false;
     }
@@ -172,6 +177,7 @@ export function createComposer({ request, placeholder = "Ask about your code, or
       }
       refreshActions();
     },
+    announce(text) { announcer.textContent = text; },
     focus() { textarea.focus(); },
     get value() { return textarea.value; },
     setValue(text) { textarea.value = text; writeDraft(draftKey, text); },

@@ -184,7 +184,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         const keep = {routing, pendingQuestion};
         try {
           await scopeTo([repositoryId]); routing = null;
-          if (pendingQuestion) { const q = pendingQuestion; pendingQuestion = null; await send(q.text, q.intent); composer.setValue(''); }
+          await resumePending();
         } catch (error) {
           if (token !== epoch) return;
           ({routing, pendingQuestion} = keep); draw(); say(error);
@@ -194,6 +194,15 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     };
     const draw = () => renderThread(threadHost, {now: Date.now(), messages: c.messages || [], runs: c.runs || [], plans, routing, scopeEvents: events, staleScopeSincePlan: stale}, handlers);
     let pendingQuestion = null;
+    // Sends the question that waited for repositories as it reads now: edited text wins, cleared text sends nothing.
+    async function resumePending() {
+      if (!pendingQuestion) return;
+      const {intent} = pendingQuestion, text = composer.value.trim();
+      pendingQuestion = null;
+      if (!text) { draw(); return; }
+      await send(text, intent);
+      if (composer.value.trim() === text) composer.setValue('');
+    }
     async function scopeTo(ids) {
       const {updated, base} = await updateScope(c, ids); if (token !== epoch) return;
       const before = new Map((await repoNames(base, token)).map(chip => [chip.id, chip.name])); if (token !== epoch) return;
@@ -210,7 +219,9 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       draw();
     }
     async function send(content, intent) {
-      if(token!==epoch || pending || !content.trim())return;
+      // A skipped send must throw: the composer treats a normal return as sent and clears the text.
+      if(pending)throw new Error('Still sending the previous question.');
+      if(token!==epoch || !content.trim())return;
       if (!(c.repository_ids || []).length) {
         const r = await request('/api/route', 'POST', {prompt: content, conversation_id: id, pinned_repository_ids: []}); if (token !== epoch) return;
         const status = r.status ?? r.state;
@@ -242,8 +253,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         await scopeTo(ids);
         if (token !== epoch || !pendingQuestion || !ids.length) return;
         // Repositories chosen for a question that had none: retire the routing card and send it.
-        const q = pendingQuestion; pendingQuestion = null; routing = null; say(''); draw();
-        try { await send(q.text, q.intent); composer.setValue(''); } catch (error) { if (token === epoch && !error.silent) say(error); }
+        routing = null; say(''); draw();
+        try { await resumePending(); } catch (error) { if (token === epoch && !error.silent) say(error); }
       },
       onCancel: async () => { if (token !== epoch) return; for (const run of activeRuns()) await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if (token === epoch && !draft) { await load(); composerHandle?.focus(); } }});
     composer.setChips(chips);
@@ -256,7 +267,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const active = activeRuns().length > 0;
     composer.setBusy(active);
     let autosend=null;try{autosend=JSON.parse(window.sessionStorage?.getItem('ask-autosend')||'null');}catch{}
-    if(autosend?.conversation===id){try{window.sessionStorage?.removeItem('ask-autosend');}catch{}send(autosend.text,autosend.intent).catch(error=>{composer.setValue(autosend.text);if(!error.silent)say(error);});}
+    if(autosend?.conversation===id){try{window.sessionStorage?.removeItem('ask-autosend');}catch{}send(autosend.text,autosend.intent).catch(error=>{composer.setValue(autosend.text);if(error.silent)composer.announce(error.message);else say(error);});}
     async function poll() {
       try {
         const runs=await Promise.all(activeRuns().map(r=>request(`/api/answer-runs/${enc(r.id)}`)));
