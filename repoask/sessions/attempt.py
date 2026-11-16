@@ -944,6 +944,14 @@ class Attempt:
             summary = dict(db.execute('SELECT status,count(*) FROM validation_runs WHERE session_id=? GROUP BY status', (self.sid,)).fetchall())
             total = sum(summary.values())
         changed = (self.last_checkpoint or {}).get('stats', {})
+        rejected_count = changed.get('rejected', 0)
+        if self.last_checkpoint:
+            from .publication import is_omitted
+            with self.svc.store.read() as db:
+                capture = db.execute('SELECT content FROM session_artifacts WHERE id=?',
+                                     (self.last_checkpoint['id'],)).fetchone()
+            if capture and capture['content'] is not None:
+                rejected_count = sum(not is_omitted(r) for r in _loads(bytes(capture['content']), {})['rejected'])
         if not containment['confirmed']:
             state = 'interrupted' if state == 'interrupted' else 'failed'
             error_code = 'runtime_identity_unverified' if self.identity_failed else 'containment_failed'
@@ -951,7 +959,7 @@ class Attempt:
         stale = bool(self.unverified_edits)
         outcome = {'result': ('incomplete' if stale else 'reviewable' if changed.get('files') else 'no_changes')
                    if state == 'completed' else state,
-                   'changed_files': changed.get('files', 0), 'rejected_paths': changed.get('rejected', 0),
+                   'changed_files': changed.get('files', 0), 'rejected_paths': rejected_count,
                    'last_checkpoint_id': (self.last_checkpoint or {}).get('id'),
                    'edits_since_last_checkpoint_may_be_lost': stale, 'artifacts_stale': stale,
                    'validation': {'summary': summary, 'total': total,

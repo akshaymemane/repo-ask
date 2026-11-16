@@ -8,6 +8,12 @@ from .redaction import contains_secret
 from .workspace import REGULAR_MODES, publication_rejection, sha256
 
 
+def is_omitted(entry):
+    """Only newly added generated artifacts are nonblocking."""
+    return (isinstance(entry, dict) and entry.get('reason') == 'excluded_generated'
+            and entry.get('status') == 'added')
+
+
 def verify_capture(repo, checkpoint, patch, outcome, limits):
     """Check artifact integrity and the byte/metadata agreement of a capture pair."""
     if checkpoint is None or patch is None:
@@ -33,8 +39,17 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
         manifest = json.loads(repo['base_manifest_json'])
         if not (cp['base_sha'] == pt['base_sha'] == manifest['base_sha'] == repo['base_sha']):
             raise SessionError('stale_artifacts')
-        if cp['rejected'] or pt['rejected'] or outcome.get('rejected_paths'):
+        if any(not is_omitted(r) for r in cp['rejected'] + pt['rejected']) or outcome.get('rejected_paths'):
             raise SessionError('rejected_paths')
+        if cp['rejected'] != pt['rejected']:
+            raise ValueError()
+        omitted = [r['path'] for r in cp['rejected']]
+        if len(set(omitted)) != len(omitted):
+            raise ValueError()
+        for path in omitted:
+            if (path in manifest['files']
+                    or publication_rejection(path, manifest) != 'excluded_generated'):
+                raise SessionError('rejected_paths')
         changed, deleted, modes = cp['changed'], cp['deleted'], cp['modes']
         if (not isinstance(changed, dict) or not isinstance(deleted, list) or not isinstance(modes, dict)
                 or len(set(deleted)) != len(deleted) or set(changed) & set(deleted)):
@@ -42,6 +57,8 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
         paths = set(changed) | set(deleted)
         if (set(modes) != paths or len(changed) > limits['runner']['max_files']
                 or len(deleted) > limits['runner']['max_files']):
+            raise ValueError()
+        if paths & set(omitted):
             raise ValueError()
         files = {f['path']: f for f in pt['files']}
         if set(files) != paths or len(files) != len(pt['files']):
@@ -69,7 +86,7 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
                     raise ValueError()
                 if contains_secret(data):
                     raise SessionError('rejected_paths')
-        if (pt['stats']['files'] != len(paths) or pt['stats']['rejected'] != 0
+        if (pt['stats']['files'] != len(paths) or pt['stats']['rejected'] != len(omitted)
                 or pt['stats']['additions'] != sum(f['additions'] for f in files.values())
                 or pt['stats']['deletions'] != sum(f['deletions'] for f in files.values())):
             raise ValueError()
