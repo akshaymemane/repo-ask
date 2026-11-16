@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-17T04:30:00Z",
+  "updated": "2026-11-17T04:45:00Z",
   "phase": "M2_in_progress",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "in_progress", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -728,7 +728,7 @@
       "id": "M2-PILOT",
       "milestone": "M2",
       "title": "Independent prompt-to-PR milestone acceptance",
-      "state": "backlog",
+      "state": "blocked",
       "feature_ids": [
         "F04",
         "F05",
@@ -759,7 +759,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "ON HOLD by user; do not shape or launch until M2 is resumed.",
+      "next_action": "All M2 code integrated and pushed (67bc5ee). Waiting on user: disposable GitHub repo, GitHub App connected and installed only on it, Claude Code login, consent to send that repo source to Anthropic (local-only off), and authorization for one real draft PR.",
       "completion_depends_on": []
     },
     {
