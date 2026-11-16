@@ -31,9 +31,9 @@ class AdapterTests(unittest.TestCase):
         self.events = []
         self.ready = False
 
-    def script(self, body):
+    def script(self, body, before=''):
         path = self.root / 'fake-cli'
-        path.write_text('#!' + sys.executable + '\nimport sys, os, stat\n'
+        path.write_text('#!' + sys.executable + '\nimport sys, os, stat\n' + before +
             'if "--print" in sys.argv or sys.argv[1:3] == ["--setting-sources", ""]:\n'
             ' assert os.listdir(".") == []\n'
             ' assert stat.S_IMODE(os.stat(".").st_mode) == 0o700\n'
@@ -408,9 +408,10 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
                 self.assertTrue(stop.is_set())
 
     def test_spawn_and_helper_limit_errors_are_stable_and_close_event(self):
+        from repoask.execution.adapter_process import ProcessLimitsError, ProcessSpawnError
         adapter = ClaudeAdapter(claude_binary=self.script(''))
-        for error, code in ((OSError('private diagnostic'), 'cli_unavailable'),
-                            (ValueError('private diagnostic'), 'invalid_limits')):
+        for error, code in ((ProcessSpawnError('private diagnostic'), 'cli_unavailable'),
+                            (ProcessLimitsError('private diagnostic'), 'invalid_limits')):
             with self.subTest(code=code):
                 stop = threading.Event()
                 with patch.object(adapter, '_check_auth_profile'), patch.object(adapter, '_disabled_plugins', return_value={}), patch(
@@ -472,6 +473,224 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
                 with self.assertRaisesRegex(AdapterError, 'unexpected_customization'):
                     self.run_events([event])
                 self.assertFalse(self.ready)
+
+    # --- M2-ADAPTER-FOLLOWUPS: prelaunch stop/deadline and callback error identity ---
+
+    QUERIES = (('auth_status', ['auth', 'status']), ('plugin_list', ['plugin', 'list', '--json']))
+
+    def slow_query_cli(self, query, seconds, agent_body=''):
+        """Fake CLI whose given metadata query records its pid then sleeps first."""
+        marker = self.root / 'query.pid'
+        ran = self.root / 'agent.ran'
+        before = ('import time\n'
+                  '_args = sys.argv[1:]\n'
+                  'if _args[:2] == ["--setting-sources", ""]: _args = _args[2:]\n'
+                  'if _args == ' + repr(query) + ':\n'
+                  ' open(' + repr(str(marker)) + ', "w").write(str(os.getpid()))\n'
+                  ' time.sleep(' + repr(seconds) + ')\n')
+        body = ('import json, time\nopen(' + repr(str(ran)) + ', "w").close()\n' + agent_body)
+        return self.script(body, before=before), marker, ran
+
+    def _wait_for(self, path, limit=5):
+        end = time.monotonic() + limit
+        while not path.exists() or not path.read_text():
+            if time.monotonic() > end:
+                self.fail(f'{path.name} never appeared')
+            time.sleep(0.01)
+
+    def test_stop_during_each_prelaunch_query_returns_promptly(self):
+        for name, query in self.QUERIES:
+            with self.subTest(query=name):
+                for leftover in ('query.pid', 'agent.ran'):
+                    (self.root / leftover).unlink(missing_ok=True)
+                self.events, self.ready = [], False
+                binary, marker, ran = self.slow_query_cli(query, 30)
+                stop = threading.Event()
+                def stop_when_query_runs():
+                    self._wait_for(marker)
+                    stop.set()
+                watcher = threading.Thread(target=stop_when_query_runs, daemon=True)
+                watcher.start()
+                start = time.monotonic()
+                result = ClaudeAdapter(claude_binary=binary).run(
+                    self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
+                    emit=lambda k, v: self.events.append((k, v)), on_inventory_verified=self.mark_ready,
+                    stop_event=stop, timeout_seconds=60)
+                elapsed = time.monotonic() - start
+                watcher.join(1)
+                self.assertLess(elapsed, 3, 'a stop must not wait out the 10 s metadata cap')
+                self.assertEqual((result['status'], result['code']), ('cancelled', 'cancelled'))
+                self.assertIs(result['stop_confirmed'], True)
+                self.assertIsNone(result['exit_code'])
+                self.assertIsNone(result['usage'])
+                self.assertIsNone(result['reported_cost_usd'])
+                self.assertTrue(stop.is_set())
+                self.assertFalse(self.ready)
+                self.assertFalse(ran.exists(), 'the agent must not launch after a prelaunch stop')
+                self.assertEqual([(k, v['status'], v['code']) for k, v in self.events],
+                                 [('adapter_result', 'cancelled', 'cancelled')])
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(int(marker.read_text()), 0)  # the metadata query was contained
+
+    def test_stop_already_set_skips_every_prelaunch_query(self):
+        adapter = ClaudeAdapter(claude_binary=self.script('raise AssertionError("unexpected inference")'))
+        stop = threading.Event()
+        stop.set()
+        with patch('repoask.execution.claude.run_stream') as process:
+            result = adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                                 on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+        process.assert_not_called()
+        self.assertEqual((result['status'], result['code'], result['stop_confirmed']), ('cancelled', 'cancelled', True))
+
+    def test_metadata_queries_do_not_close_the_session_event(self):
+        stop = threading.Event()
+        seen = []
+        actual = __import__('repoask.execution.claude', fromlist=['run_stream']).run_stream
+        def observe(*args, **kwargs):
+            outcome = actual(*args, **kwargs)
+            seen.append(stop.is_set())
+            return outcome
+        with patch('repoask.execution.claude.run_stream', side_effect=observe):
+            result = self.run_events([self.init(), {'type': 'result', 'subtype': 'success'}], stop_event=stop)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(seen, [False, False, True])  # auth, plugins stay open; the agent run closes it
+
+    def test_slow_metadata_cannot_push_the_agent_past_the_session_deadline(self):
+        for name, query in self.QUERIES:
+            with self.subTest(query=name):
+                binary, _, ran = self.slow_query_cli(
+                    query, 2, 'print(' + repr(json.dumps(self.init())) + ', flush=True)\ntime.sleep(30)\n')
+                start = time.monotonic()
+                result = ClaudeAdapter(claude_binary=binary).run(
+                    self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
+                    emit=lambda *_: None, on_inventory_verified=self.mark_ready,
+                    stop_event=threading.Event(), timeout_seconds=5)
+                elapsed = time.monotonic() - start
+                self.assertTrue(ran.exists(), 'the agent should still launch with the remaining time')
+                self.assertEqual((result['status'], result['code']), ('failed', 'timeout'))
+                self.assertIs(result['stop_confirmed'], True)
+                # Separate budgets would allow at least 2 + 5 s; one deadline bounds it near 5 s.
+                self.assertLess(elapsed, 6.3)
+
+    def test_metadata_exhausting_session_deadline_is_timeout_not_auth_error(self):
+        for name, query in self.QUERIES:
+            with self.subTest(query=name):
+                (self.root / 'agent.ran').unlink(missing_ok=True)
+                self.events = []
+                binary, marker, ran = self.slow_query_cli(query, 30)
+                stop = threading.Event()
+                start = time.monotonic()
+                result = ClaudeAdapter(claude_binary=binary).run(
+                    self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
+                    emit=lambda k, v: self.events.append((k, v)), on_inventory_verified=self.mark_ready,
+                    stop_event=stop, timeout_seconds=1)
+                # Without the shared deadline the 10 s query cap applies, then auth/plugin codes.
+                self.assertLess(time.monotonic() - start, 4)
+                self.assertEqual((result['status'], result['code']), ('failed', 'timeout'))
+                self.assertIs(result['stop_confirmed'], True)
+                self.assertTrue(stop.is_set())
+                self.assertFalse(ran.exists())
+                self.assertEqual([k for k, _ in self.events], ['adapter_result'])
+                if marker.exists() and marker.read_text():
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(marker.read_text()), 0)
+                marker.unlink(missing_ok=True)
+
+    def test_preflight_metadata_keeps_its_own_caps_and_codes(self):
+        # No session Event/deadline: a per-query cap still maps to the old code.
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        from repoask.execution.adapter_process import ProcessOutcome
+        with patch('repoask.execution.claude.run_stream', return_value=ProcessOutcome(None, 'timeout', True, 0)) as process:
+            with self.assertRaisesRegex(AdapterError, 'authentication_unverified'):
+                adapter._check_auth_profile()  # unchanged: empty output from a capped query
+        self.assertEqual(process.call_args.kwargs['timeout_seconds'], 10)
+        self.assertIsNone(process.call_args.kwargs['stop_event'])
+
+    def _hanging_agent(self, pidfile):
+        return self.script('import json, subprocess, sys, time\n'
+            'p = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"])\n'
+            'open(' + repr(str(pidfile)) + ', "w").write(str(p.pid))\n'
+            'print(' + repr(json.dumps(self.init())) + ', flush=True)\n'
+            'print(' + repr(json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'hi'}]}})) + ', flush=True)\n'
+            'time.sleep(30)\n')
+
+    def test_callback_value_and_os_errors_keep_their_identity_after_containment(self):
+        from repoask.platform.errors import LeaseLost
+        cases = [
+            ('inventory_value', 'inventory', ValueError('persistence rejected row')),
+            ('inventory_os', 'inventory', OSError('disk full')),
+            ('emit_value', 'adapter_ready', ValueError('bad payload')),
+            ('emit_os', 'assistant_summary', OSError('database is locked')),
+            ('lease_lost', 'inventory', LeaseLost('Session lease lost.')),
+        ]
+        for name, where, error in cases:
+            with self.subTest(case=name):
+                pidfile = self.root / f'{name}.pid'
+                pidfile.unlink(missing_ok=True)
+                binary = self._hanging_agent(pidfile)
+                stop = threading.Event()
+                def verified():
+                    if where == 'inventory':
+                        raise error
+                def emit(kind, payload):
+                    if kind == where:
+                        raise error
+                start = time.monotonic()
+                with self.assertRaises(type(error)) as raised:
+                    ClaudeAdapter(claude_binary=binary).run(
+                        self.endpoint, 'Synthetic fixture task', auth_mode='cli_login', synthetic=True,
+                        emit=emit, on_inventory_verified=verified, stop_event=stop, timeout_seconds=20)
+                self.assertIs(raised.exception, error)
+                self.assertNotIsInstance(raised.exception, AdapterError)
+                self.assertLess(time.monotonic() - start, 5)
+                self.assertTrue(stop.is_set())
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(int(pidfile.read_text()), 0)  # contained before propagating
+
+    def test_final_emit_error_is_not_cli_unavailable(self):
+        error = OSError('could not persist result')
+        def emit(kind, payload):
+            if kind == 'adapter_result':
+                raise error
+        binary = self.script('import json\nprint(' + repr(json.dumps(self.init())) + ')\nprint(' +
+                             repr(json.dumps({'type': 'result', 'subtype': 'success'})) + ')\n')
+        stop = threading.Event()
+        with self.assertRaises(OSError) as raised:
+            ClaudeAdapter(claude_binary=binary).run(
+                self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                emit=emit, on_inventory_verified=self.mark_ready, stop_event=stop)
+        self.assertIs(raised.exception, error)
+        self.assertTrue(stop.is_set())
+
+    def test_spawn_boundary_errors_still_map_to_stable_codes(self):
+        from repoask.execution.adapter_process import ProcessSpawnError
+        for error in (PermissionError('private diagnostic'), ValueError('embedded null byte')):
+            with self.subTest(error=type(error).__name__):
+                with patch('repoask.execution.adapter_process.subprocess.Popen', side_effect=error):
+                    with self.assertRaises(ProcessSpawnError) as raised:
+                        run_stream(['fixture'], cwd=str(self.root), env={}, on_line=lambda _: None,
+                                   timeout_seconds=5, max_output_bytes=1024)
+                self.assertIs(raised.exception.__cause__, error)
+                adapter = ClaudeAdapter(claude_binary=self.script(''))
+                stop = threading.Event()
+                with patch.object(adapter, '_check_auth_profile'), patch.object(adapter, '_disabled_plugins', return_value={}), patch(
+                        'repoask.execution.adapter_process.subprocess.Popen', side_effect=error):
+                    with self.assertRaisesRegex(AdapterError, 'cli_unavailable'):
+                        adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                                    on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+                self.assertTrue(stop.is_set())
+
+    def test_spawn_preparation_os_error_is_cli_unavailable(self):
+        adapter = ClaudeAdapter(claude_binary=self.script(''))
+        stop = threading.Event()
+        with patch.object(adapter, '_check_auth_profile'), patch.object(adapter, '_disabled_plugins', return_value={}), patch(
+                'repoask.execution.claude.tempfile.TemporaryFile', side_effect=OSError('no space')), patch(
+                'repoask.execution.claude.run_stream') as process:
+            with self.assertRaisesRegex(AdapterError, 'cli_unavailable'):
+                adapter.run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                            on_inventory_verified=lambda: None, emit=lambda *_: None, stop_event=stop)
+        process.assert_not_called()
+        self.assertTrue(stop.is_set())
 
 
 if __name__ == '__main__':

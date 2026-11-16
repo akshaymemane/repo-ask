@@ -5,6 +5,7 @@ transcripts, user configuration or repository instructions on the host.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -14,9 +15,11 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 from typing import Callable
 
-from .adapter_process import ProcessContainmentError, run_stream
+from .adapter_process import (ProcessContainmentError, ProcessLimitsError, ProcessOutcome,
+                              ProcessSpawnError, run_stream)
 
 TOOLS = ("list_files", "read_file", "search_text", "write_file", "delete_file", "run_command", "ask_user")
 SERVER = "opendevin"
@@ -27,6 +30,33 @@ class AdapterError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+class _PrelaunchInterrupted(Exception):
+    """A prelaunch metadata query was stopped or ran into the session deadline.
+
+    Deliberately not an OSError/ValueError, so query-specific error mapping
+    cannot turn a user stop or an exhausted deadline into an auth/plugin error.
+    """
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+class _ObservedStop:
+    """Let a metadata query observe the session Event without closing it.
+
+    run_stream sets its stop_event on every exit; the session Event must stay
+    open until the agent run itself ends, so only this local view is set.
+    """
+    def __init__(self, outer: threading.Event):
+        self.outer, self.flag = outer, False
+
+    def is_set(self):
+        return self.flag or self.outer.is_set()
+
+    def set(self):
+        self.flag = True
 
 
 def _number(value):
@@ -92,8 +122,22 @@ class ClaudeAdapter:
             raise AdapterError("cli_unavailable")
         self.binary = str(Path(binary).resolve())
 
-    def _metadata(self, args, *, timeout_seconds, max_output_bytes):
-        """Each read-only CLI query gets a fresh private empty cwd."""
+    def _metadata(self, args, *, timeout_seconds, max_output_bytes, stop_event=None, deadline=None):
+        """Each read-only CLI query gets a fresh private empty cwd.
+
+        With a session stop_event/deadline (agent runs), the query observes the
+        stop and is bounded by the shared monotonic deadline; either raises
+        _PrelaunchInterrupted after run_stream has contained the query process.
+        """
+        bounded_by_session = False
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _PrelaunchInterrupted("timeout")
+            if remaining < timeout_seconds:
+                timeout_seconds, bounded_by_session = remaining, True
+        if stop_event is not None and stop_event.is_set():
+            raise _PrelaunchInterrupted("cancelled")
         lines = []
         with tempfile.TemporaryDirectory(prefix="opendevin-preflight-") as cwd:
             os.chmod(cwd, 0o700)
@@ -101,7 +145,12 @@ class ClaudeAdapter:
                 [self.binary, "--setting-sources", "", *args], cwd=cwd,
                 env=_environment(), on_line=lines.append,
                 timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+                stop_event=_ObservedStop(stop_event) if stop_event is not None else None,
             )
+        if stop_event is not None and (result.reason == "cancelled" or stop_event.is_set()):
+            raise _PrelaunchInterrupted("cancelled")
+        if result.reason == "timeout" and bounded_by_session:
+            raise _PrelaunchInterrupted("timeout")
         return result, b"\n".join(lines)
 
     def preflight(self) -> dict:
@@ -138,10 +187,11 @@ class ClaudeAdapter:
         if any(os.path.lexists(path) for path in paths):
             raise AdapterError("unsupported_managed_policy")
 
-    def _check_auth_profile(self):
+    def _check_auth_profile(self, *, stop_event=None, deadline=None):
         # Metadata comes from the CLI itself. Never open/copy its auth storage.
         try:
-            result, output = self._metadata(["auth", "status"], timeout_seconds=10, max_output_bytes=16384)
+            result, output = self._metadata(["auth", "status"], timeout_seconds=10, max_output_bytes=16384,
+                                            stop_event=stop_event, deadline=deadline)
             profile = json.loads(output)
         except (OSError, ValueError):
             raise AdapterError("authentication_unverified") from None
@@ -152,12 +202,13 @@ class ClaudeAdapter:
             raise AdapterError("unsupported_auth_profile")
         return {"method": "claude.ai", "personal_profile": True}
 
-    def _disabled_plugins(self):
+    def _disabled_plugins(self, *, stop_event=None, deadline=None):
         # Restricted mode does not suppress every installed-plugin registry entry
         # in CLI 2.1.311. Query metadata through its read-only CLI command and
         # override each entry for this invocation; never alter user settings.
         try:
-            result, output = self._metadata(["plugin", "list", "--json"], timeout_seconds=10, max_output_bytes=65536)
+            result, output = self._metadata(["plugin", "list", "--json"], timeout_seconds=10, max_output_bytes=65536,
+                                            stop_event=stop_event, deadline=deadline)
             plugins = json.loads(output)
         except (OSError, ValueError):
             raise AdapterError("customization_unverified") from None
@@ -210,6 +261,14 @@ class ClaudeAdapter:
         The trusted service keeps the broker denied until on_inventory_verified.
         Determine user cancellation from durable stop_requested and returned status;
         this Event is also set after successful completion and prelaunch failures.
+
+        timeout_seconds is one deadline for the whole attempt, including the
+        prelaunch auth/plugin metadata queries, which also observe stop_event.
+        Only the subprocess spawn boundary maps to cli_unavailable/invalid_limits;
+        any other exception (for example LeaseLost or a persistence error from
+        emit/on_inventory_verified) propagates unchanged, and only after
+        run_stream confirmed the process group gone, because an unconfirmed stop
+        supersedes it as a returned containment_failure.
         """
         if not isinstance(stop_event, threading.Event):
             raise AdapterError("invalid_stop_event")
@@ -228,15 +287,6 @@ class ClaudeAdapter:
             return {"status": "failed", "code": "containment_failure", "exit_code": None,
                     "stop_confirmed": False, "usage": None, "reported_cost_usd": None,
                     "capabilities": dict(self.capabilities)}
-        except AdapterError:
-            raise
-        except OSError:
-            raise AdapterError("cli_unavailable") from None
-        except ValueError:
-            raise AdapterError("invalid_limits") from None
-        # Any other exception (for example the service's LeaseLost from a callback)
-        # propagates unchanged: run_stream raises only after confirming the group is
-        # gone, because an unconfirmed stop supersedes it as ProcessContainmentError.
         finally:
             stop_event.set()
 
@@ -268,9 +318,15 @@ class ClaudeAdapter:
         if (type(max_turns) is not int or not 1 <= max_turns <= 40 or
             _number(max_budget_usd) is None or not 0 < max_budget_usd <= 10):
             raise AdapterError("invalid_limits")
+        # One deadline for metadata and agent: prelaunch time is not added on top.
+        deadline = time.monotonic() + timeout_seconds
         self._check_policy()
-        self._check_auth_profile()
-        disabled_plugins = self._disabled_plugins()
+        try:
+            self._check_auth_profile(stop_event=stop_event, deadline=deadline)
+            disabled_plugins = self._disabled_plugins(stop_event=stop_event, deadline=deadline)
+        except _PrelaunchInterrupted as interrupted:
+            # Same projection as a stop/timeout observed before the agent spawned.
+            return self._project(ProcessOutcome(None, interrupted.reason, True, 0), emit)
         config = self._endpoint(endpoint)
         initialized = False
         final = None
@@ -361,10 +417,23 @@ class ClaudeAdapter:
                 final_summary = _summary(event.get("result")) if final["status"] == "completed" else ""
             # User/tool results, thinking, hooks, progress and unknown events discarded.
 
-        with tempfile.TemporaryDirectory(prefix="opendevin-adapter-") as root:
-            os.chmod(root, 0o700)
-            cwd = str(Path(root) / "cwd")
-            Path(cwd).mkdir(mode=0o700)
+        with contextlib.ExitStack() as stack:
+            try:
+                # Spawn preparation only; callbacks have not run yet.
+                root = stack.enter_context(tempfile.TemporaryDirectory(prefix="opendevin-adapter-"))
+                os.chmod(root, 0o700)
+                cwd = str(Path(root) / "cwd")
+                Path(cwd).mkdir(mode=0o700)
+                plugin_root = Path(root) / "plugins"
+                plugin_root.mkdir(mode=0o700)
+                # An unnamed private file provides finite stdin without an argv
+                # disclosure, a pipe feeder thread, or a prompt pathname.
+                prompt_file = stack.enter_context(tempfile.TemporaryFile(mode="w+b", dir=root))
+                os.fchmod(prompt_file.fileno(), 0o600)
+                prompt_file.write(prompt.encode("utf-8"))
+                prompt_file.seek(0)
+            except OSError:
+                raise AdapterError("cli_unavailable") from None
             argv = [self.binary, "--print", "--verbose", "--output-format", "stream-json",
                     "--restricted", "--tools", "", "--strict-mcp-config",
                     "--mcp-config", json.dumps(config), "--disable-slash-commands",
@@ -376,23 +445,31 @@ class ClaudeAdapter:
                     "--allowedTools", ",".join(sorted(TRUSTED_TOOLS)),
                     "--max-turns", str(max_turns), "--max-budget-usd", str(max_budget_usd)]
             environment = _environment()
-            plugin_root = Path(root) / "plugins"
-            plugin_root.mkdir(mode=0o700)
             environment["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(plugin_root)
-            try:
-                # An unnamed private file provides finite stdin without an argv
-                # disclosure, a pipe feeder thread, or a prompt pathname.
-                with tempfile.TemporaryFile(mode="w+b", dir=root) as prompt_file:
-                    os.fchmod(prompt_file.fileno(), 0o600)
-                    prompt_file.write(prompt.encode("utf-8"))
-                    prompt_file.seek(0)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                outcome = ProcessOutcome(None, "timeout", True, 0)
+            else:
+                try:
                     outcome = run_stream(argv, cwd=cwd, env=environment, on_line=consume,
-                                         timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+                                         timeout_seconds=min(remaining, timeout_seconds),
+                                         max_output_bytes=max_output_bytes,
                                          stop_event=stop_event, on_started=on_started, stdin_file=prompt_file)
-            except ProcessContainmentError:
-                return {"status": "failed", "code": "containment_failure", "exit_code": None,
-                        "stop_confirmed": False, "usage": usage, "reported_cost_usd": cost,
-                        "capabilities": dict(self.capabilities)}
+                # The spawn boundary only. Callback errors (emit, on_inventory_verified,
+                # on_started) propagate with their own identity after containment.
+                except ProcessSpawnError:
+                    raise AdapterError("cli_unavailable") from None
+                except ProcessLimitsError:
+                    raise AdapterError("invalid_limits") from None
+                except ProcessContainmentError:
+                    return {"status": "failed", "code": "containment_failure", "exit_code": None,
+                            "stop_confirmed": False, "usage": usage, "reported_cost_usd": cost,
+                            "capabilities": dict(self.capabilities)}
+        return self._project(outcome, emit, initialized=initialized, final=final, usage=usage,
+                             cost=cost, final_summary=final_summary)
+
+    def _project(self, outcome, emit, *, initialized=False, final=None, usage=None, cost=None, final_summary=""):
+        """Map a contained process outcome to the public result and its single event."""
         if not outcome.stop_confirmed:
             result = {"status": "failed", "code": "containment_failure"}
         elif outcome.reason != "exited":
