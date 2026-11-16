@@ -21,6 +21,8 @@ async function boot(custom = () => undefined, hash = '#/settings') {
  return {...browser, text:()=>visibleText(browser.document.body)};
 }
 const button = (root,text) => root.querySelectorAll('button').find(x=>x.textContent===text);
+// Profile actions show short text (Edit, Test, Delete); their accessible names say which profile.
+const labelled = (root,label) => root.querySelectorAll('button').find(x=>x.getAttribute('aria-label')===label);
 // The stand-in selector intentionally has no comma selector support.
 function input(root,label) { const wrap=root.querySelectorAll('label').find(x=>x.textContent.startsWith(label)); return wrap?.querySelector('input') || wrap?.querySelector('select') || wrap?.querySelector('textarea'); }
 function formFor(root,text) { return button(root,text).closest('form'); }
@@ -43,21 +45,17 @@ test('App setup clears multiline PEM immediately, creates safe connect link and 
  button(root,'Disconnect').click();await settle();assert.match(visibleText(root),/Disconnected/);
 });
 
-test('profile creation and credential rotation clear secrets; exact capabilities, policy and role payloads',async()=>{
+test('profile creation and credential rotation clear secrets and send exact capabilities',async()=>{
  const app=await boot((method,url)=>method==='POST'||method==='PATCH'?{}:undefined,'#/settings/models');
  const root=app.document.getElementById('settings-content');
  const form=formFor(root,'Create profile');input(form,'Profile name').value='Created';input(form,'Model identifier').value='model';
- const secret=input(form,'Credential (optional for local Ollama)');secret.value='never-render-this';input(form,'structured_output').checked=true;
+ const secret=input(form,'Credential (optional for local Ollama)');secret.value='never-render-this';input(form,'Structured output').checked=true;
  form.requestSubmit();assert.equal(secret.value,'');await settle();
  const created=app.requests.find(x=>x.method==='POST'&&x.url==='/api/provider-profiles');const body=JSON.parse(created.body);
  assert.deepEqual(body.config.capabilities,['chat','structured_output']);assert.equal(body.secret_value,'never-render-this');assert.doesNotMatch(visibleText(root),/never-render-this/);
- button(root,'Edit Local test / rotate credential').click();
+ labelled(root,'Edit Local test').click();
  const edit=formFor(root,'Save new profile version');const rotate=input(edit,'New credential (leave blank to retain current credential)');rotate.value='replacement';edit.requestSubmit();assert.equal(rotate.value,'');await settle();
  assert.equal(JSON.parse(app.requests.find(x=>x.method==='PATCH'&&x.url==='/api/provider-profiles/p1').body).secret_value,'replacement');
- const policy=formFor(root,'Save destination policy');input(policy,'Local-only inference and embeddings (blocks remote destinations)').checked=false;policy.requestSubmit();await settle();
- assert.ok(app.requests.some(x=>x.body==='{"local_only":false}'));
- const role=formFor(root,'Save embedding role');input(role,'embedding profile').value='p1';role.requestSubmit();await settle();
- assert.ok(app.requests.some(x=>x.body==='{"assignments":{"embedding":"p1"}}'));
 });
 
 test('failed secret submission is sanitized, cleared and never automatically retried',async()=>{
@@ -73,11 +71,11 @@ test('provider test renders capability failures and delete requires explicit con
   if(url.endsWith('/test'))return {status:'partial',capabilities:{chat:{status:'verified'},structured_output:{status:'failed',error_code:'invalid_output'}},destination:{kind:'local',host:'127.0.0.1:11434'}};
   if(method==='DELETE')return {deleted:true};
  },'#/settings/models');
- const root=app.document.getElementById('settings-content');button(root,'Test Local test').click();await settle();
- assert.match(visibleText(root),/chat: verified/);assert.match(visibleText(root),/structured_output: failed \(invalid_output\)/);
- button(root,'Delete Local test').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
- button(root,'Cancel deletion').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
- button(root,'Delete Local test').click();button(root,'Confirm delete Local test').click();await settle();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,1);
+ const root=app.document.getElementById('settings-content');labelled(root,'Test Local test').click();await settle();
+ assert.match(visibleText(root),/Chat verified/);assert.match(visibleText(root),/Structured output failed \(invalid_output\)/);
+ labelled(root,'Delete Local test').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
+ labelled(root,'Cancel deletion').click();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,0);
+ labelled(root,'Delete Local test').click();labelled(root,'Confirm delete Local test').click();await settle();assert.equal(app.requests.filter(x=>x.method==='DELETE').length,1);
 });
 
 test('callback keeps Settings route; unavailable APIs do not expose mutation forms',async()=>{
@@ -90,7 +88,7 @@ test('embeddings preserve exact dimensions and secret-free saves omit credential
  const app=await boot((method)=>method==='POST'?{}:undefined,'#/settings/models');
  const root=app.document.getElementById('settings-content');const form=formFor(root,'Create profile');
  input(form,'Profile name').value='Embeddings';input(form,'Model identifier').value='embedding-model';
- input(form,'chat').checked=false;input(form,'embeddings').checked=true;input(form,'Embedding dimensions (required for embeddings)').value='768';
+ input(form,'Chat').checked=false;input(form,'Embeddings').checked=true;input(form,'Embedding dimensions (required for embeddings)').value='768';
  form.requestSubmit();await settle();const saved=JSON.parse(app.requests.find(x=>x.method==='POST').body);
  assert.deepEqual(saved.config.capabilities,['embeddings']);assert.equal(saved.config.embedding_dimensions,768);assert.equal('secret_value' in saved,false);
 });
@@ -134,24 +132,24 @@ test('newest provider load wins when older response arrives last', async () => {
   ? {profiles: [{...profile, name}]} : {settings:{local_only:localOnly}, roles:{}}));
  respond(reads.slice(2), 'Newest profile', true); await settle();
  respond(reads.slice(0, 2), 'Stale profile', false); await settle();
- assert.ok(button(root, 'Edit Newest profile / rotate credential'));
- assert.equal(Boolean(button(root, 'Edit Stale profile / rotate credential')), false);
- assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Save destination policy').length, 1);
- assert.equal(input(formFor(root, 'Save destination policy'), 'Local-only inference').checked, true);
+ assert.ok(labelled(root, 'Edit Newest profile'));
+ assert.equal(Boolean(labelled(root, 'Edit Stale profile')), false);
+ assert.equal(root.querySelectorAll('.profile-list').length, 1);
 });
 
 test('provider mutation prevents reloads from rendering pre-mutation settings', async () => {
  const mutation = delayed(); let pending = false; let readsWhilePending = 0;
  const app = await boot((method, url) => {
-  if (method === 'PATCH' && url === '/api/settings/model-roles') { pending = true; return mutation.promise; }
+  if (method === 'POST' && url === '/api/provider-profiles') { pending = true; return mutation.promise; }
   if (pending && method === 'GET' && ['/api/provider-profiles', '/api/settings/model-roles'].includes(url)) readsWhilePending++;
  },'#/settings/models');
  const root = app.document.getElementById('settings-content');
- const policy = formFor(root, 'Save destination policy'); policy.requestSubmit(); await settle();
+ const form = formFor(root, 'Create profile'); input(form, 'Profile name').value = 'Pending'; input(form, 'Model identifier').value = 'model'; form.requestSubmit(); await settle();
  button(root, 'Reload provider settings').click(); await settle();
  assert.equal(readsWhilePending, 0, 'reads must wait for the pending mutation to settle');
  pending = false; mutation.resolve({}); await settle();
- assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Save destination policy').length, 1);
+ assert.equal(root.querySelectorAll('.profile-list').length, 1);
+ assert.equal(root.querySelectorAll('button').filter(x => x.textContent === 'Create profile').length, 1);
 });
 
 
@@ -202,5 +200,40 @@ test('invalid GitHub installation URLs are sanitized and saved settings retain k
  const form=formFor(root,'Create profile');input(form,'Profile name').value='Name';input(form,'Model identifier').value='model';
  button(form,'Create profile').focus();form.requestSubmit();await settle();
  assert.equal(app.document.activeElement.tagName,'H2');
- assert.equal(app.document.activeElement.textContent,'Model providers and roles');
+ assert.equal(app.document.activeElement.textContent,'Provider profiles');
+});
+
+test('advanced profiles do not repeat the job pickers or the Privacy switch', async () => {
+ const app = await boot(undefined, '#/settings/models');
+ const root = app.document.getElementById('settings-content');
+ for (const text of ['Save destination policy', 'Save ask role', 'Save embedding role']) assert.equal(button(root, text), undefined, text);
+ assert.equal(root.querySelectorAll('.profile-row').length, 1);
+ assert.match(visibleText(root), /Ollama · test-model · 127\.0\.0\.1:11434/);
+ assert.match(visibleText(root), /Chat, Structured output · Credential saved · Never receives repository source/);
+});
+
+test('the profile form asks for embedding dimensions only with Embeddings, and its URL hint follows the adapter', async () => {
+ const app = await boot(undefined, '#/settings/models');
+ const root = app.document.getElementById('settings-content'); const form = formFor(root, 'Create profile');
+ const dimensions = input(form, 'Embedding dimensions');
+ assert.equal(dimensions.parentNode.hidden, true);
+ const embeddings = input(form, 'Embeddings'); embeddings.checked = true; embeddings.dispatchEvent({type: 'change', bubbles: true});
+ assert.equal(dimensions.parentNode.hidden, false);
+ const hint = form.querySelector('.field-hint');
+ assert.match(hint.textContent, /^Loopback HTTP or HTTPS only/);
+ const adapter = input(form, 'Adapter'); adapter.value = 'claude_cli'; adapter.dispatchEvent({type: 'change', bubbles: true});
+ assert.match(hint.textContent, /api\.anthropic\.com/);
+ adapter.value = 'openai_compatible'; adapter.dispatchEvent({type: 'change', bubbles: true});
+ assert.match(hint.textContent, /^Use the \/v1 base\./);
+});
+
+test('a hidden embedding-dimensions value never blocks saving a chat-only profile', async () => {
+ const app = await boot(undefined, '#/settings/models');
+ const form = formFor(app.document.getElementById('settings-content'), 'Create profile');
+ const dimensions = input(form, 'Embedding dimensions'); const embeddings = input(form, 'Embeddings');
+ assert.equal(dimensions.disabled, true);
+ embeddings.checked = true; embeddings.dispatchEvent({type: 'change', bubbles: true});
+ assert.equal(dimensions.disabled, false); dimensions.value = '0';
+ embeddings.checked = false; embeddings.dispatchEvent({type: 'change', bubbles: true});
+ assert.equal(dimensions.disabled, true, 'disabled controls are skipped by browser validation');
 });

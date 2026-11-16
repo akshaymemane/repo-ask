@@ -929,10 +929,85 @@ dialog.modal::backdrop { background: #05060899; }
 /* ---- Models section ---- */
 .models-host { display: grid; gap: var(--space-4); }
 .models-simple { display: grid; gap: var(--space-4); }
-.model-ok { color: var(--success); font-size: 13px; }
-.model-hint { display: block; }
-.model-warning { color: var(--warning); font-size: 13px; }
-.setting-card select { min-width: 220px; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
+.model-hint { display: block; margin-top: 2px; }
+.model-warning { width: 100%; margin-top: var(--space-2); padding: 8px 12px; border-left: 3px solid var(--warning); border-radius: 4px; background: color-mix(in srgb, var(--warning) 9%, transparent); color: var(--warning); font-size: 13px; }
+.setting-card select { padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
+.setting-card > h2 + .detail-muted { margin-top: -4px; font-size: 13px; }
+/* Rows inside a card are separated by hairlines instead of nested cards. */
+.model-sources, .models-simple > .setting-card { gap: 0; }
+.model-sources > h2, .models-simple > .setting-card > h2 { margin-bottom: var(--space-2); }
+.source-row, .job-row { padding-block: 12px; border-top: 1px solid var(--line); }
+.model-sources > h2 + .source-row, .setting-card > .detail-muted + .job-row { border-top: 0; }
+.source-text { display: grid; gap: 2px; min-width: 0; }
+.source-text .detail-muted { font-size: 13px; }
+.source-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.source-row > .btn { flex: none; }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; line-height: 1.6; background: var(--raised); color: var(--muted); }
+.status-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-pill.is-good { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
+.status-pill.is-warn { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+.job-label { font-size: 14px; }
+/* Every job's picker is the same width, so the column lines up whatever is selected. */
+.job-row select { flex: none; width: min(320px, 55%); }
+.job-row + .composer-error:empty { display: none; }
+.job-row + .composer-error { width: 100%; margin: -6px 0 6px; }
+.modal-advanced > summary, .settings-body .field-details > summary, .settings-body details:not(.existing-app) > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 500; }
+.modal-advanced > summary { margin-block: var(--space-2); }
+.modal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); align-items: end; }
+.modal-grid .modal-field input { width: 100%; min-width: 0; }
+@media (max-width: 520px) { .modal-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Older connected forms (provider profiles, coding agent, existing GitHub App) inside Settings:
+   same type scale, fields and spacing as the rest of the page. */
+.settings-body .connected-panel { margin: 0; padding: 0; border: 0; font-size: 14px; }
+.existing-app > .connected-panel { margin-top: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.settings-body .connected-panel h2 { margin: 0 0 var(--space-2); font-size: 16px; font-weight: 650; }
+.settings-body .connected-panel h3 { margin: 0 0 var(--space-2); font-size: 14px; font-weight: 650; }
+.settings-body .connected-panel p { max-width: 72ch; margin: 0 0 var(--space-2); color: var(--muted); font-size: 13px; line-height: 1.5; }
+.settings-body .page-status { color: var(--muted); font-size: 13px; font-weight: 400; }
+.settings-body .page-status:empty { display: none; }
+.settings-body .connected-panel .button { margin: 0; min-height: 32px; padding: 5px 12px; white-space: nowrap; }
+.settings-body .connected-panel :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-body .setting-box { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: 10px; background: var(--page); }
+.settings-body .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); align-items: start; margin: var(--space-2) 0 0; }
+.settings-body .settings-form > :is(h3, p, .button, .page-status) { grid-column: 1 / -1; justify-self: start; }
+.settings-body .setting-field { gap: 6px; font-size: 13px; font-weight: 500; color: var(--text); }
+.settings-body .setting-field :is(input, select, textarea) { min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); font-weight: 400; }
+.settings-body .setting-field :is(input, select, textarea):focus { border-color: var(--accent); }
+/* A checkbox sits before its words, not under them. */
+.settings-body .setting-field:has(> input[type=checkbox]) { flex-direction: row-reverse; justify-content: flex-end; align-items: center; gap: var(--space-2); font-weight: 400; }
+.settings-body .setting-field > input[type=checkbox] { width: 16px; min-height: 16px; margin: 0; accent-color: var(--accent); }
+.settings-body .field-wide { grid-column: 1 / -1; }
+.settings-body .settings-form > fieldset:not(.field-group) { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); margin: 0; padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.settings-body .settings-form > fieldset:not(.field-group) > legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
+.settings-body .field-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 400; }
+.settings-body .field-group { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: 0; border: 0; min-width: 0; }
+.settings-body .field-group > .setting-field { flex: 0 0 auto; }
+.settings-body .field-group > legend { width: 100%; margin-bottom: 6px; padding: 0; font-size: 13px; font-weight: 500; }
+.settings-body .field-group > .field-hint { flex-basis: 100%; }
+.settings-body .field-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
+.settings-body .field-columns > legend { grid-column: 1 / -1; }
+.settings-body .field-details > .field-columns { margin-top: var(--space-2); }
+.settings-body .form-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.panel-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-1); }
+.settings-body .panel-header h2 { margin: 0; }
+.settings-body .panel-header .button { background: transparent; border-color: transparent; color: var(--muted); }
+.settings-body .panel-header .button:hover:not(:disabled) { color: var(--text); background: var(--raised); }
+.profile-list { display: grid; margin-top: var(--space-2); border-top: 1px solid var(--line); }
+.profile-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3); align-items: center; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.profile-info { display: grid; gap: 2px; min-width: 0; }
+.profile-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+.profile-version { color: var(--muted); font-size: 12px; }
+.settings-body .connected-panel .profile-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.profile-actions { display: flex; gap: 6px; }
+.profile-row > .profile-status { grid-column: 1 / -1; margin: 0; }
+.profile-status .button { margin-left: 6px; }
+@media (max-width: 640px) {
+  .settings-body .settings-form { grid-template-columns: minmax(0, 1fr); }
+  .profile-row { grid-template-columns: minmax(0, 1fr); }
+  .job-row { flex-wrap: wrap; }
+  .job-row select { width: 100%; }
+}
 .modal-field { display: grid; gap: 4px; margin-bottom: var(--space-2); font-size: 13px; }
 .modal-field input { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); color: var(--text); }
 .modal-check { display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 13px; }

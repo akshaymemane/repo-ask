@@ -82,11 +82,13 @@ function addProviderForm(request, onDone, trigger) {
   };
   base.input.addEventListener("input", showRemote);
   showRemote();
-  const advanced = el("details");
+  const advanced = el("details", undefined, "modal-advanced");
   const timeout = field("Timeout seconds", "180", "number");
   const context = field("Context token limit", "8192", "number");
   const output = field("Maximum output tokens", "1024", "number");
-  advanced.append(el("summary", "Advanced: timeouts and token limits"), timeout.wrap, context.wrap, output.wrap);
+  const limits = el("div", undefined, "modal-grid");
+  limits.append(timeout.wrap, context.wrap, output.wrap);
+  advanced.append(el("summary", "Timeouts and token limits"), limits);
   const error = el("p", "", "composer-error");
   modal.body.append(name.wrap, base.wrap, model.wrap, credential.wrap, structured.wrap, remote, advanced, error);
   button(modal.footer, "Cancel", () => modal.close(null));
@@ -175,7 +177,15 @@ function claudeSubscriptionForm(request, onDone, trigger) {
   modal.open(trigger);
 }
 
-export async function mountModels(host, { request }) {
+// onChange: called instead of a local re-render after a change saves profiles, so the page can
+// refresh everything that lists them (it re-mounts this view too).
+const mounts = new WeakMap();
+export async function mountModels(host, { request, onChange = null }) {
+  const refresh = () => (onChange ? onChange() : mountModels(host, { request, onChange }));
+  // Only the newest mount may render; an older one finishing last would show stale profiles.
+  const generation = (mounts.get(host) ?? 0) + 1;
+  mounts.set(host, generation);
+  const current = () => mounts.get(host) === generation;
   host.replaceChildren(el("p", "Loading models…", "detail-muted"));
   let discovered, listed, roleData;
   try {
@@ -185,42 +195,50 @@ export async function mountModels(host, { request }) {
       request("/api/settings/model-roles"),
     ]);
   } catch (error) {
-    host.replaceChildren(el("p", `Model settings unavailable: ${error.message}`));
+    if (current()) host.replaceChildren(el("p", `Model settings unavailable: ${error.message}`));
     return;
   }
+  if (!current()) return;
   const profiles = listed.profiles || [];
   const roles = roleData.roles || {};
   const models = discovered.models || [];
 
-  const card = el("section", undefined, "setting-card");
-  const cardRow = el("div", undefined, "setting-row");
-  const title = el("div");
-  title.append(el("strong", "Ollama · this computer"));
-  if (discovered.reachable) title.append(el("span", ` ● connected · ${models.length} models found`, "model-ok"));
-  else title.append(el("p", "Not running. Start Ollama, then Retry.", "detail-muted"));
-  cardRow.append(title);
-  button(cardRow, discovered.reachable ? "Refresh" : "Retry", () => mountModels(host, { request }));
-  card.append(cardRow);
+  // One card lists every place a model can come from; each row is name, what it is, status, action.
+  const sources = el("section", undefined, "setting-card model-sources");
+  sources.append(el("h2", "Model providers"));
+  const sourceRow = (name, description, status) => {
+    const row = el("div", undefined, "setting-row source-row");
+    const text = el("div", undefined, "source-text");
+    const heading = el("div", undefined, "source-name");
+    heading.append(el("strong", name));
+    if (status) heading.append(el("span", status.text, `status-pill is-${status.tone}`));
+    text.append(heading, el("p", description, "detail-muted"));
+    row.append(text);
+    sources.append(row);
+    return row;
+  };
+  const ollamaRow = sourceRow("Ollama", discovered.reachable ? "Runs models on this computer." : "Not running. Start Ollama, then Retry.",
+    discovered.reachable ? { text: `Connected · ${models.length} ${models.length === 1 ? "model" : "models"}`, tone: "good" } : { text: "Not running", tone: "warn" });
+  button(ollamaRow, discovered.reachable ? "Refresh" : "Retry", () => mountModels(host, { request, onChange }));
 
-  const claude = el("section", undefined, "setting-card");
-  const claudeRow = el("div", undefined, "setting-row");
-  const claudeTitle = el("div");
-  claudeTitle.append(el("strong", "Claude · your subscription"));
   const claudeProfiles = profiles.filter((p) => p.version?.adapter === "claude_cli");
-  if (claudeProfiles.length) claudeTitle.append(el("span", ` ● set up · ${claudeProfiles.map((p) => p.version.model).join(", ")}`, "model-ok"));
-  else claudeTitle.append(el("p", "Use Claude Code on this computer with your Pro or Max login. No API key.", "detail-muted"));
-  claudeRow.append(claudeTitle);
+  const claudeRow = sourceRow("Claude subscription", "Claude Code on this computer with your Pro or Max login. No API key.",
+    claudeProfiles.length ? { text: `Set up · ${claudeProfiles.map((p) => p.version.model).join(", ")}`, tone: "good" } : null);
   const setup = button(claudeRow, claudeProfiles.length ? "Add another model" : "Set up",
-    () => claudeSubscriptionForm(request, () => mountModels(host, { request }), setup));
-  claude.append(claudeRow);
+    () => claudeSubscriptionForm(request, refresh, setup));
+
+  const otherRow = sourceRow("OpenAI-compatible server", "LM Studio, vLLM, llama.cpp or any server with an OpenAI-style API.", null);
+  const add = button(otherRow, "Add provider", () => addProviderForm(request, refresh, add));
+  add.setAttribute("aria-label", "Add OpenAI-compatible provider");
 
   const jobs = el("section", undefined, "setting-card");
-  jobs.append(el("h2", "Which model does what"));
+  jobs.append(el("h2", "Which model does what"),
+    el("p", "Pick a model for each job. Choosing an Ollama model sets it up for you.", "detail-muted"));
   const warnings = el("div");
   for (const [role, label, hint] of JOBS) {
-    const row = el("div", undefined, "setting-row");
+    const row = el("div", undefined, "setting-row job-row");
     const text = el("div");
-    text.append(el("span", label));
+    text.append(el("span", label, "job-label"));
     if (hint) text.append(el("small", hint, "detail-muted model-hint"));
     const select = el("select");
     select.setAttribute("aria-label", label);
@@ -249,7 +267,7 @@ export async function mountModels(host, { request }) {
         if (value.startsWith("m:")) await useDiscoveredModel(request, role, models.find((m) => m.name === value.slice(2)));
         else await request("/api/settings/model-roles", "PATCH", { assignments: { [role]: value ? value.slice(2) : null } });
         saved = value;
-        if (value.startsWith("m:")) mountModels(host, { request });
+        if (value.startsWith("m:")) refresh();
       } catch (failure) {
         select.value = saved;
         error.textContent = failure.message;
@@ -261,12 +279,9 @@ export async function mountModels(host, { request }) {
     jobs.append(row, error);
     const model = models.find((m) => m.name === roles[role]?.model);
     if (model && model.gpu === false && !warnings.textContent.includes(model.name)) {
-      warnings.append(el("p", `⚠ ${model.name} runs on the CPU here; long answers can take over a minute.`, "model-warning"));
+      warnings.append(el("p", `${model.name} runs on the CPU here; long answers can take over a minute.`, "model-warning"));
     }
   }
-  jobs.append(warnings);
-
-  const extra = el("div", undefined, "setting-row");
-  const add = button(extra, "＋ Add OpenAI-compatible provider", () => addProviderForm(request, () => mountModels(host, { request }), add));
-  host.replaceChildren(card, claude, jobs, extra);
+  if (warnings.childNodes.length) jobs.append(warnings);
+  host.replaceChildren(sources, jobs);
 }
