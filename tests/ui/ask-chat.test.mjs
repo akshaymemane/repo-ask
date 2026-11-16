@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createBrowser, input, install, keydown, settle, visibleText } from "./dom.mjs";
 import { createAskPanel, titleFrom } from "../../repoask/web/ask.js";
+import { declaredStyle } from "./css.mjs";
 
 const html = readFileSync(new URL("../../repoask/web/index.html", import.meta.url), "utf8");
 const storage = () => { const map = new Map(); return { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) }; };
@@ -142,4 +143,46 @@ test("citations open in the side panel when Ask has one", async () => {
   assert.equal(side.hidden, false);
   assert.match(visibleText(side), /akshaymemane\/rcnl-app · main @ d8f5918/);
   assert.equal(side.querySelectorAll(".code-line.hl").length, 1);
+});
+
+test("choosing repositories after no match clears the routing notice and sends the waiting question", async () => {
+  const posts = [];
+  let conversation = null;
+  const b = await boot((m, u, o) => {
+    if (u === "/api/conversations" && m === "GET") return { items: conversation ? [conversation] : [] };
+    if (u === "/api/conversations" && m === "POST") { conversation = { id: "conv_nm", title: JSON.parse(o.body).title, scope_revision: 1, repository_ids: [], messages: [], runs: [], plans: [] }; return conversation; }
+    if (u === "/api/conversations/conv_nm") { if (m === "PATCH") conversation = { ...conversation, repository_ids: JSON.parse(o.body).repository_ids, scope_revision: 2 }; return conversation; }
+    if (u === "/api/route") return { status: "no_match", candidates: [], selected_repository_ids: [] };
+    if (u === "/api/conversations/conv_nm/messages") { posts.push(JSON.parse(o.body)); return { id: "run", state: "queued" }; }
+    if (u.startsWith("/api/context/repositories")) return { items: Object.values(REPOS), next_cursor: null };
+    const m2 = /^\/api\/repositories\/(.+)\/context$/.exec(u);
+    if (m2) return REPOS[decodeURIComponent(m2[1])];
+    return { status: 404, body: { code: "not_found" } };
+  });
+  const box = b.ui.panel.querySelector("textarea");
+  input(box, "How does checkout create an order?");
+  keydown(box, "Enter");
+  await settle(60);
+  assert.equal(b.window.location.hash, "#/ask/conv_nm");
+  const text = visibleText(b.ui.panel);
+  assert.match(text, /No repository matched this question\./);
+  assert.equal(text.match(/No repository matched/g).length, 1, "routing notice is shown once, not repeated as a status line");
+  b.button("Choose…").click();
+  await settle(30);
+  b.document.querySelectorAll(".picker-row").find((r) => visibleText(r).includes("rcnl-app")).querySelector("input").click();
+  b.document.querySelectorAll("dialog.modal button").find((n) => n.textContent.startsWith("Add")).click();
+  await settle(60);
+  assert.doesNotMatch(visibleText(b.ui.panel), /No repository matched/);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].content, "How does checkout create an order?");
+  assert.equal(posts[0].intent, "answer");
+});
+
+test("focusing the Ask heading overlays it instead of shifting the page (a shift swallowed the next click)", async () => {
+  const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
+  const b = await boot((m, u) => u === "/api/conversations" ? { items: [] } : { status: 404, body: { code: "not_found" } });
+  const title = b.ui.panel.querySelector("#persistent-ask-title");
+  const focused = declaredStyle(title, css, { focused: true });
+  assert.equal(focused.position, "absolute", "focused heading stays out of the layout flow");
+  assert.match(focused.outline || "", /solid/);
 });

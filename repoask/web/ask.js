@@ -215,7 +215,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         const r = await request('/api/route', 'POST', {prompt: content, conversation_id: id, pinned_repository_ids: []}); if (token !== epoch) return;
         const status = r.status ?? r.state;
         routing = {state: status, candidates: (r.candidates || []).filter(x => status !== 'resolved' || (r.selected_repository_ids || []).includes(x.repository_id))};
-        if (status !== 'resolved' || !(r.selected_repository_ids || []).length) { pendingQuestion = {text: content, intent}; draw(); throw new Error(status === 'no_match' ? 'No repository matched. Choose repositories with +.' : 'Choose a repository to continue.'); }
+        // The routing card explains what to do; the silent error only keeps the text in the composer.
+        if (status !== 'resolved' || !(r.selected_repository_ids || []).length) { pendingQuestion = {text: content, intent}; draw(); throw Object.assign(new Error(status === 'no_match' ? 'No repository matched. Choose repositories with +.' : 'Choose a repository to continue.'), {silent: true}); }
         await scopeTo(r.selected_repository_ids);
       }
       if(sendAttempt && (sendAttempt.content!==content || sendAttempt.intent!==intent || sendAttempt.conversation!==id)) throw new Error('Resolve the uncertain request by retrying the same content and action before submitting another.');
@@ -237,7 +238,13 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       actions: [{label: 'Ask', intent: 'answer', variant: 'primary'}, {label: 'Generate plan', intent: 'plan'}],
       onInput: text => { draft = Boolean(text.trim()); },
       onSend: ({text, intent}) => send(text, intent),
-      onScopeChange: ids => scopeTo(ids),
+      onScopeChange: async ids => {
+        await scopeTo(ids);
+        if (token !== epoch || !pendingQuestion || !ids.length) return;
+        // Repositories chosen for a question that had none: retire the routing card and send it.
+        const q = pendingQuestion; pendingQuestion = null; routing = null; say(''); draw();
+        try { await send(q.text, q.intent); composer.setValue(''); } catch (error) { if (token === epoch && !error.silent) say(error); }
+      },
       onCancel: async () => { if (token !== epoch) return; for (const run of activeRuns()) await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if (token === epoch && !draft) { await load(); composerHandle?.focus(); } }});
     composer.setChips(chips);
     modelRoles.then(settings => { if (token === epoch) gateModels(composer, settings); }, () => {});
@@ -249,7 +256,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const active = activeRuns().length > 0;
     composer.setBusy(active);
     let autosend=null;try{autosend=JSON.parse(window.sessionStorage?.getItem('ask-autosend')||'null');}catch{}
-    if(autosend?.conversation===id){try{window.sessionStorage?.removeItem('ask-autosend');}catch{}send(autosend.text,autosend.intent).catch(error=>{composer.setValue(autosend.text);say(error);});}
+    if(autosend?.conversation===id){try{window.sessionStorage?.removeItem('ask-autosend');}catch{}send(autosend.text,autosend.intent).catch(error=>{composer.setValue(autosend.text);if(!error.silent)say(error);});}
     async function poll() {
       try {
         const runs=await Promise.all(activeRuns().map(r=>request(`/api/answer-runs/${enc(r.id)}`)));

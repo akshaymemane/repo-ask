@@ -865,7 +865,10 @@ dialog.modal::backdrop { background: #05060899; }
 
 .rail .primary-nav .recent { margin-top: var(--space-4); min-height: 0; overflow-y: auto; }
 .rail .primary-nav .recent a { padding: 6px 10px; }
-.persistent-ask > h1:focus { font-size: 13px; color: var(--muted); width: min(100%, 760px); margin: var(--space-2) auto 0; }
+/* Route focus shows the h1 as a label over the page, never in the flow: revealing it
+   in place shifted the layout on blur and swallowed the next click. */
+.persistent-ask { position: relative; }
+.persistent-ask > h1:focus { position: absolute; z-index: 1; top: 10px; left: 50%; transform: translateX(-50%); margin: 0; padding: 5px 12px; border-radius: 7px; background: var(--raised); color: var(--text); font-size: 13px; font-weight: 650; white-space: nowrap; outline: 2px solid var(--accent); outline-offset: 2px; }
 .persistent-ask > p[role="status"] { width: min(100%, 760px); margin: var(--space-2) auto 0; padding: 0 var(--space-4); color: var(--muted); font-size: 13px; }
 .persistent-ask > p[role="status"]:empty { display: none; }
 

@@ -43,7 +43,7 @@ class ContextPurgeRecoveryTests(TestCase):
         self.assertTrue(all(snapshot.files for snapshot in snapshots))
         original = next(snapshot for snapshot in snapshots if snapshot.name == 'orders-api')
         publisher = 'src/main/java/example/orders/OutboxPublisher.java'
-        self.assertEqual(len(original.files), 4)
+        self.assertEqual(len(original.files), 5)
         self.assertIn('public class OutboxPublisher', '\n'.join(original.files[publisher]))
         with TemporaryDirectory() as directory:
             app = self.open_app(Path(directory), snapshots)
@@ -70,7 +70,7 @@ class ContextPurgeRecoveryTests(TestCase):
                 self.assertIn(target,services.scheduler.local_markers)
                 with platform.store.read() as conn:
                     cached = json.loads(conn.execute('SELECT metadata_json FROM index_sources WHERE id=?',(target,)).fetchone()[0])['files']
-                    self.assertEqual(len(cached), 4)
+                    self.assertEqual(len(cached), len(original.files))
                     self.assertEqual(cached[publisher], '\n'.join(original.files[publisher]))
                 index.request_index(target)
                 Worker(platform.jobs,{'index.run':index.run_index},worker_id='restored-fixture',lease_ms=600000).run_once()

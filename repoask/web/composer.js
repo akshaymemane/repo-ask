@@ -125,7 +125,7 @@ export function createComposer({ request, placeholder = "Ask about your code, or
       textarea.value = "";
       writeDraft(draftKey, "");
     } catch (failure) {
-      error.textContent = failure?.message || "Could not send.";
+      if (!failure?.silent) error.textContent = failure?.message || "Could not send.";
     } finally {
       sending = false;
     }
