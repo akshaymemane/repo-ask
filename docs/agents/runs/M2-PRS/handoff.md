@@ -83,3 +83,64 @@ Conciseness 4/5: test matrix repeats some scenario names to keep findings tracea
 Overall 4.0/5. Highest impact next steps: exact-commit independent review, combined
 startup/recovery integration, then authorized live pilot. The user should agree with
 this assessment because it distinguishes fake-boundary evidence from release gates.
+
+
+## Round 3 — N1–N8
+
+Start commit: `722e56790c1ca2a3b785b748b2364073cc7da065` (round-2 findings baseline).
+Round-3 implementation commit: `8d8ecb3` (evidence committed separately).
+Integration base remains `97f8c30`; round-1 reviewed commit remains `a273ab2`.
+Original Codex author, same assigned worktree and branch; no delegation. Public
+constructor/run/preview/publish/get/retry/refresh/settings/update_settings/recover
+signatures and registered purge hook remain compatible. No migration changes.
+
+| Finding | Change | Proof in tests |
+| --- | --- | --- |
+| N1 | Retry uses only recovery's reached state; enqueue transaction refuses unresolved current jobs, retaining the old job link until resolved | `test_retry_pending_read_never_orphans_old_job` exercises a first timeout, second successful recovery, zero unresolved jobs and exactly one ref/PR |
+| N2 | Process-wide reentrant lock serializes recover/reconcile/retry across service instances; recovery conditionally rechecks job identity/state inside its write transaction, tolerates already resolved jobs, and isolates per-row errors; concurrent terminal errors return safe state | `test_overlapping_recovery_retry_and_leased_worker`, `test_purge_during_recovery_does_not_abort_startup` |
+| N3 | Persist only fully_validated boolean in publication.checks event at publish; public reads/state transitions never fetch snapshots. Blob step reuses its bound capture with per-file job/access fences; full eligibility checked before/after blob step outside write transactions. Real producer inspected at 23e836c | `test_public_reads_persist_checks_without_snapshot_and_legacy_unavailable`, `test_snapshot_loads_are_constant_for_blob_step_outside_write_lock`, `test_blob_step_rechecks_lightweight_source_policy`; round-1 purge/exclusion/cancellation tests remain passing |
+| N4 | Refresh rejects non-dict and nonmatching/noninteger numbers, returning safe prior row | `test_refresh_malformed_or_wrong_number_returns_safe_state` |
+| N5 | Compare rejects previous_filename except absent, null or string | `test_publication_compare_previous_filename_shape` in test_github_client.py |
+| N6 | Fake records PR body; manual failed-check test asserts published and both failed/unavailable disclosure in actual create call | `test_manual_failed_checks_body_and_automatic_success` |
+| N7 | No-commit reconciliation returns queued before token mint or remote reads | `test_no_commit_reconciliation_needs_no_remote_access` |
+| N8 | Legacy publications without a persisted summary return checks.status=unavailable without touching source; summaries remain available after source loss | `test_public_reads_persist_checks_without_snapshot_and_legacy_unavailable` |
+
+Round-1 map above remains applicable except finding 13: check summaries are now
+persisted publication facts rather than live snapshot reads. Source unavailability
+does not erase an already recorded validation boolean; legacy missing summaries
+are explicitly unavailable. Blob capture verification cost is constant in file
+count (one bound capture per step); bytes are not loaded by get/_public/_state.
+Where the session boundary provides source_policy, per-blob fences additionally
+check that lightweight live policy without decoding artifacts.
+
+Round-3 commands actually run (same specified venv interpreter):
+
+- `-m unittest discover -s tests -p 'test_publication*.py'`: final run 40 tests, OK, exit 0.
+- `-m unittest discover -s tests -p 'test_github_*.py'`: 70 tests, OK, exit 0.
+- `-m unittest discover -s tests`: 564 tests in 386.880s, 69 failures,
+  89 errors, 9 skipped, exit 1. No publication/GitHub test occurs in the
+  failure/error headings. First error is AskCompositionTests at socket bind;
+  execution/session errors include PermissionError: [Errno 1] Operation not
+  permitted and session assertions. Broader failures are not all independently
+  triaged. Local raw output: `/tmp/m2-prs-r3-full.log` (not committed).
+- `git diff --check`: exit 0.
+
+The initial focused run exposed a test using nonexistent JobQueue.lease; corrected
+to the real claim API before the passing runs reported above. No runtime defect
+was hidden by changing a fake boundary.
+
+Known limits: recovery serialization is within the single local coordinator process;
+this is not a distributed recovery-leader implementation. Coordinator still owns
+startup invocation, combined app integration and exact-commit independent review.
+No network, packages, remote writes or live GitHub pilot were performed.
+
+
+Round-3 self-evaluation using ecc:agent-self-evaluation: accuracy 4/5 (40
+publication and 70 GitHub checks pass; live GitHub remains untested), completeness
+4/5 (all N1–N8 mapped; independent review remains external), clarity 4/5 (explicit
+legacy-summary behavior, but long inherited evidence map), actionability 4/5
+(coordinator must invoke recover at startup), conciseness 4/5 (finding tables
+repeat some tests for traceability). Overall 4.0/5. Highest-impact next actions:
+exact-commit independent review and combined startup integration; live pilot
+remains separately authorized. Would the user agree: this assessment distinguishes
+local fake-boundary proof from integration and live-provider acceptance.
