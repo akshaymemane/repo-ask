@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-16T04:15:00Z",
+  "updated": "2026-11-16T15:30:00Z",
   "phase": "M1_complete_M2_M3_parked",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "on_hold", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -938,6 +938,23 @@
       "review_verdict": "approved",
       "integration_sha": "b2527b5",
       "next_action": "Integrated after independent approval; no further action required."
+    },
+    {
+      "id": "ASK-ROUTING-RECOVERY",
+      "milestone": "post-M1",
+      "title": "Recover Ask cleanly when routing finds no repository",
+      "state": "integrated",
+      "feature_ids": ["F03", "F04", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["ASK-MODEL-GATE"],
+      "handoff": "docs/agents/runs/ASK-ROUTING-RECOVERY/handoff.md",
+      "submitted_sha": "1eaee63",
+      "reviewer_session": "Codex independent session, quality-reviewer persona / round 1",
+      "review_commit": "4a85a2e",
+      "review_verdict": "approved",
+      "integration_sha": "4a85a2e",
+      "next_action": "Integrated after independent approval. Open gate from the review: provider-backed answer, citation and plan smoke check (blocked locally by CPU-only Ollama)."
     },
     {
       "id": "M4-CODEX-SESSION-ADAPTER",
