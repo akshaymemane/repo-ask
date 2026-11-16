@@ -17,12 +17,14 @@ import hashlib
 import json
 import math
 from functools import wraps
+import re
 import sqlite3
 
 from repoask.platform.clock import new_id, now_ms
 from repoask.platform.errors import PlatformError, StorageBusy
 
 from .adapters import ADAPTER_IMPLEMENTATIONS
+from .claude_cli import ENDPOINT as CLAUDE_CLI_ENDPOINT, ClaudeCliTransport
 from .errors import (ContextOverflow, CredentialUnavailable, DestinationNotAllowed, InvalidOutput,
                      ModelNotFound, PersistenceRequired, ProfileDeleted, ProfileNameConflict,
                      ProfileNotFound, ProviderAuth, ProviderCancelled, ProviderError,
@@ -109,9 +111,10 @@ def _body_mentions_context(body):
 
 
 class ProviderService:
-    def __init__(self, store, secrets, *, transport=None, clock=now_ms):
+    def __init__(self, store, secrets, *, transport=None, cli_transport=None, clock=now_ms):
         self.store, self.secrets, self.clock = store, secrets, clock
         self.transport = transport if transport is not None else UrllibTransport()
+        self.cli_transport = cli_transport if cli_transport is not None else ClaudeCliTransport()
 
     # ----- row helpers -------------------------------------------------------------------
 
@@ -221,15 +224,25 @@ class ProviderService:
     # ----- profiles -----------------------------------------------------------------------
 
     @staticmethod
-    def _validate_adapter_endpoint(spec):
+    def _validate_adapter_endpoint(spec, secret_value=None):
         if spec['adapter'] == 'openai_compatible' and not spec['endpoint'].endswith('/v1'):
             raise fail('endpoint')
+        if spec['adapter'] == 'claude_cli':
+            # The CLI uses the user's own login; its destination is Anthropic, shown as remote.
+            if spec['endpoint'] != CLAUDE_CLI_ENDPOINT:
+                raise fail('endpoint')
+            if not re.fullmatch(r'(sonnet|opus|haiku|claude-[a-z0-9][a-z0-9.-]{0,80})', spec['model']):
+                raise fail('model')
+            if 'embeddings' in spec['config']['capabilities']:
+                raise fail('config.capabilities')
+            if secret_value is not None:
+                raise fail('secret_value')
 
     @_storage_boundary
     def create_profile(self, spec, *, secret_value=None):
         spec = validate_spec(spec)
-        self._validate_adapter_endpoint(spec)
         secret_value = validate_secret_value(secret_value)
+        self._validate_adapter_endpoint(spec, secret_value)
         profile_id, version_id = new_id('prof'), new_id('pver')
         ref_id = self._create_secret(profile_id, secret_value) if secret_value else None
         conflict = False
@@ -277,7 +290,7 @@ class ProviderService:
                           'endpoint': changes.get('endpoint', current['endpoint']),
                           'model': changes.get('model', current['model']),
                           'config': changes.get('config', json.loads(current['config']))}
-                self._validate_adapter_endpoint(merged)
+                self._validate_adapter_endpoint(merged, secret_value)
                 now = self.clock()
                 version_changed = new_ref is not None or any(
                     merged[key] != (json.loads(current['config']) if key == 'config' else current[key])
@@ -501,8 +514,9 @@ class ProviderService:
                                    canonical_json(body).encode('utf-8'),
                                    float(target['config']['timeout_seconds']), max_bytes)
         outcome = response = None
+        transport = self.cli_transport if adapter.name == 'claude_cli' else self.transport
         try:
-            response = self.transport.send(request, cancel_event=cancel_event)
+            response = transport.send(request, cancel_event=cancel_event)
         except TransportTimeout:
             outcome = ProviderTimeout
         except TransportCancelled:

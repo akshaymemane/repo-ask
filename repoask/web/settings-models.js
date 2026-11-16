@@ -1,5 +1,6 @@
-// Models section: local Ollama discovery and one dropdown per job. Choosing a discovered model
-// creates its profile with sensible local defaults, so most people never see the profile form.
+// Models section: local Ollama discovery, the Claude subscription card and one dropdown per job.
+// Choosing a discovered model creates its profile with sensible local defaults, so most people
+// never see the profile form.
 import { button, createModal, el } from "./ui.js";
 
 const OLLAMA = "http://127.0.0.1:11434";
@@ -113,6 +114,67 @@ function addProviderForm(request, onDone, trigger) {
   modal.open(trigger);
 }
 
+const CLAUDE_MODELS = [["sonnet", "Sonnet", "recommended: fast, strong plans"], ["opus", "Opus", "slower, deepest"],
+  ["haiku", "Haiku", "fastest"]];
+const CLAUDE_TEST_ERRORS = {
+  provider_auth: "Claude Code isn't logged in with a personal Pro or Max account. Run `claude` in a terminal, log in, then test again.",
+  provider_unavailable: "Claude Code isn't installed or can't start. Install it, then test again.",
+  destination_not_allowed: "Local-only mode is on. Turn it off in Settings → Privacy first.",
+  provider_rate_limited: "Your Claude usage limit is reached. Try again later.",
+};
+
+// Uses the Claude Code CLI already logged in on this computer: no API key is stored.
+function claudeSubscriptionForm(request, onDone, trigger) {
+  const modal = createModal({ title: "Use your Claude subscription" });
+  const modelWrap = el("label", "Model", "modal-field");
+  const model = el("select");
+  model.setAttribute("aria-label", "Model");
+  for (const [value, name, hint] of CLAUDE_MODELS) { const o = el("option", `${name} (${hint})`); o.value = value; model.append(o); }
+  model.value = "sonnet";
+  modelWrap.append(model);
+  const shareWrap = el("label", undefined, "modal-check");
+  const share = el("input");
+  share.type = "checkbox";
+  share.setAttribute("aria-label", "Send repository source to Anthropic");
+  shareWrap.append(share, el("span", "Send repository source to Anthropic"));
+  const status = el("p", "", "composer-error");
+  status.setAttribute("aria-live", "polite");
+  modal.body.append(
+    el("p", "Runs Claude Code on this computer with your own login and all of its tools turned off. "
+      + "It only writes answers and plans. Usage counts against your Claude plan.", "modal-note"),
+    modelWrap, shareWrap,
+    el("p", "Ask and plans send retrieved code snippets to Claude. Local-only mode in Settings → Privacy must also be off.", "modal-note"),
+    status);
+  button(modal.footer, "Cancel", () => modal.close(null));
+  let created = null;  // a failed test keeps its profile; testing again updates it instead of duplicating
+  button(modal.footer, "Set up and test", async (event, control) => {
+    control.disabled = true;
+    status.textContent = "Testing Claude Code…";
+    try {
+      const name = CLAUDE_MODELS.find(([value]) => value === model.value)[1];
+      const spec = { name: `Claude subscription · ${name}`, model: model.value,
+        config: { capabilities: CHAT_CAPS, timeout_seconds: 300, context_limit: 32768, max_output_tokens: 8192,
+          allow_external_source: share.checked } };
+      const profile = created
+        ? await request(`/api/provider-profiles/${encodeURIComponent(created.id)}`, "PATCH", spec)
+        : await request("/api/provider-profiles", "POST", { ...spec, adapter: "claude_cli", endpoint: "https://api.anthropic.com" });
+      created = profile;
+      const result = await request(`/api/provider-profiles/${encodeURIComponent(profile.id)}/test`, "POST", { capabilities: CHAT_CAPS });
+      if (result.status !== "passed") {
+        status.textContent = CLAUDE_TEST_ERRORS[result.error_code] ?? `Test failed: ${result.error_code ?? "unknown error"}.`;
+        return;
+      }
+      modal.close(true);
+      onDone();
+    } catch (failure) {
+      status.textContent = failure.message;
+    } finally {
+      control.disabled = false;
+    }
+  }, { variant: "primary" });
+  modal.open(trigger);
+}
+
 export async function mountModels(host, { request }) {
   host.replaceChildren(el("p", "Loading models…", "detail-muted"));
   let discovered, listed, roleData;
@@ -139,6 +201,18 @@ export async function mountModels(host, { request }) {
   cardRow.append(title);
   button(cardRow, discovered.reachable ? "Refresh" : "Retry", () => mountModels(host, { request }));
   card.append(cardRow);
+
+  const claude = el("section", undefined, "setting-card");
+  const claudeRow = el("div", undefined, "setting-row");
+  const claudeTitle = el("div");
+  claudeTitle.append(el("strong", "Claude · your subscription"));
+  const claudeProfiles = profiles.filter((p) => p.version?.adapter === "claude_cli");
+  if (claudeProfiles.length) claudeTitle.append(el("span", ` ● set up · ${claudeProfiles.map((p) => p.version.model).join(", ")}`, "model-ok"));
+  else claudeTitle.append(el("p", "Use Claude Code on this computer with your Pro or Max login. No API key.", "detail-muted"));
+  claudeRow.append(claudeTitle);
+  const setup = button(claudeRow, claudeProfiles.length ? "Add another model" : "Set up",
+    () => claudeSubscriptionForm(request, () => mountModels(host, { request }), setup));
+  claude.append(claudeRow);
 
   const jobs = el("section", undefined, "setting-card");
   jobs.append(el("h2", "Which model does what"));
@@ -194,5 +268,5 @@ export async function mountModels(host, { request }) {
 
   const extra = el("div", undefined, "setting-row");
   const add = button(extra, "＋ Add OpenAI-compatible provider", () => addProviderForm(request, () => mountModels(host, { request }), add));
-  host.replaceChildren(card, jobs, extra);
+  host.replaceChildren(card, claude, jobs, extra);
 }

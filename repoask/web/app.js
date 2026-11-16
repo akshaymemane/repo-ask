@@ -1143,9 +1143,9 @@ function renderProviderEditor(profile = null) {
   providerEditor.replaceChildren(node("h3", profile ? `Edit ${profile.name}` : "Create provider profile"));
   const form = node("form", undefined, "settings-form"); form.setAttribute("autocomplete", "off");
   const name = control(form, "Profile name", profile?.name || ""); name.required = true; name.maxLength = 100;
-  const adapter = choose(form, "Adapter", [["ollama", "Ollama"], ["openai_compatible", "OpenAI compatible"]], version?.adapter || "ollama");
+  const adapter = choose(form, "Adapter", [["ollama", "Ollama"], ["openai_compatible", "OpenAI compatible"], ["claude_cli", "Claude Code CLI (your login)"]], version?.adapter || "ollama");
   const endpoint = control(form, "Base URL / destination", version?.endpoint || "http://127.0.0.1:11434", "url"); endpoint.required = true;
-  form.append(node("p", "Use the /v1 base for OpenAI compatible APIs. Only loopback HTTP or HTTPS is supported. Requests go to this destination; redirects are rejected."));
+  form.append(node("p", "Use the /v1 base for OpenAI compatible APIs. Only loopback HTTP or HTTPS is supported. Requests go to this destination; redirects are rejected. Claude Code CLI uses https://api.anthropic.com, a model alias such as sonnet, and no credential."));
   const model = control(form, "Model identifier", version?.model || ""); model.required = true;
   const secret = control(form, profile ? "New credential (leave blank to retain current credential)" : "Credential (optional for local Ollama)", "", "password");
   const caps = {};

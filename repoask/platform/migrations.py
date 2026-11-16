@@ -9,6 +9,10 @@ class Migration:
     version: int
     name: str
     statements: tuple[str, ...]
+    # SQLite's table-rebuild procedure: referencing tables keep their FOREIGN KEY text,
+    # so the old table may be dropped and the new one renamed only with enforcement off.
+    # foreign_key_check runs before COMMIT; enforcement is always restored.
+    rebuild_tables: bool = False
 
     @property
     def checksum(self):
@@ -33,6 +37,8 @@ MIGRATIONS += (Migration(9, "execution_profiles", EXECUTION_SQL),
                Migration(10, "implementation_sessions", SESSION_SQL))
 from .publication_schema import PUBLICATION_SQL
 MIGRATIONS += (Migration(11, "draft_publications", PUBLICATION_SQL),)
+from .service_schema import PROVIDER_ADAPTER_V12_SQL
+MIGRATIONS += (Migration(12, "claude_cli_provider_adapter", PROVIDER_ADAPTER_V12_SQL, rebuild_tables=True),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 
@@ -51,9 +57,13 @@ def apply_migrations(conn, *, db_path, clock):
         private_backup(conn, target)
     for migration in pending:
         try:
+            if migration.rebuild_tables:
+                conn.execute("PRAGMA foreign_keys=OFF")  # no effect inside a transaction
             conn.execute("BEGIN IMMEDIATE")
             for statement in migration.statements:
                 conn.execute(statement)
+            if migration.rebuild_tables and conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise MigrationFailed("Foreign key check failed.")
             conn.execute("INSERT INTO schema_migrations VALUES (?, ?, ?, ?)",
                          (migration.version, migration.name, migration.checksum, clock()))
             conn.execute(f"PRAGMA user_version = {migration.version}")
@@ -62,4 +72,7 @@ def apply_migrations(conn, *, db_path, clock):
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise MigrationFailed("Database migration failed.") from None
+        finally:
+            if migration.rebuild_tables:
+                conn.execute("PRAGMA foreign_keys=ON")
     return max(recorded.keys() | {m.version for m in pending}, default=0)

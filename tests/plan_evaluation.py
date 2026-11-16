@@ -190,7 +190,7 @@ def evaluate(provider_spec, secret_value=None, *, provider_transport=None, tasks
 
 def main(argv=None):
     parser = ArgumentParser(description='Run the labeled plan evaluation against one provider.')
-    parser.add_argument('--adapter', default='openai_compatible', choices=('openai_compatible', 'ollama'))
+    parser.add_argument('--adapter', default='openai_compatible', choices=('openai_compatible', 'ollama', 'claude_cli'))
     parser.add_argument('--endpoint', required=True)
     parser.add_argument('--model', required=True)
     parser.add_argument('--context-limit', type=int, default=8192)

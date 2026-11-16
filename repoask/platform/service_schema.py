@@ -68,3 +68,20 @@ PROVIDER_SQL = (
       subject_id TEXT, outcome TEXT NOT NULL DEFAULT 'success', currency TEXT NOT NULL DEFAULT 'USD',
       created_at INTEGER NOT NULL)""",
 )
+
+# v12: add the claude_cli adapter. SQLite cannot alter a CHECK, so the versions table is
+# rebuilt with identical columns and rows (Migration.rebuild_tables).
+PROVIDER_ADAPTER_V12_SQL = (
+    """CREATE TABLE provider_profile_versions_v12 (
+      id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES provider_profiles(id),
+      version INTEGER NOT NULL CHECK(version>=1),
+      adapter TEXT NOT NULL CHECK(adapter IN ('ollama','openai_compatible','claude_cli')),
+      endpoint TEXT NOT NULL, model TEXT NOT NULL, secret_ref TEXT REFERENCES secret_refs(id),
+      config TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(profile_id,version))""",
+    """INSERT INTO provider_profile_versions_v12
+      (id, profile_id, version, adapter, endpoint, model, secret_ref, config, created_at)
+      SELECT id, profile_id, version, adapter, endpoint, model, secret_ref, config, created_at
+      FROM provider_profile_versions""",
+    "DROP TABLE provider_profile_versions",
+    "ALTER TABLE provider_profile_versions_v12 RENAME TO provider_profile_versions",
+)

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from .errors import ProviderValidationError
 
-ADAPTERS = ('ollama', 'openai_compatible')
+ADAPTERS = ('ollama', 'openai_compatible', 'claude_cli')
 ROLES = ('ask', 'planning', 'summary', 'embedding')
 CAPABILITIES = ('chat', 'structured_output', 'embeddings')
 MESSAGE_ROLES = ('system', 'user', 'assistant')

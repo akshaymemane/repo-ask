@@ -12,7 +12,7 @@ const DISCOVERED = { reachable: true, error_code: null, models: [
   { name: "nomic-embed-text:latest", embedding: true, gpu: null, loaded: false, context_length: null }] };
 const PROFILE = { id: "prof_1", name: "CLI local Ollama", version: { adapter: "ollama", endpoint: "http://127.0.0.1:11434", model: "llama3.2:latest", config: { capabilities: ["chat", "structured_output"] } } };
 
-async function setup({ discover = DISCOVERED, failRole = false } = {}) {
+async function setup({ discover = DISCOVERED, failRole = false, tests = [] } = {}) {
   const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
   install(b);
   loads += 1;
@@ -26,6 +26,8 @@ async function setup({ discover = DISCOVERED, failRole = false } = {}) {
     if (path.startsWith("/api/provider-profiles/discover")) return discover;
     if (path === "/api/provider-profiles" && method === "GET") return { profiles };
     if (path === "/api/provider-profiles" && method === "POST") { const p = { id: `prof_${profiles.length + 1}`, name: body.name, version: { adapter: body.adapter, endpoint: body.endpoint, model: body.model, config: body.config } }; profiles = [...profiles, p]; return p; }
+    if (path.endsWith("/test") && method === "POST") return tests.shift() ?? { status: "passed", error_code: null };
+    if (path.startsWith("/api/provider-profiles/") && method === "PATCH") { const p = profiles.find((x) => path.endsWith(x.id)); p.name = body.name; p.version = { ...p.version, model: body.model, config: body.config }; return p; }
     if (path === "/api/settings/model-roles" && method === "GET") return { roles, settings: { local_only: true } };
     if (path === "/api/settings/model-roles" && method === "PATCH") { if (failRole) throw Object.assign(new Error("role_unavailable. Check configuration."), { status: 409 }); return { roles }; }
     return {};
@@ -191,4 +193,41 @@ test("unchecking structured output keeps a chat-only profile", async () => {
   const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
   assert.deepEqual(post[2].config.capabilities, ["chat"]);
   assert.equal(post[2].config.allow_external_source, false);
+});
+
+test("Claude subscription setup creates a Sonnet claude_cli profile, tests it, and never sends a credential", async () => {
+  const { b, host, calls } = await setup();
+  assert.match(visibleText(host), /Claude · your subscription/);
+  host.querySelectorAll("button").find((x) => x.textContent === "Set up").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const model = dialog.querySelectorAll("select").find((s) => s.getAttribute("aria-label") === "Model");
+  assert.equal(model.value, "sonnet", "Sonnet is the default");
+  const share = dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === "Send repository source to Anthropic");
+  assert.equal(share.checked, false, "sharing is never on by default");
+  share.click();
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Set up and test").click();
+  await settle(20);
+  const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
+  assert.deepEqual(post[2], { name: "Claude subscription · Sonnet", model: "sonnet", adapter: "claude_cli", endpoint: "https://api.anthropic.com",
+    config: { capabilities: ["chat", "structured_output"], timeout_seconds: 300, context_limit: 32768, max_output_tokens: 8192, allow_external_source: true } });
+  assert.ok(!("secret_value" in post[2]));
+  assert.ok(calls.some(([m, p]) => m === "POST" && p === "/api/provider-profiles/prof_2/test"));
+  assert.match(visibleText(host), /● set up · sonnet/);
+  assert.ok(select(host, "Writing plans").querySelectorAll("option").some((o) => o.value === "p:prof_2"), "the profile can be chosen for plans");
+});
+
+test("a failed Claude test explains the fix and retesting updates the same profile", async () => {
+  const { b, host, calls } = await setup({ tests: [{ status: "failed", error_code: "provider_auth" }] });
+  host.querySelectorAll("button").find((x) => x.textContent === "Set up").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const go = () => dialog.querySelectorAll("button").find((x) => x.textContent === "Set up and test").click();
+  go();
+  await settle(20);
+  assert.match(visibleText(dialog), /isn't logged in with a personal Pro or Max account/);
+  go();
+  await settle(20);
+  assert.equal(calls.filter(([m, p]) => m === "POST" && p === "/api/provider-profiles").length, 1);
+  assert.ok(calls.some(([m, p]) => m === "PATCH" && p === "/api/provider-profiles/prof_2"));
 });

@@ -128,4 +128,28 @@ class OpenAICompatibleAdapter:
         return vectors, {'input_tokens': _token_count(usage.get('prompt_tokens')), 'output_tokens': None}
 
 
-ADAPTER_IMPLEMENTATIONS = {'ollama': OllamaAdapter(), 'openai_compatible': OpenAICompatibleAdapter()}
+class ClaudeCliAdapter(OpenAICompatibleAdapter):
+    """Claude Code CLI on the user's own login (``claude_cli.ClaudeCliTransport``).
+
+    The service routes this adapter to the CLI transport, never the network transport.
+    Responses use the OpenAI chat shape, so parsing is inherited. No embeddings.
+    """
+    name = 'claude_cli'
+    chat_path = '/claude-cli/chat'
+    embed_path = '/claude-cli/embed'
+
+    def auth_headers(self, secret):
+        return {}
+
+    def chat_body(self, model, messages, *, schema, max_tokens, context_limit):
+        body = {'model': model, 'messages': messages}
+        if schema is not None:
+            body['schema'] = schema
+        return body
+
+    def embed_body(self, model, texts):
+        raise InvalidOutput()
+
+
+ADAPTER_IMPLEMENTATIONS = {'ollama': OllamaAdapter(), 'openai_compatible': OpenAICompatibleAdapter(),
+                           'claude_cli': ClaudeCliAdapter()}
