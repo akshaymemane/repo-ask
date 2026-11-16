@@ -2,6 +2,8 @@
 
 import base64
 import copy
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 from unittest import TestCase
 
@@ -44,7 +46,7 @@ class Sessions:
 
 class Client:
     def __init__(self):
-        self.calls=[];self.base=BASE;self.ref=None;self.pr=None
+        self.calls=[];self.base=BASE;self.ref=None;self.ref_branch=None;self.pr=None
         self.unknown_ref=False;self.unknown_pr=False;self.collision_once=False
         self.on_blob=None
         self.compare_files=[];self.compare_complete=True
@@ -64,7 +66,7 @@ class Client:
     def create_commit(self, token, owner, name, message, tree, parent, identity):
         self.calls.append(('create_commit',tree,parent,identity));return COMMIT
     def create_ref(self, token, owner, name, branch, sha):
-        self.calls.append(('create_ref',branch,sha))
+        self.calls.append(('create_ref',branch,sha));self.ref_branch=branch
         if self.collision_once:
             self.collision_once=False;self.ref='9'*40;return False
         self.ref=sha
@@ -73,18 +75,21 @@ class Client:
         return True
     def get_ref(self, token, owner, name, branch):
         self.calls.append(('get_ref',branch))
-        if self.ref is None:raise GitHubError('not_found')
+        if self.ref is None or branch != self.ref_branch:raise GitHubError('not_found')
         return self.ref
     def create_pull_request(self, token, owner, name, title, body, head, base):
         self.calls.append(('create_pr',head,base,True))
+        self.pr_body=body
         self.pr=self._pr(head,base)
         if self.unknown_pr:
             self.unknown_pr=False;raise GitHubError('timeout')
         return self.pr
     def pull_requests(self, token, owner, name, head, base):
-        self.calls.append(('find_pr',head,base));return [self.pr] if self.pr else []
+        self.calls.append(('find_pr',head,base));return [self.pr] if self.pr and head == owner + ':' + self.pr['head']['ref'] and base == self.pr['base']['ref'] else []
     def pull_request(self, token, owner, name, number):
-        self.calls.append(('get_pr',number));return self.pr
+        self.calls.append(('get_pr',number))
+        if not self.pr or number != self.pr['number']:raise GitHubError('not_found')
+        return self.pr
     @staticmethod
     def _pr(head,base):
         return {'id':99,'number':7,'draft':True,'state':'open','merged':False,
@@ -123,7 +128,7 @@ class PublicationTests(TestCase):
 
     def test_preview_is_read_only_and_publish_is_atomic_idempotent(self):
         preview=self.svc.preview('ses')
-        self.assertTrue(preview['publishable']);self.assertEqual(self.github.tokens,[])
+        self.assertTrue(preview['publishable']);self.assertEqual(self.github.tokens,[(self.repo,{'contents':'read','pull_requests':'read'})])
         first=self.publish();again=self.publish()
         self.assertEqual(first['id'],again['id'])
         with self.assertRaises(PublicationError):self.svc.publish('ses','Other','Body','f'*40,1,'one')
@@ -224,3 +229,269 @@ class PublicationTests(TestCase):
         with self.platform.store.read() as db:
             row=db.execute('SELECT checkpoint_artifact_id,patch_artifact_id FROM publications WHERE id=?',(pub['id'],)).fetchone()
         self.assertEqual(tuple(row),(None,None))
+
+    def test_purge_and_exclusion_mid_run_fence_writes(self):
+        for purge in (True, False):
+            with self.subTest(purge=purge):
+                self.setUp()
+                pub=self.publish()
+                def change():
+                    if purge:self.svc.purge_repository(self.repo)
+                    else:self.sessions.value['source_available']=False
+                self.github.client.on_blob=change
+                self.run_job()
+                self.assertEqual(self.svc.get(pub['id'])['state'],'blocked')
+                self.assertFalse(any(c[0] in ('tree','create_commit','create_ref','create_pr') for c in self.github.client.calls))
+                if purge:
+                    with self.platform.store.read() as db:
+                        row=db.execute('SELECT title,body,commit_message FROM publications').fetchone()
+                    self.assertEqual(tuple(row),('[purged]',)*3)
+
+    def test_resume_lost_pr_and_confirmation_timeout_are_recoverable(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        # Branch was not created after all: resume must use the shared PR path.
+        self.github.client.ref=None
+        self.svc.recover();self.svc.retry(pub['id'],'resume')
+        self.github.client.unknown_pr=True;self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'reconciling')
+        self.svc.recover()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+
+    def test_confirmation_get_timeout_keeps_number(self):
+        pub=self.publish();original=self.github.client.pull_request
+        def unavailable(*args):raise GitHubError('timeout')
+        self.github.client.pull_request=unavailable;self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['pull_request_number'],7)
+        self.assertEqual(self.svc.get(pub['id'])['state'],'reconciling')
+        self.github.client.pull_request=original;self.svc.recover()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(sum(c[0]=='create_pr' for c in self.github.client.calls),1)
+
+    def test_missing_create_number_reconciles_exact_pr(self):
+        pub=self.publish();original=self.github.client.create_pull_request
+        def missing(*args):original(*args);return {}
+        self.github.client.create_pull_request=missing;self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'reconciling')
+        self.svc.recover();self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+
+    def test_expired_lease_recovery_fences_old_worker_and_retries(self):
+        pub=self.publish();lease=self.platform.jobs.claim('dead',kinds=['publication.run'])
+        with self.platform.store.transaction() as db:
+            db.execute("UPDATE publications SET state='creating_branch',commit_sha=? WHERE id=?",(COMMIT,pub['id']))
+            db.execute('UPDATE jobs SET lease_expires_at=0 WHERE id=?',(lease.job.id,))
+        self.github.client.ref=COMMIT;self.github.client.ref_branch=pub['head_branch']
+        self.assertEqual(self.svc.recover(),{'resolved':1,'pending':0})
+        self.svc.retry(pub['id'],'restart')
+        self.svc.run(lease.job,None)
+        self.assertFalse(any(c[0]=='create_pr' for c in self.github.client.calls))
+        self.run_job();self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+        self.assertEqual(sum(c[0]=='create_pr' for c in self.github.client.calls),1)
+
+    def test_transient_objects_resume_frozen_identity_message_and_date(self):
+        pub=self.publish();original=self.github.client.create_commit;seen=[]
+        def timeout(*args):seen.append(args[3:]);raise GitHubError('upstream_unavailable')
+        self.github.client.create_commit=timeout;self.run_job()
+        self.svc.update_settings('Changed','changed@example.test')
+        self.svc.recover();self.svc.retry(pub['id'],'objects')
+        def capture(*args):seen.append(args[3:]);return original(*args)
+        self.github.client.create_commit=capture;self.run_job()
+        self.assertEqual(seen[0],seen[1]);self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+
+    def test_all_snapshot_bindings_and_automatic_gate_rechecked(self):
+        for field,value in [('diff_hash','0'*40),('repository_id','other'),('checkpoint_artifact_id','other'),
+                            ('patch_artifact_id','other'),('base_branch','other'),('policy','on_success_draft')]:
+            with self.subTest(field=field):
+                self.setUp();pub=self.publish();self.sessions.value[field]=value;self.run_job()
+                self.assertEqual(self.svc.get(pub['id'])['error_code'],'stale_diff')
+                self.assertEqual(self.github.tokens,[])
+        self.setUp();self.sessions.value['policy']='on_success_draft';pub=self.publish()
+        self.github.client.on_blob=lambda:self.sessions.value['validations'].update(fully_validated=False)
+        self.run_job();self.assertEqual(self.svc.get(pub['id'])['error_code'],'automatic_policy_not_satisfied')
+
+    def test_preview_observes_rename_conflict_and_real_head_pattern(self):
+        self.github.client.base=CURRENT
+        self.github.client.compare_files=[{'filename':'new.py','previous_filename':'calc.py'}]
+        preview=self.svc.preview('ses')
+        self.assertEqual(preview['base_observation'],{'sha':CURRENT,'diverged':True})
+        self.assertIn('base_conflict',preview['blocking_reasons'])
+        self.assertIn('<suffix>',preview['head_branch'])
+        pub=self.publish();self.run_job();self.assertEqual(self.svc.get(pub['id'])['error_code'],'base_conflict')
+
+    def test_manual_failed_checks_body_and_automatic_success(self):
+        self.sessions.value['validations']={'fully_validated':False,'summary':{'failed':1,'unavailable':1}}
+        preview=self.svc.preview('ses')
+        pub=self.svc.publish('ses',preview['title'],preview['body'],'f'*40,1,'manual');self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertIn('"failed":1',self.github.client.pr_body)
+        self.assertIn('"unavailable":1',self.github.client.pr_body)
+        with self.platform.store.read() as db:row=db.execute('SELECT body FROM publications').fetchone()
+        self.assertIn('"failed":1',row[0]);self.assertIn('"unavailable":1',row[0])
+        self.setUp();self.sessions.value['policy']='on_success_draft';pub=self.publish();self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(self.svc.get(pub['id'])['checks'],{'fully_validated':True})
+        self.assertTrue(all(c[1].startswith('opendevin/') and c[1]!='main' for c in self.github.client.calls if c[0]=='create_ref'))
+
+    def test_negative_pr_confirmation_and_shapes(self):
+        mutations=[lambda p:p.update(draft=False),lambda p:p['head'].update(sha=BASE),
+                   lambda p:p['head'].update(ref='other'),lambda p:p['head']['repo'].update(full_name='other/repo'),
+                   lambda p:p['base'].update(ref='other'),lambda p:p.update(html_url='https://evil.test'),
+                   lambda p:p.pop('id'),lambda p:p.update(head=[]),lambda p:p.update(base={'repo':[]})]
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                self.setUp();pub=self.publish();original=self.github.client.pull_request
+                def altered(*args):
+                    value=copy.deepcopy(original(*args));mutate(value);return value
+                self.github.client.pull_request=altered;self.run_job()
+                self.assertEqual(self.svc.get(pub['id'])['state'],'blocked')
+
+    def test_path_hygiene_stale_preview_rejected_paths_and_identity(self):
+        for path in ['.git/config','a/.GIT/config','a//b','a/','calc.py/x','old.sh']:
+            with self.subTest(path=path):
+                self.setUp();self.sessions.value['checkpoint']['changed'][path]='YQ=='
+                with self.assertRaises(PublicationError) as caught:self.publish()
+                self.assertEqual(caught.exception.code,'session_snapshot_invalid')
+        self.setUp()
+        with self.assertRaises(PublicationError) as caught:self.svc.publish('ses','T','B','0'*40,1,'stale')
+        self.assertEqual(caught.exception.code,'stale_diff')
+        self.sessions.value['checkpoint']['rejected']=['secret']
+        with self.assertRaises(PublicationError) as caught:self.publish()
+        self.assertEqual(caught.exception.code,'rejected_paths')
+        self.setUp()
+        with self.platform.store.transaction() as db:db.execute('DELETE FROM publication_settings')
+        with self.assertRaises(PublicationError) as caught:self.publish()
+        self.assertEqual(caught.exception.code,'publication_identity_required')
+
+    def test_refresh_without_source_uses_read_scope(self):
+        pub=self.publish();self.run_job();self.sessions.value['source_available']=False
+        self.github.client.pr.update(state='closed',merged=True)
+        self.assertEqual(self.svc.refresh(pub['id'])['pull_request_state'],'merged')
+        self.assertEqual(self.github.tokens[-1][1],{'contents':'read','pull_requests':'read'})
+
+    def test_recovery_foreign_branch_selects_fresh_suffix(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        self.github.client.ref=BASE;old=self.svc.get(pub['id'])['head_branch']
+        self.svc.recover();self.assertNotEqual(self.svc.get(pub['id'])['head_branch'],old)
+        self.svc.retry(pub['id'],'collision');self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+
+    def test_cancellation_between_blob_and_tree(self):
+        pub=self.publish()
+        self.github.client.on_blob=lambda:self.platform.jobs.cancel(self._job(pub['id']))
+        self.run_job()
+        self.assertFalse(any(c[0] in ('tree','create_ref','create_pr') for c in self.github.client.calls))
+        self.assertEqual(self.svc.get(pub['id'])['error_code'],'publication_stopped')
+
+    def test_confirmed_commit_survives_purge_during_response(self):
+        pub=self.publish();original=self.github.client.create_commit
+        def purged(*args):
+            value=original(*args);self.svc.purge_repository(self.repo);return value
+        self.github.client.create_commit=purged;self.run_job()
+        done=self.svc.get(pub['id'])
+        self.assertEqual(done['state'],'blocked');self.assertEqual(done['commit_sha'],COMMIT)
+        self.assertFalse(any(c[0] in ('create_ref','create_pr') for c in self.github.client.calls))
+
+    def test_malformed_find_response_blocks_instead_of_creating_pr(self):
+        pub=self.publish();self.github.client.pull_requests=lambda *args:[{'head':[], 'base':{}}]
+        self.run_job();self.assertEqual(self.svc.get(pub['id'])['error_code'],'pull_request_invalid')
+        self.assertFalse(any(c[0]=='create_pr' for c in self.github.client.calls))
+
+    def test_retry_pending_read_never_orphans_old_job(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        original=self.github.client.get_ref;reads=[]
+        def flaky(*args):
+            reads.append(1)
+            if len(reads)==1:raise GitHubError('timeout')
+            return original(*args)
+        self.github.client.get_ref=flaky
+        with self.assertRaises(PublicationError) as caught:self.svc.retry(pub['id'],'retry')
+        self.assertEqual(caught.exception.code,'reconciliation_pending')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],1)
+        self.svc.retry(pub['id'],'retry');self.run_job()
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(sum(c[0]=='create_ref' for c in self.github.client.calls),1)
+        self.assertEqual(sum(c[0]=='create_pr' for c in self.github.client.calls),1)
+
+    def test_overlapping_recovery_retry_and_leased_worker(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        entered=Event();release=Event();original=self.github.client.get_ref
+        def paused(*args):
+            entered.set()
+            if not release.wait(5):raise AssertionError('recovery not released')
+            return original(*args)
+        self.github.client.get_ref=paused
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            recovery=pool.submit(self.svc.recover)
+            self.assertTrue(entered.wait(5))
+            retry=pool.submit(self.svc.retry,pub['id'],'same')
+            release.set()
+            self.assertEqual(recovery.result(timeout=5),{'resolved':1,'pending':0})
+            retry.result(timeout=5)
+        lease=self.platform.jobs.claim('replacement',kinds=['publication.run'])
+        self.assertEqual(self.svc.recover(),{'resolved':0,'pending':0})
+        self.assertEqual(self.svc.retry(pub['id'],'same')['state'],'creating_pr')
+        self.svc.run(lease.job,None)
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+
+    def test_public_reads_persist_checks_without_snapshot_and_legacy_unavailable(self):
+        pub=self.publish()
+        def forbidden(*args):raise AssertionError('public read loaded source snapshot')
+        self.sessions.publication_snapshot=forbidden
+        self.assertEqual(self.svc.get(pub['id'])['checks'],{'fully_validated':True})
+        self.svc._state(pub['id'],'preparing')
+        with self.platform.store.transaction() as db:
+            db.execute("DELETE FROM publication_events WHERE type='publication.checks'")
+        self.assertEqual(self.svc.get(pub['id'])['checks'],{'status':'unavailable'})
+
+    def test_snapshot_loads_are_constant_for_blob_step_outside_write_lock(self):
+        for i in range(20):
+            self.sessions.value['checkpoint']['changed']['file%d'%i]='YQ=='
+            self.sessions.value['checkpoint']['modes']['file%d'%i]='100644'
+        original=self.sessions.publication_snapshot;calls=[]
+        def counted(*args):
+            calls.append(1)
+            # Snapshot IO must allow a write transaction, not nest inside one.
+            with self.platform.store.transaction() as db:db.execute('SELECT 1')
+            return original(*args)
+        self.sessions.publication_snapshot=counted
+        pub=self.publish();calls.clear();self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['state'],'published')
+        self.assertLess(len(calls),15)
+        self.assertEqual(sum(c[0]=='blob' for c in self.github.client.calls),21)
+
+    def test_refresh_malformed_or_wrong_number_returns_safe_state(self):
+        pub=self.publish();self.run_job()
+        for value in (None,[],{'number':8,'state':'closed'},{'number':True,'state':'closed'}):
+            self.github.client.pull_request=lambda *args:value
+            self.assertEqual(self.svc.refresh(pub['id'])['pull_request_state'],'open')
+
+    def test_no_commit_reconciliation_needs_no_remote_access(self):
+        pub=self.publish()
+        self.svc._state(pub['id'],'reconciling')
+        def forbidden(*args):raise AssertionError('unexpected remote read')
+        self.github.mint_installation_token=forbidden
+        self.assertEqual(self.svc.reconcile(pub['id'])['state'],'queued')
+
+    def test_purge_during_recovery_does_not_abort_startup(self):
+        pub=self.publish();self.github.client.unknown_ref=True;self.run_job()
+        def purged(*args):
+            self.svc.purge_repository(self.repo)
+            raise PublicationError('repository_purged')
+        self.github.client.get_ref=purged
+        self.assertEqual(self.svc.recover(),{'resolved':1,'pending':0})
+        self.assertEqual(self.svc.get(pub['id'])['error_code'],'repository_purged')
+        self.assertEqual(self.platform.jobs.counts()['needs_reconciliation'],0)
+
+    def test_blob_step_rechecks_lightweight_source_policy(self):
+        self.sessions.value['checkpoint']['changed']['second.py']='YQ=='
+        self.sessions.value['checkpoint']['modes']['second.py']='100644'
+        self.sessions.source_policy=lambda ident:{'available':self.sessions.value['source_available']}
+        pub=self.publish()
+        self.github.client.on_blob=lambda:self.sessions.value.update(source_available=False)
+        self.run_job()
+        self.assertEqual(self.svc.get(pub['id'])['error_code'],'source_unavailable')
+        self.assertEqual(sum(c[0]=='blob' for c in self.github.client.calls),1)
+        self.assertFalse(any(c[0] in ('tree','create_ref','create_pr') for c in self.github.client.calls))

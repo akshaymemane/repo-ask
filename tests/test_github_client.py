@@ -92,3 +92,21 @@ class ClientTests(unittest.TestCase):
         bad=[{'path':'x','mode':'100644','type':'blob','sha':'bad'}]
         with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_tree('t','a','b','c'*40,bad)
         with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_ref('t','a','b','main','bad')
+
+    def test_publication_compare_requires_ancestor_status(self):
+        for status in ('ahead','identical','behind','diverged',None):
+            with self.subTest(status=status):
+                result=self.client(Response(200,{},{'files':[], 'total_commits':1,'status':status})).compare(
+                    'token','acme','repo','a'*40,'b'*40)
+                self.assertEqual(result['complete'],status in ('ahead','identical'))
+
+    def test_publication_compare_previous_filename_shape(self):
+        for previous in (False,123,[],{}):
+            with self.subTest(previous=previous), self.assertRaises(GitHubError) as caught:
+                self.client(Response(200,{}, {'files':[{'filename':'new','previous_filename':previous}],
+                    'total_commits':1,'status':'ahead'})).compare('t','a','b','a'*40,'b'*40)
+            self.assertEqual(caught.exception.code,'malformed_output')
+        for entry in ({'filename':'new'},{'filename':'new','previous_filename':None},
+                      {'filename':'new','previous_filename':'old'}):
+            self.assertTrue(self.client(Response(200,{}, {'files':[entry],'total_commits':1,'status':'ahead'}))
+                            .compare('t','a','b','a'*40,'b'*40)['complete'])
