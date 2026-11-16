@@ -1,0 +1,602 @@
+{
+ "adapter": "openai_compatible",
+ "cli": "2.1.311 (Claude Code)",
+ "cli_calls": [
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.07084,
+   "seconds": 29.32,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.07725599999999999,
+   "seconds": 18.87,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.054868,
+   "seconds": 15.45,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.0476508,
+   "seconds": 17.85,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.049888,
+   "seconds": 13.08,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.042296,
+   "seconds": 10.43,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.16396919999999998,
+   "seconds": 49.71,
+   "status": "success",
+   "structured": true,
+   "turns": 3
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.087704,
+   "seconds": 23.74,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.062023999999999996,
+   "seconds": 25.13,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  },
+  {
+   "exit": 0,
+   "models": [
+    "claude-opus-5-5"
+   ],
+   "permission_denials": 0,
+   "reported_cost_usd": 0.040884000000000004,
+   "seconds": 31.25,
+   "status": "success",
+   "structured": true,
+   "turns": 2
+  }
+ ],
+ "gate_passed": true,
+ "model": "claude-cli",
+ "passed": 10,
+ "results": [
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "src/main/java/example/orders/OutboxPublisher.java"
+   ],
+   "counts": {
+    "citations": 2,
+    "findings": 5,
+    "open_questions": 3,
+    "repositories": 1,
+    "requirements": 4,
+    "steps": 3,
+    "validation": 2
+   },
+   "error_code": null,
+   "id": "outbox-retry",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-api": "write"
+   },
+   "run_state": "completed",
+   "seconds": 29.42,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2786,
+    "output_tokens": 2428
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "src/main/java/example/orders/OrderController.java",
+    "src/main/java/example/orders/OrderRepository.java",
+    "src/main/java/example/orders/OrderService.java",
+    "src/main/java/example/orders/OutboxPublisher.java"
+   ],
+   "counts": {
+    "citations": 6,
+    "findings": 6,
+    "open_questions": 3,
+    "repositories": 1,
+    "requirements": 4,
+    "steps": 4,
+    "validation": 2
+   },
+   "error_code": null,
+   "id": "empty-items-400",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-api": "write"
+   },
+   "run_state": "completed",
+   "seconds": 19.25,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 4633,
+    "output_tokens": 2010
+   }
+  },
+  {
+   "blocking_reasons": [
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "migrations/V001__checkout.sql"
+   ],
+   "counts": {
+    "citations": 2,
+    "findings": 5,
+    "open_questions": 2,
+    "repositories": 1,
+    "requirements": 3,
+    "steps": 3,
+    "validation": 4
+   },
+   "error_code": null,
+   "id": "phone-column",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-db": "write"
+   },
+   "run_state": "completed",
+   "seconds": 15.75,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2717,
+    "output_tokens": 1657
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "migrations/V001__checkout.sql"
+   ],
+   "counts": {
+    "citations": 2,
+    "findings": 5,
+    "open_questions": 3,
+    "repositories": 1,
+    "requirements": 2,
+    "steps": 2,
+    "validation": 3
+   },
+   "error_code": null,
+   "id": "outbox-index",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-db": "write"
+   },
+   "run_state": "completed",
+   "seconds": 17.98,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2715,
+    "output_tokens": 1864
+   }
+  },
+  {
+   "blocking_reasons": [
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "src/OrderEmailConsumer.java"
+   ],
+   "counts": {
+    "citations": 2,
+    "findings": 4,
+    "open_questions": 2,
+    "repositories": 1,
+    "requirements": 3,
+    "steps": 3,
+    "validation": 1
+   },
+   "error_code": null,
+   "id": "blank-email",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:notifications-worker": "write"
+   },
+   "run_state": "completed",
+   "seconds": 13.45,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2672,
+    "output_tokens": 1426
+   }
+  },
+  {
+   "blocking_reasons": [
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "src/checkout.ts"
+   ],
+   "counts": {
+    "citations": 2,
+    "findings": 3,
+    "open_questions": 2,
+    "repositories": 1,
+    "requirements": 3,
+    "steps": 2,
+    "validation": 2
+   },
+   "error_code": null,
+   "id": "checkout-409",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:storefront-web": "write"
+   },
+   "run_state": "completed",
+   "seconds": 10.64,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2643,
+    "output_tokens": 1058
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "exactly_one_write_target_required",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true
+   },
+   "cited_paths": [
+    "src/checkout.ts",
+    "src/main/java/example/orders/OrderController.java",
+    "src/main/java/example/orders/OrderRepository.java",
+    "src/main/java/example/orders/OrderService.java",
+    "src/main/java/example/orders/OutboxPublisher.java"
+   ],
+   "counts": {
+    "citations": 9,
+    "findings": 8,
+    "open_questions": 3,
+    "repositories": 2,
+    "requirements": 4,
+    "steps": 5,
+    "validation": 3
+   },
+   "error_code": null,
+   "id": "quantity-limit",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-api": "write",
+    "demo:storefront-web": "write"
+   },
+   "run_state": "completed",
+   "seconds": 50.17,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 13094,
+    "output_tokens": 4992
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "citations_resolve": true,
+    "cites_expected_path": true,
+    "expected_repositories": true,
+    "has_steps_and_validation": true,
+    "not_ready_without_execution": true,
+    "preserves_requirements": true,
+    "valid_output": true,
+    "write_target": true
+   },
+   "cited_paths": [
+    "src/OrderEmailConsumer.java",
+    "src/main/java/example/orders/OrderController.java",
+    "src/main/java/example/orders/OrderRepository.java",
+    "src/main/java/example/orders/OrderService.java",
+    "src/main/java/example/orders/OutboxPublisher.java"
+   ],
+   "counts": {
+    "citations": 10,
+    "findings": 7,
+    "open_questions": 3,
+    "repositories": 2,
+    "requirements": 4,
+    "steps": 4,
+    "validation": 2
+   },
+   "error_code": null,
+   "id": "event-email",
+   "kind": "plan",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:notifications-worker": "read",
+    "demo:orders-api": "write"
+   },
+   "run_state": "completed",
+   "seconds": 23.86,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 5249,
+    "output_tokens": 2286
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "asks_or_declines": true,
+    "citations_resolve": true,
+    "not_ready_without_execution": true,
+    "valid_output": true
+   },
+   "cited_paths": [],
+   "counts": {
+    "citations": 0,
+    "findings": 3,
+    "open_questions": 5,
+    "repositories": 1,
+    "requirements": 5,
+    "steps": 6,
+    "validation": 3
+   },
+   "error_code": null,
+   "id": "absent-feature",
+   "kind": "clarify",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:orders-api": "write"
+   },
+   "run_state": "completed",
+   "seconds": 25.38,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2044,
+    "output_tokens": 2284
+   }
+  },
+  {
+   "blocking_reasons": [
+    "blocking_questions",
+    "execution_not_configured",
+    "implementation_not_permitted"
+   ],
+   "checks": {
+    "asks_or_declines": true,
+    "citations_resolve": true,
+    "not_ready_without_execution": true,
+    "valid_output": true
+   },
+   "cited_paths": [],
+   "counts": {
+    "citations": 0,
+    "findings": 3,
+    "open_questions": 3,
+    "repositories": 1,
+    "requirements": 2,
+    "steps": 3,
+    "validation": 1
+   },
+   "error_code": null,
+   "id": "vague-request",
+   "kind": "clarify",
+   "passed": true,
+   "rate_limit_retries": 0,
+   "readiness": "needs_input",
+   "roles": {
+    "demo:storefront-web": "write"
+   },
+   "run_state": "completed",
+   "seconds": 31.48,
+   "usage": {
+    "cost_status": "unknown",
+    "currency": "USD",
+    "estimated_cost": null,
+    "input_tokens": 2034,
+    "output_tokens": 1231
+   }
+  }
+ ],
+ "tasks_sha256": "c4804e413ef4d1b4c67a2cafd0bdff9bc5607f9f926c75aa1e63aa968abb899a",
+ "total": 10,
+ "valid_output": 10
+}
