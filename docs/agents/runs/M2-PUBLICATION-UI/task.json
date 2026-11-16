@@ -1,0 +1,26 @@
+{
+  "id": "M2-PUBLICATION-UI",
+  "title": "Session draft-PR action and publication identity setting",
+  "state": "running",
+  "base_sha": "0695f0c",
+  "branch": "task/m2-publication-ui",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication-ui",
+  "owner": "Claude experience agent",
+  "depends_on": ["M2-SESSION-UI", "UI-REDESIGN"],
+  "completion_depends_on": ["M2-PRS", "M2-PUB-SNAPSHOT", "M2-INTEGRATE"],
+  "contract": "docs/contracts/m2-publication.md (HTTP routes incl. coordinator additions)",
+  "requirements": ["PR-01", "PR-04", "PR-07", "PR-08", "PR-10", "OP-12"],
+  "write_scope": ["repoask/web/sessions.js (publication panel only)", "repoask/web/settings.js (publication identity only)", "repoask/web/styles.css (publication rules only)", "tests/ui/session-publication.test.mjs", "tests/ui/settings.test.mjs (identity cases only)", "docs/agents/runs/M2-PUBLICATION-UI/**"],
+  "forbidden_scope": ["repoask/*.py", "repoask/publication/**", "repoask/sessions/**", "repoask/web/app.js unless a one-line registration is unavoidable (record it)"],
+  "acceptance": [
+    "Terminal session page offers Create draft PR: preview (POST publication-preview) shows repository, base -> head branch, diff stats, changed paths, checks (failed/unavailable disclosed), editable title/body, and blocking reasons with a fix link (e.g. identity -> Settings)",
+    "Publish sends exactly title, body, expected_diff_hash (from preview), intent_version, and a client idempotency key that is reused on double click and on network-error resubmit",
+    "After publish the panel follows GET /api/publications/{id}: queued/preparing/creating_*/reconciling show progress; published shows draft PR link (only the exact https://github.com URL from the API, opened rel=noopener); blocked/failed show the code in plain language; no_changes explained; reconciling offers Retry (POST retry with a fresh key) only when the API allows",
+    "Reload recovers state via GET /api/sessions/{id}/publication",
+    "Settings exposes commit name and email (GET/PATCH /api/settings/publication) with validation errors shown",
+    "Never renders tokens or raw GitHub bodies; no merge action exists; keyboard and screen-reader accessible; matches the redesigned dark UI",
+    "Focused UI tests plus full node --test tests/ui/*.test.mjs pass"
+  ],
+  "reviewer": "Codex (opposite harness)",
+  "handoff": "docs/agents/runs/M2-PUBLICATION-UI/handoff.md"
+}
