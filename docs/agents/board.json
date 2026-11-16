@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-16T03:38:14Z",
+  "updated": "2026-11-16T03:55:00Z",
   "phase": "M1_exit_gate",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
@@ -889,7 +889,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Finish four independent M1 reviews, integrate approved provider/evaluation items, rerun full Python/UI suites, and wait for the user's Groq gpt-oss-120b evaluation artifact. Record the by-design unpinned no-description routing prompt as an open UX note, then propose M1 sign-off."
+      "next_action": "All four M1 reviews are approved; combined Python passes 511/511 (9 skips), UI 182/182, labeled routing passes. Await only the user's Groq gpt-oss-120b plan-evaluation artifact, then verify it, record the by-design unpinned no-description routing UX note and propose M1 sign-off."
     },
     {
       "id": "M2-INTEGRATE",
@@ -1100,7 +1100,7 @@
     },
     {
       "id": "M1-CONTEXT-OPS",
-      "state": "review",
+      "state": "integrated",
       "owner": "coordinator",
       "milestone": "M1",
       "title": "Background context composition, schema 7 scheduling and legacy CLI bridge",
@@ -1131,8 +1131,10 @@
         "259a31a1f179da407fa85dd6fe3b6b9b96047b87"
       ],
       "handoff": "docs/agents/runs/M1-CONTEXT-OPS/handoff.md",
-      "reviewer_session": "fresh independent reviewer pending",
-      "next_action": "Independent review of the already-integrated background composition, schema 7 scheduling fence, legacy context bridge and saved Ask composition."
+      "reviewer_session": "fresh independent Codex reviewer; approved in review-r1",
+      "review_commit": "bbfd0ae",
+      "review_verdict": "approved",
+      "next_action": "Approved with 28/28 focused Python and 18/18 Ask-recovery UI checks; no remaining findings."
     },
     {
       "id": "M1-CONTEXT-RECOVERY",
@@ -1239,7 +1241,7 @@
       "id": "M1-PROVIDER-USER-AGENT",
       "milestone": "M1",
       "title": "Send a stable product User-Agent to compatible model providers",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": ["F07"],
       "owner": "Claude native author",
       "base_sha": "bc35e4e",
@@ -1251,18 +1253,20 @@
       ],
       "submitted_sha": "54fd24f0345da91b464391c5be3192c72e5b4845",
       "integration_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
-      "reviewer_session": "fresh independent post-merge reviewer pending",
+      "reviewer_session": "fresh independent Codex post-merge reviewer",
+      "review_commit": "ee1fc66",
+      "review_verdict": "approved",
       "acceptance": [
         "User-Agent is stable and contains no credential/source data",
         "Existing explicit headers and cancellation behavior remain correct"
       ],
-      "next_action": "Post-merge independent review of exact integration commit 475f451; fix any findings on the author branch."
+      "next_action": "Post-merge review approved; 42/42 provider/transport tests passed with no leakage or transport regression."
     },
     {
       "id": "M1-PROVIDER-QUICK-FORM",
       "milestone": "M1",
       "title": "Expose structured output and remote source consent in the quick provider form",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": ["F07", "F11"],
       "owner": "Claude native author",
       "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
@@ -1273,21 +1277,23 @@
         "repoask/web/styles.css",
         "tests/ui/settings-models.test.mjs"
       ],
-      "submitted_sha": "ae02d5984431278ff5d7fe9625b612d6b0ceceab",
-      "integration_sha": null,
-      "reviewer_session": "fresh independent reviewer pending",
+      "submitted_sha": "9b1d349c94c0a7f128ccae1e1bfc78f9fc621b35",
+      "integration_sha": "8b5f627",
+      "reviewer_session": "fresh independent Codex reviewer; approved round 2",
+      "review_commit": "6c809363429c301d4e2917d18d3fcfb74f1d876a",
+      "review_verdict": "approved",
       "acceptance": [
         "Structured output is declared by default",
         "Remote source sharing is explicit, remote-only and defaults off",
         "Local-only interaction and payload are accurately explained and tested"
       ],
-      "next_action": "Independent exact-commit review, then integrate if approved."
+      "next_action": "Consent destination fix approved and integrated; combined UI suite passes 182/182."
     },
     {
       "id": "M1-PLAN-EVAL",
       "milestone": "M1",
       "title": "Labeled cited-plan evaluation through the real Ask stack",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": ["F03", "F04"],
       "owner": "Claude native author",
       "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
@@ -1301,15 +1307,17 @@
       ],
       "submitted_sha": "3c28a74e180c207d786c982eb351989a99e2c797",
       "source_sha": "727468f",
-      "integration_sha": null,
+      "integration_sha": "32b6ce6",
       "handoff": "docs/agents/runs/M1-PLAN-EVAL/handoff.md",
-      "reviewer_session": "fresh independent reviewer pending",
+      "reviewer_session": "fresh independent Codex reviewer; approved in review-r1",
+      "review_commit": "56c02fd",
+      "review_verdict": "approved",
       "acceptance": [
         "Labels and scoring measure cited plan quality without rewarding prompt echo",
         "At least 8/10 tasks pass and at least 9/10 outputs are valid",
         "Live result is supplied by the user without coordinator access to the key"
       ],
-      "next_action": "Independent review of harness/corpus first. Then wait for the user's Groq gpt-oss-120b evidence file; never request or handle the key."
+      "next_action": "Harness approved and integrated; offline real-stack tests pass 3/3. Wait for the user's Groq gpt-oss-120b evidence file; never request or handle the key."
     },
     {
       "id": "UI-REDESIGN",
