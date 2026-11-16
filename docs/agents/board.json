@@ -1,7 +1,8 @@
 {
   "version": 1,
-  "updated": "2026-11-16T03:55:00Z",
-  "phase": "M1_exit_gate",
+  "updated": "2026-11-16T04:15:00Z",
+  "phase": "M1_complete_M2_M3_parked",
+  "milestones": {"M0": "complete", "M1": "complete", "M2": "on_hold", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
@@ -849,7 +850,7 @@
       "id": "M1-INTEGRATE",
       "milestone": "M1",
       "title": "Wire catalog, providers, retrieval and Ask into application",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F01",
         "F02",
@@ -883,13 +884,25 @@
       "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
       "branch": "work/opendevin-integration",
       "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
-      "reviewer_session": "M1 component reviews pending",
+      "reviewer_session": "all component reviews approved",
       "handoff": "docs/agents/runs/M1-INTEGRATE/",
-      "heartbeat_at": "2026-11-16T03:38:14Z",
+      "heartbeat_at": "2026-11-16T04:15:00Z",
       "submitted_sha": null,
-      "integration_sha": null,
+      "integration_sha": "232ce0e",
       "blocker": null,
-      "next_action": "All four M1 reviews are approved; combined Python passes 511/511 (9 skips), UI 182/182, labeled routing passes. Await only the user's Groq gpt-oss-120b plan-evaluation artifact, then verify it, record the by-design unpinned no-description routing UX note and propose M1 sign-off."
+      "next_action": "M1 exit gate passed: routing evaluation, Groq plan evaluation 9/10 with 9/10 valid, integrated regressions, and user real-use acceptance."
+    },
+    {
+      "id": "M1-PLAN-UI-FOLLOWUP",
+      "milestone": "post-M1",
+      "title": "Improve generated plan readability and hierarchy",
+      "state": "backlog",
+      "feature_ids": ["F04", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["M1-INTEGRATE"],
+      "handoff": "docs/agents/runs/M1-PLAN-UI-FOLLOWUP/notes.md",
+      "next_action": "Post-M1 UX follow-up; shape from the recorded notes when the user reprioritizes it."
     },
     {
       "id": "M2-INTEGRATE",
