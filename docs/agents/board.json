@@ -974,6 +974,23 @@
       "next_action": "Integrated after independent approval. No open gates."
     },
     {
+      "id": "SETTINGS-UX",
+      "milestone": "post-M1",
+      "title": "Redesign the Settings models section",
+      "state": "integrated",
+      "feature_ids": ["F07", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["ASK-LANDING-HINT"],
+      "handoff": "docs/agents/runs/SETTINGS-UX/handoff.md",
+      "submitted_sha": "bb4a87a",
+      "reviewer_session": "Codex independent session, quality-reviewer persona / round 2",
+      "review_commit": "12d3d6a",
+      "review_verdict": "approved",
+      "integration_sha": "7d5ef7b",
+      "next_action": "Integrated after round-2 approval. Unverified: phone width and light theme."
+    },
+    {
       "id": "M4-CODEX-SESSION-ADAPTER",
       "milestone": "M4",
       "title": "Codex CLI coding-agent adapter for sessions",
