@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated": "2026-11-15T17:56:00Z",
-  "phase": "M2_integration_and_publication",
+  "updated": "2026-11-16T03:38:14Z",
+  "phase": "M1_exit_gate",
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
@@ -339,7 +339,7 @@
       "id": "M1-ROUTING",
       "milestone": "M1",
       "title": "Explainable repository routing and evaluation",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F03"
       ],
@@ -365,9 +365,9 @@
       "handoff": null,
       "heartbeat_at": null,
       "submitted_sha": null,
-      "integration_sha": null,
+      "integration_sha": "904eba001ef98931be4f83c9ec4116a7860e1fab",
       "blocker": null,
-      "next_action": "Implemented sequentially by combined M1-ASK-BACKEND owner; not independently integrated.",
+      "next_action": "Implemented and reviewed inside M1-ASK-BACKEND; integrated with that approved slice. Labeled routing evaluation is part of the M1 exit gate.",
       "completion_depends_on": [
         "M1-INDEX"
       ],
@@ -377,7 +377,7 @@
       "id": "M1-PLANS",
       "milestone": "M1",
       "title": "Durable Ask conversations and versioned plans",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": [
         "F04"
       ],
@@ -402,9 +402,9 @@
       "handoff": null,
       "heartbeat_at": null,
       "submitted_sha": null,
-      "integration_sha": null,
+      "integration_sha": "904eba001ef98931be4f83c9ec4116a7860e1fab",
       "blocker": null,
-      "next_action": "Implemented sequentially by combined M1-ASK-BACKEND owner; not independently integrated.",
+      "next_action": "Implemented and reviewed inside M1-ASK-BACKEND; integrated with that approved slice. Labeled plan evaluation remains the M1 exit gate.",
       "completion_depends_on": [
         "M1-INDEX"
       ],
@@ -623,7 +623,7 @@
       "id": "M2-PRS",
       "milestone": "M2",
       "title": "Draft publication and uncertain-outcome reconciliation",
-      "state": "ready",
+      "state": "backlog",
       "feature_ids": [
         "F06"
       ],
@@ -648,10 +648,10 @@
       "reviewer_session": "fresh opposite-harness quality and security reviewer after candidate",
       "handoff": "docs/agents/runs/M2-PRS/handoff.md",
       "heartbeat_at": "2026-11-15T10:52:19Z",
-      "submitted_sha": null,
+      "submitted_sha": "741251e88a1c73479fa97c5ccc35d1c3e1424022",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Dependencies are integrated. Relocate the uncommitted GitHub publication client methods from integration into the planned isolated worktree, then launch the bounded builder against the frozen contract.",
+      "next_action": "ON HOLD by user. Candidate 741251e is parked cleanly and unreviewed; do not review, wire or integrate until the user resumes M2.",
       "completion_depends_on": [
         "M2-PROFILES",
         "M2-ADAPTER-SPIKE"
@@ -701,7 +701,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "ON HOLD by user; do not shape or launch until M2 is resumed.",
       "completion_depends_on": []
     },
     {
@@ -735,7 +735,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "ON HOLD by user; do not shape or launch M3 work until explicitly resumed.",
       "completion_depends_on": []
     },
     {
@@ -769,7 +769,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "ON HOLD by user; do not shape or launch M3 work until explicitly resumed.",
       "completion_depends_on": []
     },
     {
@@ -803,7 +803,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "ON HOLD by user; do not shape or launch M3 work until explicitly resumed.",
       "completion_depends_on": []
     },
     {
@@ -842,7 +842,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Split/shape into template task cards; freeze inputs and assign before ready",
+      "next_action": "ON HOLD by user; do not shape or launch M3 work until explicitly resumed.",
       "completion_depends_on": []
     },
     {
@@ -879,23 +879,23 @@
         "Cited saved plan and existing demo pass combined checks",
         "M1 master PRD exit gate evidence recorded"
       ],
-      "owner_session": null,
-      "base_sha": null,
-      "branch": null,
-      "worktree": null,
-      "reviewer_session": null,
-      "handoff": null,
-      "heartbeat_at": "2026-11-14T18:55:48.881581+00:00",
+      "owner_session": "Codex coordinator",
+      "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
+      "branch": "work/opendevin-integration",
+      "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+      "reviewer_session": "M1 component reviews pending",
+      "handoff": "docs/agents/runs/M1-INTEGRATE/",
+      "heartbeat_at": "2026-11-16T03:38:14Z",
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "230Python/60UI baselineevidence,realcitedlocalanswerpass; fullrealmodelplanstillinvalid_output; realheaderwaitcancelcandidate d2a4802 pendingClaude review. Finalacceptanceandtransportintegrationremain."
+      "next_action": "Finish four independent M1 reviews, integrate approved provider/evaluation items, rerun full Python/UI suites, and wait for the user's Groq gpt-oss-120b evaluation artifact. Record the by-design unpinned no-description routing prompt as an open UX note, then propose M1 sign-off."
     },
     {
       "id": "M2-INTEGRATE",
       "milestone": "M2",
       "title": "Wire session runner, activity and PR actions into application",
-      "state": "running",
+      "state": "backlog",
       "feature_ids": [
         "F05",
         "F06",
@@ -930,7 +930,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Execution/session wiring, adapter containment and UI redesign are integrated; UI passes 178/178. Run combined Python, real Docker/model gates, then integrate F06 from M2-PRS."
+      "next_action": "ON HOLD by user. Execution slice evidence is retained; do not wire F06 or continue M2 acceptance until resumed."
     },
     {
       "id": "M3-INTEGRATE",
@@ -973,7 +973,7 @@
       "submitted_sha": null,
       "integration_sha": null,
       "blocker": null,
-      "next_action": "Shape integration task after dependency handoffs; independent review still required"
+      "next_action": "ON HOLD by user; do not shape or launch M3 work until explicitly resumed."
     },
     {
       "id": "M1-SECURE-STORE",
@@ -1079,7 +1079,7 @@
     },
     {
       "id": "M1-INDEX-UI",
-      "state": "review",
+      "state": "archived",
       "depends_on": [
         "M1-CATALOG-UI"
       ],
@@ -1095,13 +1095,15 @@
         "repoask/web/styles.css",
         "tests/ui/context.test.mjs"
       ],
-      "next_action": "IndependentcontextUIreview and actualservice/browsercomposition stillgated.",
+      "next_action": "Superseded by the independently approved and integrated UI-REDESIGN repository detail flow; context.js is no longer used by the app.",
       "submitted_sha": "2a39ed2"
     },
     {
       "id": "M1-CONTEXT-OPS",
       "state": "review",
       "owner": "coordinator",
+      "milestone": "M1",
+      "title": "Background context composition, schema 7 scheduling and legacy CLI bridge",
       "depends_on": [
         "M1-CATALOG-UI"
       ],
@@ -1119,7 +1121,18 @@
         "tests/test_index_scheduling.py",
         "tests/test_saved_api_boundary.py"
       ],
-      "next_action": "Independentreview ofbackgroundcomposition andschema7; actualmainwiring aftercoregates."
+      "base_sha": "2a39ed2",
+      "branch": "work/opendevin-integration",
+      "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+      "submitted_commits": [
+        "3da764c65507d26a608d518ce77f3ee5e6b91654",
+        "95b8f1e6c9db58365941fa7ea5486b1dfbbe81ab",
+        "b6e0d5056081e8515d8e45f8045dde422b894ac8",
+        "259a31a1f179da407fa85dd6fe3b6b9b96047b87"
+      ],
+      "handoff": "docs/agents/runs/M1-CONTEXT-OPS/handoff.md",
+      "reviewer_session": "fresh independent reviewer pending",
+      "next_action": "Independent review of the already-integrated background composition, schema 7 scheduling fence, legacy context bridge and saved Ask composition."
     },
     {
       "id": "M1-CONTEXT-RECOVERY",
@@ -1221,6 +1234,82 @@
       "integration_sha": "5ef34dccb8ecac755172934a952f4f92f54d790e",
       "reviewer_session": "fresh independent Codex review; approved in review-r2",
       "next_action": "Approved and integrated; 39/39 execution-profile tests passed on integration. Real Docker/Claude proof remains an M2-INTEGRATE gate."
+    },
+    {
+      "id": "M1-PROVIDER-USER-AGENT",
+      "milestone": "M1",
+      "title": "Send a stable product User-Agent to compatible model providers",
+      "state": "review",
+      "feature_ids": ["F07"],
+      "owner": "Claude native author",
+      "base_sha": "bc35e4e",
+      "branch": "task/provider-user-agent",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-provider-user-agent",
+      "write_scope": [
+        "repoask/providers/transport.py",
+        "tests/test_provider_transport_cancel.py"
+      ],
+      "submitted_sha": "54fd24f0345da91b464391c5be3192c72e5b4845",
+      "integration_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
+      "reviewer_session": "fresh independent post-merge reviewer pending",
+      "acceptance": [
+        "User-Agent is stable and contains no credential/source data",
+        "Existing explicit headers and cancellation behavior remain correct"
+      ],
+      "next_action": "Post-merge independent review of exact integration commit 475f451; fix any findings on the author branch."
+    },
+    {
+      "id": "M1-PROVIDER-QUICK-FORM",
+      "milestone": "M1",
+      "title": "Expose structured output and remote source consent in the quick provider form",
+      "state": "review",
+      "feature_ids": ["F07", "F11"],
+      "owner": "Claude native author",
+      "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
+      "branch": "task/provider-quick-form",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-provider-quick-form",
+      "write_scope": [
+        "repoask/web/settings-models.js",
+        "repoask/web/styles.css",
+        "tests/ui/settings-models.test.mjs"
+      ],
+      "submitted_sha": "ae02d5984431278ff5d7fe9625b612d6b0ceceab",
+      "integration_sha": null,
+      "reviewer_session": "fresh independent reviewer pending",
+      "acceptance": [
+        "Structured output is declared by default",
+        "Remote source sharing is explicit, remote-only and defaults off",
+        "Local-only interaction and payload are accurately explained and tested"
+      ],
+      "next_action": "Independent exact-commit review, then integrate if approved."
+    },
+    {
+      "id": "M1-PLAN-EVAL",
+      "milestone": "M1",
+      "title": "Labeled cited-plan evaluation through the real Ask stack",
+      "state": "review",
+      "feature_ids": ["F03", "F04"],
+      "owner": "Claude native author",
+      "base_sha": "475f4517e99b6eaaa08ad1d7205eae90a0897c67",
+      "branch": "task/m1-plan-eval",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-plan-eval",
+      "write_scope": [
+        "tests/plan_evaluation.py",
+        "tests/test_plan_evaluation.py",
+        "tests/fixtures/plan_eval/tasks.json",
+        "docs/agents/runs/M1-PLAN-EVAL/**"
+      ],
+      "submitted_sha": "3c28a74e180c207d786c982eb351989a99e2c797",
+      "source_sha": "727468f",
+      "integration_sha": null,
+      "handoff": "docs/agents/runs/M1-PLAN-EVAL/handoff.md",
+      "reviewer_session": "fresh independent reviewer pending",
+      "acceptance": [
+        "Labels and scoring measure cited plan quality without rewarding prompt echo",
+        "At least 8/10 tasks pass and at least 9/10 outputs are valid",
+        "Live result is supplied by the user without coordinator access to the key"
+      ],
+      "next_action": "Independent review of harness/corpus first. Then wait for the user's Groq gpt-oss-120b evidence file; never request or handle the key."
     },
     {
       "id": "UI-REDESIGN",
