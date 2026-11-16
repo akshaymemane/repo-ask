@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-17T00:10:00Z",
+  "updated": "2026-11-17T02:00:00Z",
   "phase": "M2_in_progress",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "in_progress", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -671,7 +671,7 @@
       "id": "M2-PUB-SNAPSHOT",
       "milestone": "M2",
       "title": "Trusted SessionService.publication_snapshot for F06",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": ["F05", "F06"],
       "planned_persona": "runtime",
       "planned_harness": "codex",
@@ -684,9 +684,9 @@
       "contract": "docs/contracts/m2-publication.md",
       "reviewer": "fresh Claude quality reviewer",
       "handoff": "docs/agents/runs/M2-PUB-SNAPSHOT/handoff.md",
-      "submitted_sha": null,
-      "integration_sha": null,
-      "next_action": "Builder running."
+      "submitted_sha": "23e836c",
+      "integration_sha": "3851a93", "review_commit": "402fd52", "review_verdict": "approved", "reviewer_session": "Claude quality-reviewer, round 1",
+      "next_action": "Integrated after independent approval. Four LOW follow-ups recorded in review-r1.md (owner: runtime)."
     },
     {
       "id": "M2-PILOT",
