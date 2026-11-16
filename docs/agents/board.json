@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-16T15:30:00Z",
+  "updated": "2026-11-16T23:30:00Z",
   "phase": "M1_complete_M2_M3_parked",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "on_hold", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -955,6 +955,23 @@
       "review_verdict": "approved",
       "integration_sha": "4a85a2e",
       "next_action": "Integrated after independent approval. Open gate from the review: provider-backed answer, citation and plan smoke check (blocked locally by CPU-only Ollama)."
+    },
+    {
+      "id": "ASK-LANDING-HINT",
+      "milestone": "post-M1",
+      "title": "Center the Ask landing hint under the composer",
+      "state": "integrated",
+      "feature_ids": ["F04", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["ASK-ROUTING-RECOVERY"],
+      "handoff": "docs/agents/runs/ASK-LANDING-HINT/handoff.md",
+      "submitted_sha": "3edac68",
+      "reviewer_session": "Codex independent session, quality-reviewer persona / round 1",
+      "review_commit": "c18163d",
+      "review_verdict": "approved",
+      "integration_sha": "c18163d",
+      "next_action": "Integrated after independent approval. No open gates."
     },
     {
       "id": "M4-CODEX-SESSION-ADAPTER",
