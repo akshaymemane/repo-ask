@@ -908,13 +908,16 @@
       "id": "PROVIDER-CLI-ADAPTER",
       "milestone": "post-M1",
       "title": "Claude Code / Codex CLI as Ask and plan provider (subscription login, no API key)",
-      "state": "backlog",
+      "state": "integrated",
       "feature_ids": ["F07", "F04"],
       "planned_persona": "integration",
       "planned_harness": "claude",
       "depends_on": ["M1-INTEGRATE"],
-      "handoff": "docs/agents/runs/PROVIDER-CLI-ADAPTER/notes.md",
-      "next_action": "Spike headless structured output with built-in tools disabled; gate on the M1 plan evaluation (>=8/10)."
+      "handoff": "docs/agents/runs/PROVIDER-CLI-ADAPTER/handoff.md",
+      "submitted_sha": "7dc7119",
+      "reviewer_session": "Codex coordinator / independent review round 1",
+      "integration_sha": "4072104",
+      "next_action": "Integrated after independent approval; user restart is required before migration 12 is applied to the live app."
     },
     {
       "id": "M4-CODEX-SESSION-ADAPTER",
