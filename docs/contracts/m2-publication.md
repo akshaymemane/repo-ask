@@ -38,6 +38,14 @@ missing/redacted/stale, the runner is not verifiably contained, the session is n
 terminal, or any changed path is rejected. It reuses the current live source policy and
 returns no host path or runner identifier.
 
+Generated artifacts (coordinator decision, M2-PILOT, 2026-11-17): a rejected path whose
+reason is `excluded_generated` **and** whose status is `added` (a new untracked artifact such as
+`__pycache__/`, `node_modules/` or build output created while working or validating) is omitted from
+publication, never uploaded, and listed by path in the snapshot (`omitted`), the preview
+(`omitted_paths`) and the default PR body. It does not count as a rejected path for eligibility.
+Every other rejection — any other reason, or a generated-pattern path that is `modified` or `deleted`
+(a tracked file) — still fails the snapshot with `rejected_paths`.
+
 Manual publication may disclose failed/unavailable checks in the PR body. Automatic
 `on_success_draft` publication additionally requires session state `completed`, outcome
 `reviewable`, `publication_eligible=true`, all required validations passed, current

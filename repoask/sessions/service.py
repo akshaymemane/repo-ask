@@ -774,6 +774,7 @@ class SessionService:
                 'base_branch': repo['base_branch'], 'session_branch': repo['session_branch'],
                 'diff_hash': patch['sha256'], 'checkpoint_artifact_id': checkpoint['id'],
                 'patch_artifact_id': patch['id'], 'checkpoint': cp, 'patch': pt,
+                'omitted': sorted(r['path'] for r in cp['rejected']),
                 'policy': policy, 'outcome': outcome, 'validations': validations, 'source_available': True}
 
     def validations(self, session_id):

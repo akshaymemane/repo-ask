@@ -20,6 +20,7 @@ from repoask.github.errors import GitHubError
 from repoask.platform.clock import new_id, now_ms
 from repoask.platform.worker import UnknownOutcomeError
 from .errors import PublicationError
+from repoask.sessions.publication import is_omitted
 
 # One local coordinator process owns publication. Serialize recovery readers
 # with retries across service instances; SQLite still rechecks durable job identity.
@@ -108,8 +109,13 @@ class PublicationService:
             raise PublicationError('session_snapshot_invalid')
         if checkpoint.get('base_sha') != snap['base_sha'] or patch.get('base_sha') != snap['base_sha']:
             raise PublicationError('session_snapshot_invalid')
-        if checkpoint.get('rejected') or patch.get('rejected'):
+        if any(not is_omitted(r) for r in checkpoint.get('rejected', []) + patch.get('rejected', [])):
             raise PublicationError('rejected_paths')
+        omitted = sorted(r['path'] for r in checkpoint.get('rejected', []))
+        if (checkpoint.get('rejected', []) != patch.get('rejected', [])
+                or snap.get('omitted', []) != omitted
+                or set(omitted) & (set(checkpoint.get('changed', {})) | set(checkpoint.get('deleted', [])))):
+            raise PublicationError('session_snapshot_invalid')
         self._validate_paths(checkpoint)
         return snap
 
@@ -160,6 +166,8 @@ class PublicationService:
         body = ('## Summary\n\nChanges from OpenDevin session `%s` (plan `%s`).\n\n'
                 '## Change statistics\n\n%s\n\n## Local validation\n\n%s\n' %
                 (snap['session_id'], snap['plan_version_id'], canonical(summary), canonical(checks)))
+        if snap.get('omitted'):
+            body += '\n## Omitted generated artifacts\n\n' + canonical(snap['omitted']) + '\n'
         return title, body[:65536]
 
     # -------------------------------------------------------------- public
@@ -192,6 +200,7 @@ class PublicationService:
                 'base_branch': snap['base_branch'], 'head_branch': 'opendevin/%s-<suffix>' % re.sub('[^A-Za-z0-9._-]', '-', session_id)[:80],
                 'diff_hash': snap['diff_hash'], 'stats': self._stats(snap),
                 'checks': snap['validations'], 'policy': snap['policy'], 'title': title, 'body': body,
+                'omitted_paths': snap.get('omitted', []),
                 'intent_version': 1, 'changed_paths': sorted(set(changed)),
                 'base_observation': observation,
                 'blocking_reasons': sorted(set(blockers)), 'publishable': not blockers}
@@ -363,6 +372,8 @@ class PublicationService:
         deleted = checkpoint.get('deleted', [])
         if not isinstance(changed, dict) or not isinstance(modes, dict) or not isinstance(deleted, list):
             raise PublicationError('session_snapshot_invalid')
+        if set(r['path'] for r in checkpoint.get('rejected', [])) & (set(changed) | set(deleted)):
+            raise PublicationError('rejected_paths')
         entries = []
         for path in sorted(changed):
             authority()

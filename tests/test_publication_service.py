@@ -148,6 +148,24 @@ class PublicationTests(TestCase):
         self.assertIn(('create_pr',done['head_branch'],'main',True),self.github.client.calls)
         self.assertEqual(done['pull_request_url'],'https://github.com/acme/repo/pull/7')
 
+    def test_only_added_generated_rejections_are_allowed(self):
+        entry = {'path': '__pycache__/x.pyc', 'reason': 'excluded_generated', 'status': 'added'}
+        snap = self.sessions.value
+        snap['omitted'] = [entry['path']]
+        snap['checkpoint']['rejected'] = [entry]
+        snap['patch']['rejected'] = [entry]
+        preview = self.svc.preview('ses')
+        self.assertEqual(preview['omitted_paths'], snap['omitted'])
+        self.assertIn(entry['path'], preview['body'])
+        for reason, status in [('excluded_generated', 'modified'), ('excluded_generated', 'deleted'),
+                               ('excluded_sensitive', 'added'), ('excluded_configured', 'added'),
+                               ('git_metadata', 'added')]:
+            with self.subTest(reason=reason, status=status):
+                entry.update(reason=reason, status=status)
+                with self.assertRaises(PublicationError) as caught:
+                    self.svc.preview('ses')
+                self.assertEqual(caught.exception.code, 'rejected_paths')
+
     def test_empty_diff_never_mints_token_or_writes(self):
         self.sessions.value['checkpoint'].update(changed={},deleted=[])
         self.sessions.value['patch']['stats']['files']=0
