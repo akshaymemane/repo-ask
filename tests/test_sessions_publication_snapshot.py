@@ -1,0 +1,223 @@
+"""Trusted publication boundary with real migrations/services and a synthetic runner."""
+import base64
+import json
+import sqlite3
+from unittest import mock
+
+from repoask.sessions import SessionError
+from repoask.sessions.workspace import acquisition_limits, acquire_github, canonical, review_changes, sha256
+from test_sessions_fixture import SessionCase
+
+
+class PublicationSnapshotTests(SessionCase):
+    def completed(self):
+        # Seed terminal runtime facts without starting a broker (socket binding is
+        # unavailable in restricted workspaces). Captures use the production
+        # acquisition/review helpers, not a displayed diff or hand-written bytes.
+        _, version = self.ready_plan()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'snapshot')['session_id']
+        with self.store.read() as db:
+            row = db.execute('SELECT limits_json FROM sessions WHERE id=?', (sid,)).fetchone()
+        limits = json.loads(row[0])
+        workspace = acquire_github(self.github, self.repo, self.remote.commit, [],
+                                   acquisition_limits(limits['runner']), check_authority=lambda: None)
+        files = dict(workspace.files)
+        files['run.sh'] = b'#!/bin/sh\necho changed\n'
+        del files['README.md']
+        cp, pt = review_changes(workspace, files, {'run.sh': '100755'})
+        outcome = {'result': 'reviewable', 'last_checkpoint_id': 'cp', 'containment': {'confirmed': True},
+                   'artifacts_stale': False, 'publication_eligible': False, 'rejected_paths': 0}
+        with self.store.transaction() as db:
+            db.execute("UPDATE sessions SET state='completed',outcome_json=? WHERE id=?", (canonical(outcome), sid))
+            db.execute('UPDATE session_repositories SET base_manifest_json=?,current_diff_hash=? WHERE session_id=?',
+                       (canonical(workspace.manifest), sha256(canonical(pt).encode()), sid))
+            db.execute("INSERT INTO session_runners(session_id,instance_id,state,updated_at) VALUES(?,?,'terminated',?)",
+                       (sid, 'private-runner', self.sessions.clock()))
+            for ident, kind, doc in (('cp', 'checkpoint', cp), ('pt', 'patch', pt)):
+                raw = canonical(doc).encode()
+                db.execute('INSERT INTO session_artifacts(id,session_id,kind,sha256,byte_count,content,created_at) '
+                           'VALUES(?,?,?,?,?,?,1)', (ident, sid, kind, sha256(raw), len(raw), raw))
+        return sid
+
+    def denied(self, sid, code):
+        with self.assertRaises(SessionError) as caught:
+            self.sessions.publication_snapshot(sid)
+        self.assertEqual(caught.exception.code, code)
+        self.assertEqual(caught.exception.details, [])
+        self.assertEqual(str(caught.exception), 'Session operation failed: ' + code)
+
+    def outcome(self, sid, **changes):
+        with self.store.transaction() as db:
+            value = json.loads(db.execute('SELECT outcome_json FROM sessions WHERE id=?', (sid,)).fetchone()[0])
+            value.update(changes)
+            db.execute('UPDATE sessions SET outcome_json=? WHERE id=?', (canonical(value), sid))
+
+    def mutate_artifact(self, sid, kind, mutate):
+        with self.store.transaction() as db:
+            row = db.execute('SELECT * FROM session_artifacts WHERE session_id=? AND kind=?', (sid, kind)).fetchone()
+            value = json.loads(bytes(row['content']))
+            mutate(value)
+            raw = canonical(value).encode()
+            db.execute('UPDATE session_artifacts SET content=?,sha256=?,byte_count=? WHERE id=?',
+                       (raw, sha256(raw), len(raw), row['id']))
+            if kind == 'patch':
+                db.execute('UPDATE session_repositories SET current_diff_hash=? WHERE session_id=?', (sha256(raw), sid))
+
+    def test_happy_path_exact_fields_executable_deletion_and_no_private_metadata(self):
+        sid = self.completed()
+        snap = self.sessions.publication_snapshot(sid)
+        self.assertEqual(set(snap), set('session_id plan_id plan_version_id repository_id base_sha base_branch '
+                         'session_branch diff_hash checkpoint_artifact_id patch_artifact_id checkpoint patch '
+                         'policy outcome validations source_available'.split()))
+        cp = snap['checkpoint']
+        self.assertEqual(base64.b64decode(cp['changed']['run.sh']), b'#!/bin/sh\necho changed\n')
+        self.assertEqual(cp['deleted'], ['README.md'])
+        self.assertEqual(cp['modes'], {'run.sh': '100755', 'README.md': '100644'})
+        self.assertEqual(snap['diff_hash'], sha256(canonical(snap['patch']).encode()))
+        self.assertEqual(snap['policy'], 'manual_draft')
+        self.assertFalse(snap['validations']['fully_validated'])  # failed checks still allow manual review
+        encoded = json.dumps(snap)
+        for private in ('container_id', 'harness_pid', 'socket_path', 'installation-secret-', self.tmp.name):
+            self.assertNotIn(private, encoded)
+        snap['checkpoint']['changed'].clear()
+        self.assertTrue(self.sessions.publication_snapshot(sid)['checkpoint']['changed'])
+
+    def test_live_source_policy_unavailable(self):
+        sid = self.completed()
+        with mock.patch.object(self.sessions, 'source_policy', return_value={'available': False}):
+            self.denied(sid, 'source_unavailable')
+
+    def test_live_exclusion_change(self):
+        sid = self.completed()
+        self.index.set_exclusions(self.repo, ['run.sh'])
+        self.denied(sid, 'source_unavailable')
+        self.index.set_exclusions(self.repo, [])
+        self.assertTrue(self.sessions.publication_snapshot(sid)['source_available'])
+
+    def test_repository_revoked_and_purged(self):
+        sid = self.completed()
+        self.github.update_selection(self.repo, index_enabled=False, implementation_enabled=False)
+        self.denied(sid, 'source_unavailable')
+        self.github.purge_repository(self.repo)
+        self.github_worker.run_once()
+        self.denied(sid, 'source_unavailable')
+
+    def test_artifacts_missing_and_redacted(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute("UPDATE session_artifacts SET content=NULL WHERE session_id=? AND kind='checkpoint'", (sid,))
+        self.denied(sid, 'artifacts_redacted')
+        with self.store.transaction() as db:
+            db.execute("DELETE FROM session_artifacts WHERE session_id=? AND kind='checkpoint'", (sid,))
+        self.denied(sid, 'artifacts_missing')
+
+    def test_nonterminal_and_uncontained(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute("UPDATE sessions SET state='running' WHERE id=?", (sid,))
+        self.denied(sid, 'session_not_terminal')
+        with self.store.transaction() as db:
+            db.execute("UPDATE sessions SET state='completed' WHERE id=?", (sid,))
+            db.execute("UPDATE session_runners SET state='containment_failed' WHERE session_id=?", (sid,))
+        self.denied(sid, 'containment_unverified')
+        with self.store.transaction() as db:
+            db.execute("UPDATE session_runners SET state='terminated' WHERE session_id=?", (sid,))
+        self.outcome(sid, containment={'confirmed': False})
+        self.denied(sid, 'containment_unverified')
+
+    def test_stale_outcome_or_checkpoint_identity(self):
+        sid = self.completed()
+        for flag in ('artifacts_stale', 'edits_since_last_checkpoint_may_be_lost', 'source_redacted'):
+            self.outcome(sid, **{flag: True})
+            self.denied(sid, 'stale_artifacts')
+            self.outcome(sid, **{flag: False})
+        self.outcome(sid, last_checkpoint_id='old')
+        self.denied(sid, 'stale_artifacts')
+
+    def test_recorded_diff_hash_mismatch(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute("UPDATE session_repositories SET current_diff_hash='old' WHERE session_id=?", (sid,))
+        self.denied(sid, 'stale_artifacts')
+
+    def test_each_artifact_hash_checked(self):
+        sid = self.completed()
+        for kind in ('checkpoint', 'patch'):
+            with self.store.transaction() as db:
+                row = db.execute('SELECT sha256 FROM session_artifacts WHERE session_id=? AND kind=?', (sid, kind)).fetchone()
+                db.execute("UPDATE session_artifacts SET sha256='bad' WHERE session_id=? AND kind=?", (sid, kind))
+            self.denied(sid, 'stale_artifacts')
+            with self.store.transaction() as db:
+                db.execute('UPDATE session_artifacts SET sha256=? WHERE session_id=? AND kind=?', (row[0], sid, kind))
+
+    def test_wrong_base_revision(self):
+        sid = self.completed()
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: cp.update(base_sha='a' * 40))
+        self.denied(sid, 'stale_artifacts')
+
+    def test_rejected_capture(self):
+        sid = self.completed()
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: cp.update(rejected=[{'path': '.env', 'reason': 'excluded'}]))
+        self.denied(sid, 'rejected_paths')
+
+    def test_checkpoint_bytes_must_match_patch(self):
+        sid = self.completed()
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: cp['changed'].update({'run.sh': base64.b64encode(b'wrong').decode()}))
+        self.denied(sid, 'session_snapshot_invalid')
+
+    def test_invalid_base64_and_modes(self):
+        sid = self.completed()
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: cp['modes'].update({'run.sh': '120000'}))
+        self.denied(sid, 'session_snapshot_invalid')
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: (cp['modes'].update({'run.sh': '100755'}), cp['changed'].update({'run.sh': '!!!!'})))
+        self.denied(sid, 'session_snapshot_invalid')
+
+    def test_artifact_budget_and_final_authority_check(self):
+        sid = self.completed()
+        with mock.patch.object(self.sessions, 'source_policy', side_effect=[{'available': True}, {'available': True}, {'available': False}]):
+            self.denied(sid, 'source_unavailable')
+        with self.store.transaction() as db:
+            limits = json.loads(db.execute('SELECT limits_json FROM sessions WHERE id=?', (sid,)).fetchone()[0])
+            limits['service']['artifact_bytes'] = 1
+            db.execute('UPDATE sessions SET limits_json=? WHERE id=?', (canonical(limits), sid))
+        self.denied(sid, 'stale_artifacts')
+
+    def test_path_guard_runs_even_without_recorded_rejection(self):
+        sid = self.completed()
+        def rename_cp(cp):
+            cp['changed']['.git/config'] = cp['changed'].pop('run.sh')
+            cp['modes']['.git/config'] = cp['modes'].pop('run.sh')
+        def rename_pt(pt):
+            next(f for f in pt['files'] if f['path'] == 'run.sh')['path'] = '.git/config'
+        self.mutate_artifact(sid, 'checkpoint', rename_cp)
+        self.mutate_artifact(sid, 'patch', rename_pt)
+        self.denied(sid, 'rejected_paths')
+
+    def test_patch_base_and_byte_count_are_verified(self):
+        sid = self.completed()
+        with self.assertRaises(sqlite3.IntegrityError), self.store.transaction() as db:
+            db.execute("UPDATE session_artifacts SET byte_count=0 WHERE session_id=? AND kind='patch'", (sid,))
+        self.assertTrue(self.sessions.publication_snapshot(sid)['source_available'])
+        self.mutate_artifact(sid, 'patch', lambda pt: pt.update(base_sha='a' * 40))
+        self.denied(sid, 'stale_artifacts')
+
+    def test_file_byte_limit(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            limits = json.loads(db.execute('SELECT limits_json FROM sessions WHERE id=?', (sid,)).fetchone()[0])
+            limits['runner']['max_file_bytes'] = 1
+            db.execute('UPDATE sessions SET limits_json=? WHERE id=?', (canonical(limits), sid))
+        self.denied(sid, 'session_snapshot_invalid')
+
+    def test_validation_summary_and_frozen_policy(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO validation_runs(id,session_id,ordinal,command_json,source,status,required,environment_json) "
+                       "VALUES('v',?,1,'{}','proposed','failed',1,'{}')", (sid,))
+            db.execute('UPDATE sessions SET publication_json=? WHERE id=?',
+                       (canonical({'policy': 'on_success_draft'}), sid))
+        snap = self.sessions.publication_snapshot(sid)
+        self.assertEqual(snap['policy'], 'on_success_draft')
+        self.assertEqual(snap['validations']['summary']['failed'], 1)
+        self.assertFalse(snap['validations']['fully_validated'])
+        self.assertFalse(snap['outcome']['publication_eligible'])
