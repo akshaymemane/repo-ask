@@ -905,6 +905,30 @@
       "next_action": "Post-M1 UX follow-up; shape from the recorded notes when the user reprioritizes it."
     },
     {
+      "id": "PROVIDER-CLI-ADAPTER",
+      "milestone": "post-M1",
+      "title": "Claude Code / Codex CLI as Ask and plan provider (subscription login, no API key)",
+      "state": "backlog",
+      "feature_ids": ["F07", "F04"],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": ["M1-INTEGRATE"],
+      "handoff": "docs/agents/runs/PROVIDER-CLI-ADAPTER/notes.md",
+      "next_action": "Spike headless structured output with built-in tools disabled; gate on the M1 plan evaluation (>=8/10)."
+    },
+    {
+      "id": "M4-CODEX-SESSION-ADAPTER",
+      "milestone": "M4",
+      "title": "Codex CLI coding-agent adapter for sessions",
+      "state": "backlog",
+      "feature_ids": ["F05", "F07"],
+      "planned_persona": "integration",
+      "planned_harness": "codex",
+      "depends_on": ["M2-INTEGRATE"],
+      "handoff": "docs/agents/runs/M4-CODEX-SESSION-ADAPTER/notes.md",
+      "next_action": "Run the M2 adapter-spike contract checks against Codex CLI before implementation."
+    },
+    {
       "id": "M2-INTEGRATE",
       "milestone": "M2",
       "title": "Wire session runner, activity and PR actions into application",
