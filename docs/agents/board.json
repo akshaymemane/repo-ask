@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-17T02:00:00Z",
+  "updated": "2026-11-17T03:00:00Z",
   "phase": "M2_in_progress",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "in_progress", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -687,6 +687,24 @@
       "submitted_sha": "23e836c",
       "integration_sha": "3851a93", "review_commit": "402fd52", "review_verdict": "approved", "reviewer_session": "Claude quality-reviewer, round 1",
       "next_action": "Integrated after independent approval. Four LOW follow-ups recorded in review-r1.md (owner: runtime)."
+    },
+    {
+      "id": "M2-ADAPTER-FOLLOWUPS",
+      "milestone": "M2",
+      "title": "Adapter prelaunch stop/deadline and callback error classification",
+      "state": "integrated",
+      "feature_ids": ["F05"],
+      "planned_persona": "integration",
+      "planned_harness": "claude",
+      "depends_on": ["M2-ADAPTER-SPIKE"],
+      "branch": "task/m2-adapter-followups",
+      "handoff": "docs/agents/runs/M2-ADAPTER-FOLLOWUPS/handoff.md",
+      "submitted_sha": "f59a163",
+      "reviewer_session": "Codex independent session, round 1",
+      "review_commit": "d16eec5",
+      "review_verdict": "approved",
+      "integration_sha": "52c74ab",
+      "next_action": "Integrated. Minor follow-up: tests/test_execution_adapter.py:561-569 reuses the agent.ran marker across subtests (owner: integration)."
     },
     {
       "id": "M2-PILOT",
