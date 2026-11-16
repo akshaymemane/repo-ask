@@ -279,6 +279,9 @@ class ApplicationServices:
                              worker_id=new_id('worker'), lease_ms=120000)
         if self.sessions is not None:
             self.sessions.start()
+        # Lost or expired publication runs are reconciled against GitHub before new work is claimed.
+        if self.publications is not None and callable(getattr(self.publications, 'recover', None)):
+            self.publications.recover()
         self.thread = Thread(target=self._run, name='opendevin-background-jobs')
         self.thread.start()
 

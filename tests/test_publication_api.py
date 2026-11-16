@@ -28,11 +28,17 @@ class Conversations:
     def purge_repository(self, ident): return None
 
 
+class Sessions:
+    def start(self): return {'status': 'running'}
+    def close(self): return {'status': 'stopped'}
+    def runtime_status(self): return {'status': 'running'}
+
+
 def compose(platform, **execution):
     services = ApplicationServices(platform)
     services.enable_context(Context())
     services.enable_ask(object(), object(), Conversations())
-    services.enable_execution(object(), object(), **execution)
+    services.enable_execution(object(), Sessions(), **execution)
     return services
 
 
@@ -102,3 +108,16 @@ class PublicationCompositionTests(TestCase):
         services = compose(platform, publications=fake)
         self.assertIs(services.publications, fake)
         self.assertEqual(services.api.dispatch('GET', '/api/publications/p').body, {'called': 'get'})
+
+
+class PublicationRecoveryTests(TestCase):
+    def test_start_recovers_publications_before_workers_run(self):
+        platform = Platform.open(None)
+        self.addCleanup(platform.close)
+        fake = FakePublications()
+        services = compose(platform, publications=fake)
+        services.start()
+        try:
+            self.assertIn('recover', [c[0] for c in fake.calls])
+        finally:
+            services.close()
