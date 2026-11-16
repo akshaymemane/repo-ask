@@ -92,3 +92,10 @@ class ClientTests(unittest.TestCase):
         bad=[{'path':'x','mode':'100644','type':'blob','sha':'bad'}]
         with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_tree('t','a','b','c'*40,bad)
         with self.assertRaises(GitHubError):self.client(Response(200,{},{})).create_ref('t','a','b','main','bad')
+
+    def test_publication_compare_requires_ancestor_status(self):
+        for status in ('ahead','identical','behind','diverged',None):
+            with self.subTest(status=status):
+                result=self.client(Response(200,{},{'files':[], 'total_commits':1,'status':status})).compare(
+                    'token','acme','repo','a'*40,'b'*40)
+                self.assertEqual(result['complete'],status in ('ahead','identical'))

@@ -264,7 +264,7 @@ class GitHubClient:
         if (not isinstance(files, list) or len(files) > 300 or type(total) is not int
                 or any(not isinstance(f, dict) or not isinstance(f.get('filename'), str) for f in files)):
             raise GitHubError('malformed_output')
-        return {'files': files, 'complete': len(files) < 300}
+        return {'files': files, 'complete': len(files) < 300 and value.get('status') in ('ahead', 'identical')}
 
     def create_blob(self, token, owner, name, content):
         if not isinstance(content, (bytes, bytearray)) or len(content) > 4 * 1024 * 1024:
