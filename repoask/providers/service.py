@@ -43,7 +43,9 @@ CHARS_PER_TOKEN_ESTIMATE = 4
 DEFAULT_RETRY_MS = 60_000
 MAX_RETRY_MS = 3_600_000
 CONTEXT_MARKERS = ('context_length', 'context length', 'maximum context', 'context window',
-                   'too many tokens', 'exceeds the context')
+                   'too many tokens', 'exceeds the context',
+                   # Groq: one request above the tier's tokens-per-minute cap (413).
+                   'request too large', 'reduce your message size')
 
 SYNTHETIC_CHAT = [{'role': 'user', 'content': 'Connection test. Reply with the single word: ok'}]
 SYNTHETIC_SCHEMA = {'type': 'object', 'properties': {'ok': {'type': 'boolean'}},

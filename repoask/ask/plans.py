@@ -21,7 +21,10 @@ def strings(value):
 
 def safe_path(value):
     text(value,1000)
-    if any(ord(c)<32 for c in value) or '\\' in value or value.startswith('/') or any(p in ('','.','..') for p in value.split('/')) or ':' in value:
+    if value.startswith('/'):
+        raise ValueError('Unsafe relative path.')
+    value=value.rstrip('/')  # a directory may be named with a trailing slash
+    if any(ord(c)<32 for c in value) or '\\' in value or any(p in ('','.','..') for p in value.split('/')) or ':' in value:
         raise ValueError('Unsafe relative path.')
     return str(PurePosixPath(value))
 
@@ -92,8 +95,7 @@ class PlanService:
                     raise ValueError('Finding requires evidence or explicit gap.')
                 if key=='steps':
                     strings(item['paths'])
-                    for path in item['paths']:
-                        safe_path(path)
+                    item['paths']=[safe_path(path) for path in item['paths']]
                 if key=='validation' and (item['source'] not in ('observed','proposed') or item['source']=='observed' and not item['citation_ids']):
                     raise ValueError('Invalid validation evidence.')
         question_ids=set()

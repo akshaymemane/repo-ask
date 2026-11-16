@@ -301,6 +301,11 @@ class ProviderTests(unittest.TestCase):
                            (TransportTimeout('secret text'), 'provider_timeout'),
                            (RuntimeError('secret text'), 'provider_unavailable'),
                            (response({'error': {'code': 'context_length_exceeded'}}, 400), 'context_overflow'),
+                           (response({'error': {'type': 'tokens', 'code': 'rate_limit_exceeded',
+                                                'message': 'Request too large for model on tokens per minute (TPM): '
+                                                           'Limit 8000, Requested 9755, please reduce your message size'}}, 413),
+                            'context_overflow'),
+                           (response({'error': {'code': 'payload_too_large'}}, 413), 'provider_rejected'),
                            (TransportResponse(200, {}, b'x' * (4*1024*1024+1)), 'invalid_output'),
                            (TransportResponse(200, {}, b'{bad'), 'invalid_output')):
             self.transport.queue = [item]

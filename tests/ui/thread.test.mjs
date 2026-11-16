@@ -120,3 +120,11 @@ test("scope events appear in time order between messages", async () => {
   assert.deepEqual(order, ["msg-user", "thread-event", "msg-assistant"]);
   assert.match(visibleText(host.querySelector(".thread-event")), /Added cube-workbench/);
 });
+
+test("provider limits and refusals read as plain sentences", async () => {
+  const mod = await import(`${url}?errors=1`);
+  assert.match(mod.errorWords("context_overflow"), /too large for this model's limits\. Lower its context token limit in Settings → Models/);
+  assert.match(mod.errorWords("provider_rate_limited"), /rate limit was reached/);
+  assert.match(mod.errorWords("invalid_output"), /didn't pass validation/);
+  assert.equal(mod.errorWords("some_new_code"), "some new code");
+});

@@ -92,3 +92,32 @@ class NativePlanTests(TestCase):
         self.assertEqual(saved['publication'],{'policy':'manual_draft'})
         self.assertIsNone(saved['execution_context']['execution_profile_id'])
         self.assertEqual(saved['execution_context']['base_choices'],{})
+
+    def test_repair_prompt_names_the_failed_rule_and_second_attempt_succeeds(self):
+        f=self.f;good=draft(f.content)
+        bad={**good,'findings':[{'text':'The worker retries forever.','citation_ids':[]}]}
+        f.transport.output=bad
+        def fix():
+            if f.transport.calls==2:
+                f.transport.output=good
+        f.transport.callback=fix
+        run=f.service.send(f.conv,'Plan confirmation retries','repair-hint',intent='plan');f.work()
+        self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
+        self.assertEqual(f.transport.calls,2)
+        repair=json.loads(f.transport.requests[1].body)['messages'][-1]['content']
+        self.assertIn("start with 'Unknown:' or 'Gap:'",repair)
+        self.assertNotIn('The worker retries forever.',repair)
+
+    def test_directory_step_path_with_trailing_slash_is_normalized(self):
+        f=self.f;payload=draft(f.content)
+        payload['steps'][0]['paths']=['new/retry/','worker.py']
+        f.transport.output=payload
+        run=f.service.send(f.conv,'Plan confirmation retries','dir-path',intent='plan');f.work()
+        self.assertEqual(f.service.get_run(run['id'])['state'],'completed')
+        saved=f.service.get(f.conv)['plans'][0]['version']['content']
+        self.assertEqual(saved['steps'][0]['paths'],['new/retry','worker.py'])
+        for unsafe in ('/etc/','../up/','a//b','./a'):
+            with self.subTest(unsafe=unsafe):
+                payload=draft(f.content);payload['steps'][0]['paths']=[unsafe];f.transport.output=payload
+                run=f.service.send(f.conv,'Plan confirmation retries','unsafe-'+unsafe,intent='plan');f.work()
+                self.assertEqual(f.service.get_run(run['id'])['state'],'failed')

@@ -13,6 +13,24 @@ class ScopeUnavailable(ValueError):
     code='scope_unavailable'
 
 
+REPAIR_HINTS={
+    'Finding requires evidence or explicit gap.':"Every finding must cite evidence IDs, or its text must start with 'Unknown:' or 'Gap:'.",
+    'Unsafe relative path.':"Step paths must be repository-relative, without a leading '/', '.' or '..' segments, backslashes or ':'.",
+}
+
+
+def repair_reason(exc):
+    """Tell the model which rule failed, using only server-authored messages."""
+    if isinstance(exc,json.JSONDecodeError):
+        return 'The output was not valid JSON.'
+    message=str(exc) if isinstance(exc,ValueError) else ''
+    if message in REPAIR_HINTS:
+        return REPAIR_HINTS[message]
+    if message and len(message)<=80:
+        return message
+    return 'Required fields are missing or have the wrong type.'
+
+
 class ConversationService:
     def __init__(self,store,jobs,index,providers,routing,plans,*,clock=now_ms):
         self.store,self.jobs,self.index,self.providers,self.routing,self.plans=store,jobs,index,providers,routing,plans
@@ -392,10 +410,10 @@ class ConversationService:
                         cited=[{k:evidence[e][k] for k in ('repository_id','snapshot_id','revision','path','start_line','end_line')} for e in parsed['citation_ids']]
                         content=parsed['answer']
                     break
-                except (ValueError,TypeError,KeyError):
+                except (ValueError,TypeError,KeyError) as exc:
                     if attempt:
                         raise ValueError('Invalid model output.') from None
-                    messages.append({'role':'user','content':'The output failed server validation. Return corrected JSON using only provided evidence and the required schema.'})
+                    messages.append({'role':'user','content':'The output failed server validation: '+repair_reason(exc)+' Return corrected JSON using only provided evidence and the required schema.'})
             with self.store.read() as db:
                 self._fence(db,job,context)
             context.checkpoint({'phase':'finalize'})
