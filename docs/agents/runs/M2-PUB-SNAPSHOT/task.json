@@ -1,0 +1,29 @@
+{
+  "id": "M2-PUB-SNAPSHOT",
+  "title": "Trusted SessionService.publication_snapshot for F06",
+  "state": "running",
+  "base_sha": "97f8c30",
+  "branch": "task/m2-pub-snapshot",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-pub-snapshot",
+  "owner": "Codex runtime builder (codex exec, workspace-write)",
+  "depends_on": ["M2-SESSIONS"],
+  "contract": "docs/contracts/m2-publication.md (Session handoff section)",
+  "requirements": ["PR-01", "PR-02", "PR-03", "PR-09", "OP-06"],
+  "write_scope": [
+    "repoask/sessions/** (publication_snapshot and helpers it needs only)",
+    "tests/test_sessions_publication_snapshot.py",
+    "docs/agents/runs/M2-PUB-SNAPSHOT/**"
+  ],
+  "forbidden_scope": ["repoask/publication/**", "repoask/platform/**", "repoask/services.py", "repoask/session_api.py", "repoask/__main__.py", "repoask/web/**", "repoask/github/**"],
+  "acceptance": [
+    "Returns exactly the contract fields; no host path, runner id, token or secret",
+    "Checkpoint carries bounded base64 bytes, deletions, modes 100644/100755 and rejected paths from the latest verified capture",
+    "Patch/checkpoint hashes are checked against the recorded session repository and artifacts",
+    "Fails with stable content-free errors when: source unavailable, repository purged or excluded, artifacts missing/redacted/stale, containment unverified, session not terminal, any changed path rejected",
+    "Uses the current live source policy",
+    "Output is consumable by the publication candidate's PublicationService._snapshot (see task/m2-prs-r2 repoask/publication/service.py) without changes to that package",
+    "Focused tests plus full Python suite pass"
+  ],
+  "reviewer": "fresh Claude quality reviewer (opposite harness)",
+  "handoff": "docs/agents/runs/M2-PUB-SNAPSHOT/handoff.md"
+}
