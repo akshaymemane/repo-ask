@@ -7,7 +7,7 @@ import { createBrowser, install, settle, visibleText } from "./dom.mjs";
 const url = pathToFileURL(fileURLToPath(new URL("../../repoask/web/settings.js", import.meta.url))).href;
 let loads = 0;
 
-async function setup({ connections = [], localOnly = true, failLocal = false } = {}) {
+async function setup({ connections = [], localOnly = true, failLocal = false, onPrivacyChange } = {}) {
   const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
   install(b);
   loads += 1;
@@ -26,7 +26,7 @@ async function setup({ connections = [], localOnly = true, failLocal = false } =
   sections.github.append("Existing GitHub controls");
   sections.health.append("Health cards");
   const submitted = [];
-  const page = mod.createSettingsPage({ host: b.document.getElementById("host"), request, sections, submitForm: (form) => submitted.push(form) });
+  const page = mod.createSettingsPage({ host: b.document.getElementById("host"), request, sections, submitForm: (form) => submitted.push(form), onPrivacyChange });
   return { b, mod, page, calls, submitted, host: b.document.getElementById("host") };
 }
 
@@ -157,4 +157,21 @@ test("without key storage there is no Connect button, only the reason", async ()
   assert.equal(host.querySelectorAll("button").find((x) => x.textContent === "Connect GitHub"), undefined);
   assert.match(visibleText(host), /GitHub setup needs saved storage and an unlocked secure key store\. Start OpenDevin with --data-dir and unlock your keychain\./);
   assert.match(mod.githubStatusText("manifest_key_not_saved"), /The App was created on GitHub but its key wasn't saved/);
+});
+
+test("a saved privacy change tells the page so the coding agent can re-read the policy; a failed one does not", async () => {
+  const changes = [];
+  const ok = await setup({ onPrivacyChange: (next) => changes.push(next) });
+  await ok.page.show("privacy");
+  await settle();
+  ok.host.querySelector('[role="switch"]').click();
+  await settle();
+  assert.deepEqual(changes, [false]);
+  const failed = [];
+  const bad = await setup({ failLocal: true, onPrivacyChange: (next) => failed.push(next) });
+  await bad.page.show("privacy");
+  await settle();
+  bad.host.querySelector('[role="switch"]').click();
+  await settle();
+  assert.deepEqual(failed, []);
 });

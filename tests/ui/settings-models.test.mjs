@@ -242,3 +242,29 @@ test("every model source is a row in one providers card, and every job picker ha
   const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
   assert.match(css, /\.job-row select \{ flex: none; width: min\(320px, 55%\); \}/);
 });
+
+test("an older Models load that finishes last does not replace the newer one", async () => {
+  const b = createBrowser("<!doctype html><html><body><main id=host></main></body></html>", { respond: () => ({ status: 404, body: {} }) });
+  install(b);
+  const mod = await import(`${url}?m=race`);
+  let release;
+  const slow = new Promise((done) => { release = done; });
+  let discoveries = 0;
+  const profiles = [[], [PROFILE]];
+  let reads = 0;
+  const request = async (path, method = "GET") => {
+    if (path.startsWith("/api/provider-profiles/discover")) return ++discoveries === 1 ? slow : DISCOVERED;
+    if (path === "/api/provider-profiles" && method === "GET") return { profiles: profiles[Math.min(reads++, 1)] };
+    if (path === "/api/settings/model-roles") return { roles: { ask: { profile_id: reads > 1 ? "prof_1" : null } }, settings: { local_only: true } };
+    return {};
+  };
+  const host = b.document.getElementById("host");
+  const stale = mod.mountModels(host, { request });
+  await mod.mountModels(host, { request });
+  await settle();
+  assert.equal(select(host, "Answering questions").value, "p:prof_1");
+  release(DISCOVERED);
+  await stale;
+  await settle();
+  assert.equal(select(host, "Answering questions").value, "p:prof_1", "the stale load rendered nothing");
+});

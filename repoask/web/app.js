@@ -878,7 +878,7 @@ function renderSettings() {
     if (connectedUI.executionReady) byId("settings-content").append(executionUI.element);
   } else {
     settingsPage ||= createSettingsPage({ host: byId("settings-content"), request: featureRequest,
-      sections: { github: githubPanel, models: modelsHost, agent: null, health: healthHost } });
+      sections: { github: githubPanel, models: modelsHost, agent: null, health: healthHost }, onPrivacyChange: () => executionUI.refresh() });
     if (providerPanel.parentNode !== modelsAdvanced) modelsAdvanced.append(providerPanel);
     settingsPage.mount();
     const code = (/[?&]github=([a-z_]{1,64})/.exec(location.hash) || [])[1] || "";
@@ -1159,7 +1159,8 @@ function renderProviderEditor(profile = null) {
   for (const cap of ["chat", "structured_output", "embeddings"]) caps[cap] = toggle(capsGroup, CAPABILITY_NAMES[cap], config.capabilities ? config.capabilities.includes(cap) : cap === "chat");
   form.append(capsGroup);
   const dimensions = control(form, "Embedding dimensions (required for embeddings)", config.embedding_dimensions || "", "number"); dimensions.min = "1"; dimensions.max = "16384";
-  const showDimensions = () => { dimensions.parentNode.hidden = !caps.embeddings.checked; };
+  // Disabled as well as hidden: a leftover invalid value must not block saving a chat-only profile.
+  const showDimensions = () => { dimensions.parentNode.hidden = dimensions.disabled = !caps.embeddings.checked; };
   caps.embeddings.addEventListener("change", showDimensions); showDimensions();
   const limits = node("fieldset", undefined, "field-group field-wide field-columns"); limits.append(node("legend", "Limits"));
   const timeout = control(limits, "Timeout seconds", config.timeout_seconds ?? 60, "number"); timeout.min = "1"; timeout.max = "600"; timeout.required = true;

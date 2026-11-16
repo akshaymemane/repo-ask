@@ -43,7 +43,8 @@ export async function startManifest(request, { organization = "" } = {}, submitF
   return start;
 }
 
-export function createSettingsPage({ host, request, sections, submitForm = defaultSubmit, navigate = (href) => location.assign(href) }) {
+// onPrivacyChange: runs after local-only is saved, so views that show the policy can re-read it.
+export function createSettingsPage({ host, request, sections, submitForm = defaultSubmit, navigate = (href) => location.assign(href), onPrivacyChange = () => {} }) {
   const root = el("div", undefined, "settings-layout");
   const nav = el("nav", undefined, "settings-nav");
   nav.setAttribute("aria-label", "Settings sections");
@@ -112,7 +113,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
       const label = el("div");
       label.append(el("strong", "Keep everything on this computer"), el("p", "Blocks remote model destinations for answers, plans and search.", "detail-muted"));
       const control = toggleSwitch({ label: "Local-only inference and embeddings", checked: data.settings?.local_only === true,
-        onChange: (next) => request("/api/settings/model-roles", "PATCH", { local_only: next }) });
+        onChange: async (next) => { await request("/api/settings/model-roles", "PATCH", { local_only: next }); onPrivacyChange(next); } });
       row.append(label, control.root);
       const more = el("details");
       more.append(el("summary", "Learn more"), el("p", "Turning this off does not share repository source by itself. Each remote model profile needs its own source-sharing opt-in, and model profiles can never run repository tools or publish pull requests."));

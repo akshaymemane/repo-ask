@@ -179,8 +179,13 @@ function claudeSubscriptionForm(request, onDone, trigger) {
 
 // onChange: called instead of a local re-render after a change saves profiles, so the page can
 // refresh everything that lists them (it re-mounts this view too).
+const mounts = new WeakMap();
 export async function mountModels(host, { request, onChange = null }) {
-  const refresh = () => (onChange ? onChange() : mountModels(host, { request }));
+  const refresh = () => (onChange ? onChange() : mountModels(host, { request, onChange }));
+  // Only the newest mount may render; an older one finishing last would show stale profiles.
+  const generation = (mounts.get(host) ?? 0) + 1;
+  mounts.set(host, generation);
+  const current = () => mounts.get(host) === generation;
   host.replaceChildren(el("p", "Loading models…", "detail-muted"));
   let discovered, listed, roleData;
   try {
@@ -190,9 +195,10 @@ export async function mountModels(host, { request, onChange = null }) {
       request("/api/settings/model-roles"),
     ]);
   } catch (error) {
-    host.replaceChildren(el("p", `Model settings unavailable: ${error.message}`));
+    if (current()) host.replaceChildren(el("p", `Model settings unavailable: ${error.message}`));
     return;
   }
+  if (!current()) return;
   const profiles = listed.profiles || [];
   const roles = roleData.roles || {};
   const models = discovered.models || [];

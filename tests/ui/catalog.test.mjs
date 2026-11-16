@@ -226,3 +226,14 @@ test('the profile form asks for embedding dimensions only with Embeddings, and i
  adapter.value = 'openai_compatible'; adapter.dispatchEvent({type: 'change', bubbles: true});
  assert.match(hint.textContent, /^Use the \/v1 base\./);
 });
+
+test('a hidden embedding-dimensions value never blocks saving a chat-only profile', async () => {
+ const app = await boot(undefined, '#/settings/models');
+ const form = formFor(app.document.getElementById('settings-content'), 'Create profile');
+ const dimensions = input(form, 'Embedding dimensions'); const embeddings = input(form, 'Embeddings');
+ assert.equal(dimensions.disabled, true);
+ embeddings.checked = true; embeddings.dispatchEvent({type: 'change', bubbles: true});
+ assert.equal(dimensions.disabled, false); dimensions.value = '0';
+ embeddings.checked = false; embeddings.dispatchEvent({type: 'change', bubbles: true});
+ assert.equal(dimensions.disabled, true, 'disabled controls are skipped by browser validation');
+});
