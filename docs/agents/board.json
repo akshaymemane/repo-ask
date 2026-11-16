@@ -896,13 +896,16 @@
       "id": "M1-PLAN-UI-FOLLOWUP",
       "milestone": "post-M1",
       "title": "Improve generated plan readability and hierarchy",
-      "state": "backlog",
+      "state": "integrated",
       "feature_ids": ["F04", "F11"],
       "planned_persona": "experience",
       "planned_harness": "claude",
       "depends_on": ["M1-INTEGRATE"],
       "handoff": "docs/agents/runs/M1-PLAN-UI-FOLLOWUP/notes.md",
-      "next_action": "Post-M1 UX follow-up; shape from the recorded notes when the user reprioritizes it."
+      "submitted_sha": "bed171d",
+      "reviewer_session": "Codex coordinator / independent review round 1",
+      "integration_sha": "7d8630f",
+      "next_action": "Integrated after independent approval; user restart is required to load the new web asset."
     },
     {
       "id": "PROVIDER-CLI-ADAPTER",
