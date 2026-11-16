@@ -65,7 +65,20 @@ function addProviderForm(request, onDone, trigger) {
   const share = check("Send repository source to this provider", false);
   remote.append(share.wrap, el("p", "Ask and plans send retrieved code snippets to this provider. "
     + "Local-only mode in Settings → Privacy must also be off.", "modal-note"));
-  const showRemote = () => { remote.hidden = !isRemote(base.input.value.trim()); };
+  let consentEndpoint = null;
+  share.input.addEventListener("change", () => {
+    consentEndpoint = share.input.checked ? base.input.value.trim() : null;
+  });
+  const showRemote = () => {
+    const endpoint = base.input.value.trim();
+    remote.hidden = !isRemote(endpoint);
+    // Source consent is destination-specific. Editing or hiding the destination
+    // requires a fresh visible opt-in, even if the user later types the old URL.
+    if (remote.hidden || (share.input.checked && consentEndpoint !== endpoint)) {
+      share.input.checked = false;
+      consentEndpoint = null;
+    }
+  };
   base.input.addEventListener("input", showRemote);
   showRemote();
   const advanced = el("details");

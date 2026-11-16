@@ -133,6 +133,49 @@ test("a remote provider offers the source-sharing opt-in and sends it with struc
     max_output_tokens: 1024, allow_external_source: true });
 });
 
+test("source-sharing consent is cleared when a remote destination changes", async () => {
+  const { b, host, calls } = await setup();
+  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
+  field("Name").value = "Changed remote";
+  input(field("Base URL"), "https://provider-a.example/v1");
+  field("Model").value = "model";
+  const share = field("Send repository source to this provider");
+  share.click();
+  assert.equal(share.checked, true);
+  input(field("Base URL"), "https://provider-b.example/v1");
+  assert.equal(share.checked, false, "consent for provider A cannot apply to provider B");
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Add provider").click();
+  await settle();
+  const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
+  assert.equal(post[2].config.allow_external_source, false);
+});
+
+test("hiding source consent clears it before a later remote destination", async () => {
+  const { b, host, calls } = await setup();
+  host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
+  await settle();
+  const dialog = b.document.querySelector("dialog.modal");
+  const field = (label) => dialog.querySelectorAll("input").find((i) => i.getAttribute("aria-label") === label);
+  field("Name").value = "Remote after local";
+  input(field("Base URL"), "https://provider-a.example/v1");
+  field("Model").value = "model";
+  const share = field("Send repository source to this provider");
+  share.click();
+  input(field("Base URL"), "http://127.0.0.1:1234/v1");
+  assert.equal(share.closest(".modal-remote").hidden, true);
+  assert.equal(share.checked, false, "hidden consent is cleared");
+  input(field("Base URL"), "https://provider-b.example/v1");
+  assert.equal(share.closest(".modal-remote").hidden, false);
+  assert.equal(share.checked, false, "returning to remote requires a fresh opt-in");
+  dialog.querySelectorAll("button").find((x) => x.textContent === "Add provider").click();
+  await settle();
+  const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
+  assert.equal(post[2].config.allow_external_source, false);
+});
+
 test("unchecking structured output keeps a chat-only profile", async () => {
   const { b, host, calls } = await setup();
   host.querySelectorAll("button").find((x) => x.textContent === "＋ Add OpenAI-compatible provider").click();
