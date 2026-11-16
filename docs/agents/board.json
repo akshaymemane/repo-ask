@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updated": "2026-11-16T23:30:00Z",
-  "phase": "M1_complete_M2_M3_parked",
-  "milestones": {"M0": "complete", "M1": "complete", "M2": "on_hold", "M3": "on_hold"},
+  "updated": "2026-11-17T00:10:00Z",
+  "phase": "M2_in_progress",
+  "milestones": {"M0": "complete", "M1": "complete", "M2": "in_progress", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
   "max_active_agents": 4,
   "max_active_builders": 2,
@@ -624,7 +624,7 @@
       "id": "M2-PRS",
       "milestone": "M2",
       "title": "Draft publication and uncertain-outcome reconciliation",
-      "state": "backlog",
+      "state": "review",
       "feature_ids": [
         "F06"
       ],
@@ -642,17 +642,17 @@
         "Publication intent and required checks enforced",
         "Lost response/retry yields one PR"
       ],
-      "owner_session": null,
-      "base_sha": "1fa296f951a63d22d4f6d9d764a601b502e7b9ec",
-      "branch": "task/m2-publication",
-      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication",
-      "reviewer_session": "fresh opposite-harness quality and security reviewer after candidate",
+      "owner_session": "Codex runtime builder (candidate 741251e); coordinator cherry-picked onto 97f8c30 as a273ab2",
+      "base_sha": "97f8c30",
+      "branch": "task/m2-prs-r2",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-prs-r2",
+      "reviewer_session": "Claude quality-reviewer and Claude security-reviewer agents, round 1 on a273ab2",
       "handoff": "docs/agents/runs/M2-PRS/handoff.md",
       "heartbeat_at": "2026-11-15T10:52:19Z",
-      "submitted_sha": "741251e88a1c73479fa97c5ccc35d1c3e1424022",
+      "submitted_sha": "a273ab2",
       "integration_sha": null,
       "blocker": null,
-      "next_action": "ON HOLD by user. Candidate 741251e is parked cleanly and unreviewed; do not review, wire or integrate until the user resumes M2.",
+      "next_action": "M2 resumed by user 2026-11-16. Independent quality and security review running on a273ab2 (content identical to 741251e).",
       "completion_depends_on": [
         "M2-PROFILES",
         "M2-ADAPTER-SPIKE"
@@ -666,6 +666,27 @@
       ],
       "contract": "docs/contracts/m2-publication.md",
       "reviewer": "fresh opposite-harness quality and security review"
+    },
+    {
+      "id": "M2-PUB-SNAPSHOT",
+      "milestone": "M2",
+      "title": "Trusted SessionService.publication_snapshot for F06",
+      "state": "running",
+      "feature_ids": ["F05", "F06"],
+      "planned_persona": "runtime",
+      "planned_harness": "codex",
+      "depends_on": ["M2-SESSIONS"],
+      "owner_session": "Codex runtime builder (codex exec, workspace-write)",
+      "base_sha": "97f8c30",
+      "branch": "task/m2-pub-snapshot",
+      "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-pub-snapshot",
+      "write_scope": ["repoask/sessions/** (publication_snapshot only)", "tests/test_sessions_publication_snapshot.py", "docs/agents/runs/M2-PUB-SNAPSHOT/**"],
+      "contract": "docs/contracts/m2-publication.md",
+      "reviewer": "fresh Claude quality reviewer",
+      "handoff": "docs/agents/runs/M2-PUB-SNAPSHOT/handoff.md",
+      "submitted_sha": null,
+      "integration_sha": null,
+      "next_action": "Builder running."
     },
     {
       "id": "M2-PILOT",
@@ -1006,7 +1027,7 @@
       "id": "M2-INTEGRATE",
       "milestone": "M2",
       "title": "Wire session runner, activity and PR actions into application",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": [
         "F05",
         "F06",
