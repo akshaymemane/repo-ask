@@ -35,9 +35,10 @@ async function setup({ configured = false, connected = true, repos = [repo("gh:1
   let done = 0;
   const submitted = [];
   const navigated = [];
-  await mod.renderSetup(host, { request, onDone: () => { done += 1; }, submitForm: (form) => submitted.push(form), navigate: (href) => navigated.push(href) });
+  const rolesSeen = [];
+  await mod.renderSetup(host, { request, onDone: () => { done += 1; }, onRoles: (roles) => rolesSeen.push(roles), submitForm: (form) => submitted.push(form), navigate: (href) => navigated.push(href) });
   await settle();
-  return { b, mod, host, calls, done: () => done, submitted, navigated };
+  return { b, mod, host, calls, done: () => done, submitted, navigated, rolesSeen };
 }
 
 const btn = (host, text) => host.querySelectorAll("button").find((x) => x.textContent === text);
@@ -68,12 +69,14 @@ test("the checklist marks GitHub done and indexes the chosen repositories", asyn
 });
 
 test("Use these assigns the found chat model to answering and planning and the embedding model to search", async () => {
-  const { host, calls } = await setup({ repos: [repo("gh:1", "rcnl-app", { index_enabled: true })] });
+  const { host, calls, rolesSeen } = await setup({ repos: [repo("gh:1", "rcnl-app", { index_enabled: true })] });
+  assert.equal(rolesSeen.length, 1);
   assert.match(visibleText(host), /Found Ollama with llama3\.2:latest and nomic-embed-text:latest\. Use them\?/);
   btn(host, "Use these").click();
   await settle(30);
   const assignments = calls.filter(([m, p]) => m === "PATCH" && p === "/api/settings/model-roles").map(([, , b]) => b.assignments);
   assert.deepEqual(assignments, [{ ask: "prof_1" }, { planning: "prof_1" }, { embedding: "prof_2" }]);
+  assert.equal(rolesSeen.length, 2, "the rerender after assigning reports the new roles to the page");
   assert.ok(host.querySelectorAll("a").find((a) => a.getAttribute("href") === "#/settings/models" && a.textContent === "Choose…"));
 });
 

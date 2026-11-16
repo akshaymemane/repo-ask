@@ -97,6 +97,29 @@ test("recent list shows titles and falls back to Untitled, never ids", async () 
   assert.deepEqual(b.recent.map((r) => r.href), ["#/ask/conv_1", "#/ask/conv_2"]);
 });
 
+test("unassigned model roles disable Ask and Generate plan before sending, on the landing page and in a conversation", async () => {
+  const conversation = { id: "conv_1", title: "Deploy flow", scope_revision: 1, repository_ids: [], messages: [], runs: [], plans: [] };
+  const roles = { settings: { local_only: true }, roles: { ask: { status: "unassigned" }, planning: { status: "ready", model: "sonnet", destination: { kind: "local" } } } };
+  const respond = (m, u) => {
+    if (u === "/api/conversations") return { items: [conversation] };
+    if (u === "/api/conversations/conv_1") return conversation;
+    if (u === "/api/settings/model-roles") return roles;
+    return { status: 404, body: { code: "not_found" } };
+  };
+  for (const hash of ["#/ask", "#/ask/conv_1"]) {
+    const b = await boot(respond, { hash });
+    await settle(10);
+    assert.equal(b.button("Ask").disabled, true, hash);
+    assert.equal(b.button("Generate plan").disabled, false, hash);
+    assert.match(visibleText(b.ui.panel), /No model is set for answering questions\. Choose a model in Settings/, hash);
+  }
+  roles.roles.planning = { status: "unassigned" };
+  const b = await boot(respond, { hash: "#/ask/conv_1" });
+  await settle(10);
+  assert.equal(b.button("Generate plan").disabled, true);
+  assert.match(visibleText(b.ui.panel), /No model is set for answering questions or planning\./);
+});
+
 test("citations open in the side panel when Ask has one", async () => {
   const cite = { repository_id: "gh:1", snapshot_id: "s", revision: "d8f5918f985503cd5a2fd0c0956abd32b4800f3c", path: "src/lib/api.ts", start_line: 2, end_line: 2 };
   const c = { id: "c", title: "T", scope_revision: 1, repository_ids: ["gh:1"], runs: [], plans: [], messages: [{ id: "m", role: "assistant", state: "complete", content: "See", citations: [cite], created_at: 1 }] };

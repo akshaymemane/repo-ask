@@ -16,6 +16,8 @@ function writeDraft(key, value) {
   }
 }
 
+let noticeIds = 0;
+
 export function createComposer({ request, placeholder = "Ask about your code, or describe a change…", onSend, onScopeChange, onCancel, draftKey, chips: withChips = true,
   actions = null, label = null, initialText = null, onInput = () => {} }) {
   const root = el("form", undefined, "composer-v2");
@@ -42,12 +44,26 @@ export function createComposer({ request, placeholder = "Ask about your code, or
     send.classList.remove("btn-primary");
     send.hidden = true;
   }
-  root.append(field, row, error);
+  // Says why an action is unavailable (for example, no model assigned) before anyone sends.
+  const notice = el("p", undefined, "composer-notice");
+  notice.id = `composer-notice-${++noticeIds}`;
+  notice.hidden = true;
+  root.append(field, row, notice, error);
 
   let chips = [];
   let busy = false;
   let sending = false;
   let plus = null;
+  let unavailable = new Set();
+
+  function refreshActions() {
+    (actions || []).forEach((action, index) => {
+      const control = actionButtons[index];
+      control.disabled = busy || unavailable.has(action.intent);
+      if (unavailable.has(action.intent)) control.setAttribute("aria-describedby", notice.id);
+      else control.removeAttribute("aria-describedby");
+    });
+  }
 
   function renderChips() {
     chipList.replaceChildren();
@@ -99,7 +115,7 @@ export function createComposer({ request, placeholder = "Ask about your code, or
 
   async function submit(intent = actions ? actions[0].intent : undefined) {
     const text = textarea.value.trim();
-    if (!text || busy || sending) return;
+    if (!text || busy || sending || unavailable.has(intent)) return;
     sending = true;
     error.textContent = "";
     try {
@@ -132,7 +148,7 @@ export function createComposer({ request, placeholder = "Ask about your code, or
     setChips(next) { chips = [...next]; renderChips(); },
     setBusy(next) {
       busy = Boolean(next);
-      for (const action of actionButtons) action.disabled = busy;
+      refreshActions();
       if (actions) {
         send.hidden = !busy;
         return;
@@ -140,6 +156,21 @@ export function createComposer({ request, placeholder = "Ask about your code, or
       send.textContent = busy ? "Cancel" : "↑";
       send.setAttribute("aria-label", busy ? "Cancel" : "Send");
       send.classList.toggle("btn-primary", !busy);
+    },
+    // intents: action intents to disable; message and optional link explain why. Empty list clears it.
+    setUnavailable(intents, { message = "", link = null } = {}) {
+      unavailable = new Set(intents);
+      notice.hidden = unavailable.size === 0;
+      notice.replaceChildren();
+      if (unavailable.size) {
+        notice.append(message);
+        if (link) {
+          const a = el("a", link.text);
+          a.setAttribute("href", link.href);
+          notice.append(" ", a);
+        }
+      }
+      refreshActions();
     },
     focus() { textarea.focus(); },
     get value() { return textarea.value; },

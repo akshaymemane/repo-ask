@@ -169,3 +169,32 @@ test("custom actions send with their intent, label wraps the textarea, initialTe
   c.setBusy(true);
   assert.equal(c.root.querySelectorAll("button").find((x) => x.textContent === "Generate plan").disabled, true);
 });
+
+test("unavailable actions stay disabled with a reason, block Enter, and survive busy changes", async () => {
+  const { make, log } = await setup();
+  const c = make({ actions: [{ label: "Ask", intent: "answer", variant: "primary" }, { label: "Generate plan", intent: "plan" }] });
+  const action = (t) => c.root.querySelectorAll("button").find((x) => x.textContent === t);
+  const notice = c.root.querySelector(".composer-notice");
+  assert.equal(notice.hidden, true);
+  c.setUnavailable(["answer"], { message: "No model is set for answering questions.", link: { text: "Choose a model in Settings", href: "#/settings/models" } });
+  assert.equal(action("Ask").disabled, true);
+  assert.equal(action("Generate plan").disabled, false);
+  assert.equal(action("Ask").getAttribute("aria-describedby"), notice.id);
+  assert.equal(notice.hidden, false);
+  assert.match(visibleText(notice), /No model is set for answering questions\. Choose a model in Settings/);
+  assert.equal(notice.querySelector("a").getAttribute("href"), "#/settings/models");
+  input(textarea(c), "Explain it");
+  keydown(textarea(c), "Enter");
+  await settle();
+  assert.equal(log.sent.length, 0, "Enter uses Ask, which is unavailable");
+  c.setBusy(true);
+  c.setBusy(false);
+  assert.equal(action("Ask").disabled, true, "finishing a run does not re-enable it");
+  action("Generate plan").click();
+  await settle();
+  assert.deepEqual(log.sent.map((x) => x.intent), ["plan"]);
+  c.setUnavailable([]);
+  assert.equal(action("Ask").disabled, false);
+  assert.equal(action("Ask").getAttribute("aria-describedby"), null);
+  assert.equal(notice.hidden, true);
+});

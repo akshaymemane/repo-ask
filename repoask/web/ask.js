@@ -165,7 +165,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const info = el('details'); info.className = 'conversation-details'; info.append(el('summary', 'Details'));
     for (const chip of chips.filter(chip => !chip.missing)) { const r = contexts.get(chip.id); info.append(el('p', `${chip.name} · ${r.status} · ${coverageText(r.active_snapshot?.coverage)}${r.active_snapshot?.revision ? ` · base ${String(r.active_snapshot.revision).slice(0, 7)}` : ''} · changes ${r.implementation_enabled ? 'allowed' : 'not allowed'}`)); }
     body.append(info);
-    request('/api/settings/model-roles').then(settings => { if (token !== epoch) return; const r = settings.roles?.ask || {};
+    const modelRoles = request('/api/settings/model-roles');
+    modelRoles.then(settings => { if (token !== epoch) return; const r = settings.roles?.ask || {};
       info.append(el('p', `Answering model: ${r.model || 'unknown'} · ${destinationText(r.destination)} · local-only ${settings.settings?.local_only === true ? 'on' : settings.settings?.local_only === false ? 'off' : 'unknown'}`));
       if (r.model) header({title: c.title || 'Untitled conversation', pills: [...chips.map(chip => ({text: chip.name})), {text: `${r.model} · ${r.destination?.kind || 'unknown'}`, tone: 'ok'}]}); }, () => {});
     let cursor = c.messages_next_cursor;
@@ -239,6 +240,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       onScopeChange: ids => scopeTo(ids),
       onCancel: async () => { if (token !== epoch) return; for (const run of activeRuns()) await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if (token === epoch && !draft) { await load(); composerHandle?.focus(); } }});
     composer.setChips(chips);
+    modelRoles.then(settings => { if (token === epoch) gateModels(composer, settings); }, () => {});
     if (composer.value.trim()) draft = true;
     body.append(composer.root);
     composerHandle = composer;
@@ -270,13 +272,25 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     }
     if(active) timer=setTimeout(poll,1500);
   }
+  // An unassigned role would only fail after sending; disable its action up front instead.
+  function gateModels(composer, settings) {
+    const missing = [['answer', 'ask', 'answering questions'], ['plan', 'planning', 'planning']]
+      .filter(([, role]) => settings?.roles?.[role]?.status === 'unassigned');
+    composer.setUnavailable(missing.map(([intent]) => intent), {
+      message: `No model is set for ${missing.map(([, , words]) => words).join(' or ')}.`,
+      link: {text: 'Choose a model in Settings', href: '#/settings/models'},
+    });
+  }
   function landing() {
     header({title: 'Ask'});
     const heading = el('h3', 'What are we working on?'); heading.className = 'landing-title';
     const setupHost = el('div'); setupHost.className = 'setup-host';
     body.replaceChildren(setupHost, heading);
-    renderSetup(setupHost, {request}).catch(() => setupHost.replaceChildren());
-    const composer = createComposer({request, draftKey: 'ask-draft:new', label: 'Question or planning request',
+    const token = epoch;
+    let composer = null, roles = null;
+    const gate = settings => { roles = settings; if (composer && token === epoch) gateModels(composer, settings); };
+    renderSetup(setupHost, {request, onRoles: gate}).catch(() => setupHost.replaceChildren());
+    composer = createComposer({request, draftKey: 'ask-draft:new', label: 'Question or planning request',
       actions: [{label: 'Ask', intent: 'answer', variant: 'primary'}, {label: 'Generate plan', intent: 'plan'}],
       onInput: text => { draft = Boolean(text.trim()); },
       onScopeChange: async () => {},
@@ -289,6 +303,8 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       }});
     body.append(composer.root, el('p', 'Pick repositories with + or type @, or just ask and OpenDevin suggests them. Ask plans changes; it never edits your code.', 'landing-hint'));
     composerHandle = composer;
+    if (roles) gate(roles);
+    else request('/api/settings/model-roles').then(settings => { if (!roles) gate(settings); }, () => {});
   }
   async function plan(id, versionId, token) {
     const p = await request(`/api/plans/${enc(id)}${versionId ? `?version_id=${enc(versionId)}` : ''}`); if(token!==epoch)return;

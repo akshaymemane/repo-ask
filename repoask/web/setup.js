@@ -19,7 +19,7 @@ function step(number, title, done) {
   return { item, body };
 }
 
-export async function renderSetup(host, { request, onDone = () => {}, submitForm, navigate = (href) => location.assign(href) } = {}) {
+export async function renderSetup(host, { request, onDone = () => {}, onRoles = () => {}, submitForm, navigate = (href) => location.assign(href) } = {}) {
   let connections, catalog, roles, discovered;
   try {
     [connections, catalog, roles, discovered] = await Promise.all([
@@ -33,6 +33,8 @@ export async function renderSetup(host, { request, onDone = () => {}, submitForm
     host.replaceChildren();
     return;
   }
+  // Every render rereads roles, so the page learns when a step here assigns models.
+  onRoles(roles);
   const repos = catalog.items || [];
   const state = {
     githubConnected: (connections.connections || []).some((item) => item.status === "connected"),
@@ -44,7 +46,7 @@ export async function renderSetup(host, { request, onDone = () => {}, submitForm
     onDone();
     return;
   }
-  const again = () => renderSetup(host, { request, onDone, submitForm, navigate });
+  const again = () => renderSetup(host, { request, onDone, onRoles, submitForm, navigate });
   const box = el("section", undefined, "setup");
   box.append(el("h2", "Set up OpenDevin"), el("p", "Everything stays on this computer. About 3 minutes.", "detail-muted"));
   const list = el("ol", undefined, "setup-steps");
