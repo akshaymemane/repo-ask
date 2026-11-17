@@ -170,9 +170,13 @@ test('session detail has a center thread and a page-owned pane with Progress, Di
  const main=ui.panel.querySelector('.session-main'),pane=ui.panel.querySelector('.session-pane');
  assert.ok(main&&pane);assert.equal(main.querySelector('.session-pane'),null);
  const header=ui.panel.querySelector('.session-header');assert.equal(header.querySelector('h2').textContent,'Retry plan');
+ const stages=header.querySelectorAll('.session-stage');assert.deepEqual(stages.map(x=>x.querySelector('.session-stage-label').textContent),['Prepare','Implement','Verify','Review']);
+ assert.equal(stages[1].classList.contains('is-current'),true);
  const planLink=header.querySelector('a[href="#/plans/p/v"]');assert.equal(planLink.textContent,'Plan v3');assert.match(planLink.getAttribute('aria-label'),/Retry plan/);
  assert.equal(composer(main).getAttribute('placeholder'),'Guide the agent while it works…');
  const tabs=pane.querySelectorAll('[role="tab"]');assert.deepEqual(tabs.map(t=>t.textContent),['Progress','Diff','Checks','PR']);
+ assert.match(visibleText(pane.querySelector('.session-workspace-head')),/Workspace\s*Inspect the plan, changes, checks, and delivery/);
+ assert.ok(pane.querySelector('.session-run'), 'run details belong to the workspace inspector');
  assert.match(visibleText(pane),/Bound retries/);assert.doesNotMatch(visibleText(pane),/a\.py/);
  tabs[0].focus();keydown(tabs[0],'ArrowRight');await settle();
  assert.equal(b.document.activeElement.textContent,'Diff');assert.match(visibleText(pane),/2 files · \+6 −1 · base main@bbbbbbb/);assert.match(visibleText(pane),/a\.py/);

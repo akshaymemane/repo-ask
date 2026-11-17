@@ -1,0 +1,32 @@
+{
+  "contract": "../design-contract.md",
+  "targetViewports": ["1440x900", "768x900"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Existing and updated UI tests verify named regions, tab roles, arrow/Home/End keyboard navigation, focus retention, status announcements, and readable action labels."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "At 1440x900 the workstream and inspector remain side by side; at 768x900 the inspector stacks below without horizontal clipping in the rendered capture."
+  },
+  "contentStates": {
+    "loading": {"status": "pass", "evidence": "Rendered scratch-server load retained a stable header, phase rail, Activity loading copy, and workspace tabs before data arrived."},
+    "empty": {"status": "pass", "evidence": "session.test.mjs verifies the calm no-sessions state and Ask recovery link."},
+    "error": {"status": "pass", "evidence": "session-ux.test.mjs verifies reconnect/offline recovery and persistent confirmed state; result tests cover terminal failures."},
+    "partial": {"status": "pass", "evidence": "Session tests verify unavailable diff/check/source projections remain distinct and source-bearing content is redacted."},
+    "success": {"status": "pass", "evidence": "Both rendered captures use a completed real pilot session with result, phase rail, activity, progress, and draft-PR action."},
+    "permission": {"status": "pass", "evidence": "session-services.test.mjs and session.test.mjs verify repository-access revocation clears source, messages, diff, checks, and questions."}
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "1440x900",
+      "artifact": "after-1440x900.png",
+      "observation": "Desktop coding cockpit: full command header and phase rail, readable workstream, and sticky workspace inspector coexist in the first viewport."
+    },
+    {
+      "viewport": "768x900",
+      "artifact": "after-768x900.png",
+      "observation": "Compact layout preserves the complete session header and readable workstream; the inspector stacks below rather than compressing the content."
+    }
+  ]
+}

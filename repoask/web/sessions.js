@@ -499,7 +499,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   let epoch = 0, timer, active = false, currentID = null, refreshBusy = false, current, cursor = 0, sourceAllowed = true, messageCursor = null;
   const events = new Map(), history = new Map(); let messageSending = false, targetEdited = false, pendingMessage, retryKey, listCursor, listItems = new Map(), listFilters;
   let diffSignature, checksSignature, lastChecks = null, lastDiff = null, lastConfirmed = null, plan = null, publicationArea = null, pubInfo = {mode: 'waiting', pub: null};
-  let status, statusEphemeral = false, conn, reconnect, summary, header, titleNode, meta, phase, result, activity, patches, checks, progress, publication, messageRows, questionArea;
+  let status, statusEphemeral = false, conn, reconnect, summary, header, titleNode, meta, phase, phaseRail, result, activity, patches, checks, progress, publication, messageRows, questionArea;
   let form, compose, composeLabel, targetLabel, ended, send, responseTo, stop, retry, prAction, moreEvents, moreMessages, listEmpty, selectTab = () => {};
   // Display names: plan titles and repository names replace raw identifiers wherever people scan.
   // Resolved titles (a string, or null for a valid plan without one) are kept apart from in-flight reads,
@@ -600,8 +600,8 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     });
     const b = phaseBadge(s, lastChecks, pubInfo.pub);
     phase.replaceChildren(badge(b.tone, b.label));
-    renderHeader(); renderProgress(); renderPublication(); renderResult();
-    shell?.setHeader({title: plan?.title || 'Session', pills: [{text: b.label}]});
+    renderHeader(); renderPhaseRail(); renderProgress(); renderPublication(); renderResult();
+    shell?.setHeader({title: 'Session workspace', pills: [{text: b.label}]});
     // Stop stays available while work may still be running, including after a failed containment.
     stop.hidden = stop.disabled = stopLocked();
     const stopping = !terminal.has(s.state) && (s.state === 'stopping' || s.stop_requested);
@@ -609,6 +609,19 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     retry.disabled = retryLocked(); retry.hidden = !terminal.has(s.state) || Boolean(s.successor_id);
     // A finished session keeps stop_requested; only unfinished work is described as still stopping.
     if (stopping) say(`Stop requested. Containment ${human(s.runner?.containment)}; work is not confirmed stopped until the server verifies termination.`, true);
+  }
+  function renderPhaseRail() {
+    if (!phaseRail || !current) return;
+    const state = current.state, phaseName = current.phase || '';
+    const active = terminal.has(state) ? 4 : state === 'validating' || phaseName === 'validation' ? 3 : state === 'queued' || state === 'provisioning' ? 1 : 2;
+    const failed = ['failed', 'blocked', 'interrupted'].includes(state);
+    const stages = [['01', 'Prepare'], ['02', 'Implement'], ['03', 'Verify'], ['04', 'Review']];
+    phaseRail.replaceChildren();
+    for (let i = 0; i < stages.length; i++) {
+      const item = el('div', undefined, `session-stage${i + 1 < active || (active === 4 && state === 'completed') ? ' is-done' : ''}${i + 1 === active ? ' is-current' : ''}${failed && i + 1 === active ? ' is-failed' : ''}`);
+      item.append(el('span', stages[i][0], 'session-stage-number'), el('span', stages[i][1], 'session-stage-label'));
+      phaseRail.append(item);
+    }
   }
   // Header: what this is, where it runs, which attempt, how long; the state's primary actions sit beside it.
   function renderHeader() {
@@ -1083,7 +1096,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     retry = button(nav, 'Retry as a new attempt', retryAction); retry.disabled = true; retry.hidden = true; retry.classList.add('btn');
     prAction = button(nav, 'Create draft PR…', () => { selectTab(3); const area = publication; const target = area.querySelector('[data-focus="create"]') || area.querySelector('[data-focus="pr-link"]') || area.querySelector('h2'); target?.focus(); }); prAction.hidden = true; prAction.classList.add('btn'); prAction.setAttribute('aria-controls', 'session-tabpanel-3');
     reconnect = button(nav, 'Reconnect', () => refresh(token)); reconnect.classList.add('btn', 'btn-ghost'); reconnect.hidden = true;
-    header.append(status);
+    phaseRail = el('div', undefined, 'session-phase-rail'); phaseRail.setAttribute('aria-label', 'Session execution progress'); header.append(phaseRail, status);
     const main = el('div', undefined, 'session-main'), pane = el('aside', undefined, 'session-pane'); pane.setAttribute('aria-label', 'Session details');
     panel.append(header, main, pane); setConnection('connecting');
     result = el('section', undefined, 'session-section session-result'); result.hidden = true; result.setAttribute('aria-label', 'Result'); main.append(result);
@@ -1103,7 +1116,9 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     send = el('button', 'Send', 'button btn btn-primary'); send.type = 'submit'; row.append(send); send.disabled = true;
     pendingMessage = storage.get(`session-message-${currentID}`); if (pendingMessage) compose.value = pendingMessage.content || '';
     form.addEventListener('submit', e => { e.preventDefault(); if (send.disabled || !form.isConnected || !live(token)) return; sendMessage(send, compose.value.trim(), responseTo.value || null, true); });
-    summary = el('div', undefined, 'session-run'); main.append(summary);
+    const workspaceHead = el('div', undefined, 'session-workspace-head');
+    workspaceHead.append(el('div', undefined, 'session-workspace-mark'), el('strong', 'Workspace'), el('span', 'Inspect the plan, changes, checks, and delivery', 'detail-muted'));
+    pane.append(workspaceHead);
     const tabList = el('div', undefined, 'session-tabs'); tabList.setAttribute('role', 'tablist'); tabList.setAttribute('aria-label', 'Session details'); pane.append(tabList);
     progress = el('section', undefined, 'session-section'); patches = el('section', undefined, 'session-section session-side'); checks = el('section', undefined, 'session-section session-side'); publication = el('section', undefined, 'session-section');
     patches.append(el('h2', 'Diff')); checks.append(el('h2', 'Checks'));
@@ -1112,6 +1127,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', body.id); body.setAttribute('role', 'tabpanel'); body.setAttribute('aria-labelledby', tab.id);
       tabList.append(tab); pane.append(body); return [tab, body];
     });
+    summary = el('div', undefined, 'session-run'); pane.append(summary);
     const select = i => tabs.forEach(([tab, body], j) => { tab.setAttribute('aria-selected', String(i === j)); tab.setAttribute('tabindex', i === j ? '0' : '-1'); body.hidden = i !== j; });
     selectTab = select;
     tabs.forEach(([tab], i) => {
