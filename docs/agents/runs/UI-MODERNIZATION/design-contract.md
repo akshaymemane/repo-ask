@@ -22,7 +22,7 @@ OpenDevin is a local engineering command center. A developer repeatedly scans re
 
 ## Target viewports
 
-- `390x844`: compact phone; navigation, toolbar, tables, composers, and dialogs must not overflow.
+- `500x844`: compact workspace; navigation, toolbar, tables, composers, and dialogs must not overflow. An additional emulated `390x844` check covers narrow-phone behavior.
 - `1440x900`: primary desktop; rail, work surface, and inspector must remain visually distinct without wasted space.
 
 ## Content-state contract
