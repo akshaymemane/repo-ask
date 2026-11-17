@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-17T10:00:00Z",
+  "updated": "2026-11-17T13:00:00Z",
   "phase": "M2_complete_M3_on_hold",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "complete", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -723,6 +723,23 @@
       "review_verdict": "approved",
       "integration_sha": "9fe31a3",
       "next_action": "Integrated. Real browser and accessibility pass happens in M2-PILOT."
+    },
+    {
+      "id": "M2-SESSION-UX",
+      "milestone": "M2",
+      "title": "Session list and session page UI/UX overhaul (session mode complete)",
+      "state": "integrated",
+      "feature_ids": ["F05", "F06", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["M2-PUBLICATION-UI"],
+      "branch": "task/m2-session-ux, task/m2-session-ux-2",
+      "handoff": "docs/agents/runs/M2-SESSION-UX/handoff.md",
+      "submitted_sha": "e7caae9",
+      "reviewer_session": "Codex independent session, rounds 1-5 (review-r1..r5.md) plus timing-test fix 62f9913",
+      "review_verdict": "approved",
+      "integration_sha": "62f9913",
+      "next_action": "Integrated and checked live (list, published, cancelled, interrupted sessions; direct #/sessions load; Markdown agent messages). Session mode marked complete by the coordinator at the user's request. Deferred, API changes: PR state in list rows (publication shows not_started in session rows) and plan_title on session rows."
     },
     {
       "id": "M2-FOLLOWUPS",
