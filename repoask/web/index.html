@@ -16,6 +16,7 @@
     <nav class="primary-nav" id="rail-nav" aria-label="Workspace">
       <ul>
         <li><a href="#/ask" data-route="ask" aria-current="page">Ask</a></li>
+        <li class="nav-capability is-pending" id="nav-sessions" aria-hidden="true"><a href="#/sessions" data-route="sessions" tabindex="-1">Sessions</a></li>
         <li><a href="#/repositories" data-route="repositories">Repositories</a></li>
         <li class="recent" id="recent" hidden>
           <h2 class="small-heading" id="recent-heading">Recent</h2>
@@ -28,7 +29,7 @@
   <div class="main-column">
   <header class="page-top" id="page-header">
     <button class="icon-button history-toggle" id="history-toggle" type="button" aria-label="Conversations" aria-controls="sidebar" aria-expanded="false">☰</button>
-    <h2 class="page-top-title" id="page-header-title"></h2>
+    <p class="page-top-title" id="page-header-title"></p>
     <span class="page-top-pills" id="page-header-pills"></span>
     <div class="top-actions">
       <span class="workspace-mode" id="workspace-mode"><span class="workspace-mode-icon" aria-hidden="true">◇</span><strong id="workspace-mode-label">Loading workspace…</strong><span class="workspace-mode-detail" id="workspace-mode-detail"></span></span>
@@ -98,7 +99,7 @@
     <div class="page-inner">
       <header class="page-header">
         <div>
-          <h1 class="view-title" id="repositories-title" tabindex="-1">Repositories</h1>
+          <h1 class="view-title route-title" id="repositories-title" tabindex="-1">Repositories</h1>
           <p class="page-lede">Choose which repositories Ask searches and where OpenDevin may propose changes. Click a repository for its index details.</p>
         </div>
       </header>
@@ -109,7 +110,7 @@
   <main class="page view" id="view-sessions" data-view="sessions" aria-labelledby="sessions-title" hidden>
     <div class="page-inner">
       <header class="page-header"><div>
-        <h1 class="view-title" id="sessions-title" tabindex="-1">Sessions</h1>
+        <h1 class="view-title route-title" id="sessions-title" tabindex="-1">Sessions</h1>
         <p class="page-lede">Follow implementation within an exact saved plan, inspect checkpoints and checks, and stop work.</p>
       </div></header>
       <div id="sessions-content"></div>
@@ -120,7 +121,7 @@
     <div class="page-inner">
       <header class="page-header">
         <div>
-          <h1 class="view-title" id="settings-title" tabindex="-1">Settings</h1>
+          <h1 class="view-title route-title" id="settings-title" tabindex="-1">Settings</h1>
           <p class="page-lede">Connect GitHub, configure model destinations and roles, and inspect workspace health.</p>
         </div>
         <button class="button" type="button" id="refresh-status">Refresh status</button>

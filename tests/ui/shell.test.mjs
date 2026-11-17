@@ -7,6 +7,7 @@ import { createBrowser, install, keydown, settle, visibleText } from "./dom.mjs"
 
 const root = new URL("../../", import.meta.url);
 const html = readFileSync(new URL("repoask/web/index.html", root), "utf8");
+const css = readFileSync(new URL("repoask/web/styles.css", root), "utf8");
 const appUrl = pathToFileURL(fileURLToPath(new URL("repoask/web/app.js", root))).href;
 const panelUrl = pathToFileURL(fileURLToPath(new URL("repoask/web/panel.js", root))).href;
 const shellUrl = pathToFileURL(fileURLToPath(new URL("repoask/web/shell.js", root))).href;
@@ -46,12 +47,28 @@ test("rail holds brand, new conversation, nav and a bottom-pinned Settings link"
   assert.equal(b.document.getElementById("page-header").tagName, "HEADER");
 });
 
-test("Sessions link is inserted after Ask when sessions become available", async () => {
+test("Sessions keeps a stable nav slot and becomes available without DOM insertion", async () => {
+  assert.match(html, /id="nav-sessions"[^>]*class="nav-capability is-pending"|class="nav-capability is-pending"[^>]*id="nav-sessions"/);
   const api = { ...legacyApi(), "GET /api/sessions": { status: 200, body: { items: [], next_cursor: null } },
     "GET /api/execution-profiles": { status: 200, body: { items: [], next_cursor: null } }, "GET /api/settings/execution": { status: 200, body: { max_active_sessions: 1 } } };
   const b = await boot({ api });
+  const item = b.document.getElementById("nav-sessions");
+  assert.equal(item.classList.contains("is-pending"), false);
+  assert.equal(item.getAttribute("aria-hidden"), "false");
+  assert.equal(item.querySelector("a").hasAttribute("tabindex"), false);
   const labels = b.document.getElementById("rail-nav").querySelectorAll("li").filter((li) => !li.hidden).map((li) => li.textContent.trim());
   assert.deepEqual(labels, ["Ask", "Sessions", "Repositories", "Settings"]);
+});
+
+test("shell foundation has one visible route title and no obsolete topbar height overrides", async () => {
+  const b = await boot({ hash: "#/repositories", api: legacyApi() });
+  assert.equal(b.document.getElementById("page-header-title").tagName, "P");
+  assert.equal(b.document.getElementById("repositories-title").tagName, "H1");
+  assert.match(css, /\.page-header \.route-title:not\(:focus\)/);
+  assert.doesNotMatch(css, /\.topbar\b/);
+  assert.doesNotMatch(css, /--top-height:\s*(?:96|100)px/);
+  assert.match(css, /\.btn, \.button, \.ask-button, \.publication-primary/);
+  assert.doesNotMatch(css, /\.persistent-ask button, \.persistent-ask a/);
 });
 
 test("workspace pill is hidden in connected mode", async () => {

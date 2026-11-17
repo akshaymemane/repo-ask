@@ -66,10 +66,11 @@ const legacyApi = () => ({
 test("navigation exposes Ask, Repositories and Settings as keyboard links with aria-current", async () => {
   const app = await boot({ api: legacyApi() });
   const links = app.document.querySelectorAll(".primary-nav a");
-  assert.deepEqual(links.map((link) => link.getAttribute("href")), ["#/ask", "#/repositories", "#/settings"]);
-  assert.deepEqual(links.map((link) => link.textContent), ["Ask", "Repositories", "Settings"]);
+  assert.deepEqual(links.map((link) => link.getAttribute("href")), ["#/ask", "#/sessions", "#/repositories", "#/settings"]);
+  assert.deepEqual(links.map((link) => link.textContent), ["Ask", "Sessions", "Repositories", "Settings"]);
   assert.equal(app.document.querySelector("nav.primary-nav").getAttribute("aria-label"), "Workspace");
-  assert.ok(links.every((link) => link.focusable), "nav links are focusable");
+  assert.ok(links.filter((link) => link.dataset.route !== "sessions").every((link) => link.focusable), "available nav links are focusable");
+  assert.equal(app.byId("nav-sessions").hidden, true, "the unavailable capability keeps its stable DOM slot hidden");
   assert.equal(app.document.querySelector('.primary-nav a[aria-current="page"]').textContent, "Ask");
   // Initial load must not steal focus.
   assert.equal(app.document.activeElement, app.document.body);
@@ -327,7 +328,8 @@ test("unknown hash routes fall back to Ask and announce it politely", async () =
   await new Promise((resolve) => setTimeout(resolve, 80));
   assert.equal(app.byId("app-status").getAttribute("aria-live"), "polite");
   assert.match(app.byId("app-status").textContent, /not available in this version/);
-  assert.equal(app.document.querySelector('.primary-nav a[href="#/sessions"]'), null);
+  assert.equal(app.byId("nav-sessions").hidden, true);
+  assert.equal(app.document.querySelector('.primary-nav a[href="#/sessions"]').getAttribute("tabindex"), "-1");
 });
 
 test("Ask flow is preserved: example, scope, citations and source pane survive navigation", async () => {

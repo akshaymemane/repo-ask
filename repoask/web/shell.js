@@ -17,6 +17,16 @@ export function createShell({ document }) {
         else link.removeAttribute("aria-current");
       }
     },
+    setNavAvailability(route, availability) {
+      const link = byId("rail-nav").querySelector(`a[data-route="${route}"]`);
+      if (!link) return;
+      const item = link.parentNode;
+      item.classList.toggle("is-pending", availability === "pending");
+      item.hidden = availability === "unavailable";
+      item.setAttribute("aria-hidden", String(availability !== "available"));
+      if (availability === "available") link.removeAttribute("tabindex");
+      else link.setAttribute("tabindex", "-1");
+    },
     setRecent(items, { heading, onMore = null }) {
       byId("recent-heading").textContent = heading;
       const list = byId("recent-list");

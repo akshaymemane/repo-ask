@@ -508,14 +508,7 @@ byId("refresh-status").addEventListener("click", () => {
 
 function exposeSessions() {
   connectedUI.sessionsReady = true;
-  if (!document.querySelector('.primary-nav a[data-route="sessions"]')) {
-    const item = node("li"); const a = node("a", "Sessions"); a.setAttribute("href", "#/sessions"); a.dataset.route = "sessions";
-    if (state.route === "sessions") a.setAttribute("aria-current", "page");
-    item.append(a);
-    const list = document.querySelector(".primary-nav ul");
-    const [askItem, ...rest] = [...list.children];
-    list.replaceChildren(askItem, item, ...rest);
-  }
+  shell.setNavAvailability("sessions", "available");
   applyNavigation();
 }
 function applyNavigation() {
@@ -524,7 +517,11 @@ function applyNavigation() {
   const ids = workspace.data.navigation.map((entry) => entry && entry.id);
   for (const link of document.querySelectorAll(".primary-nav a[data-route]")) {
     // Ask always stays reachable; other areas follow the server's list.
-    link.parentNode.hidden = link.dataset.route !== "ask" && !(link.dataset.route === "sessions" && connectedUI.sessionsReady) && !ids.includes(link.dataset.route);
+    if (link.dataset.route === "sessions") {
+      if (connectedUI.sessionsReady || ids.includes("sessions")) shell.setNavAvailability("sessions", "available");
+      continue;
+    }
+    link.parentNode.hidden = link.dataset.route !== "ask" && !ids.includes(link.dataset.route);
   }
 }
 
@@ -1211,7 +1208,10 @@ executionUI.refresh().then(() => { if (state.route === "settings") renderSetting
 // projection has not yet learned the modern route.
 featureRequest("/api/sessions?limit=1").then(available => { if (Array.isArray(available.items)) { exposeSessions(); if (state.route === "settings") renderSettings(); } }).catch(error => {
   // A definitively missing API preserves the legacy navigation contract.
-  if (error.status === 404 && location.hash === "#/sessions") { history.replaceState(null, "", "#/ask"); sessionsUI.close(); showRoute(false); announce("That page is not available in this version. Showing Ask."); }
+  if (error.status === 404) {
+    shell.setNavAvailability("sessions", "unavailable");
+    if (location.hash === "#/sessions") { history.replaceState(null, "", "#/ask"); sessionsUI.close(); showRoute(false); announce("That page is not available in this version. Showing Ask."); }
+  }
 });
 if (state.route === "settings") renderSettings();
 if (state.route === "repositories") renderRepositories();
