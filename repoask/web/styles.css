@@ -872,7 +872,7 @@ dialog.modal::backdrop { background: #05060899; }
 .plan-editor-more > :not(summary) { margin-top: var(--space-2); }
 
 /* ---- Ask page (persistent) ---- */
-.persistent-ask > h1:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.persistent-ask > h1:not(:focus-visible) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .landing-title { text-align: center; font-size: 26px; font-weight: 650; letter-spacing: -.03em; margin: 16vh 0 var(--space-5); }
 .landing-hint { width: min(100%, 760px); margin: 0 auto; text-align: center; color: var(--muted); font-size: 13px; }
 .conversation-title { width: min(100%, 760px); margin: var(--space-5) auto 0; padding: 0 var(--space-4); font-size: 20px; font-weight: 650; }
@@ -886,7 +886,7 @@ dialog.modal::backdrop { background: #05060899; }
 /* Route focus shows the h1 as a label over the page, never in the flow: revealing it
    in place shifted the layout on blur and swallowed the next click. */
 .persistent-ask { position: relative; }
-.persistent-ask > h1:focus { position: absolute; z-index: 1; top: 10px; left: 50%; transform: translateX(-50%); margin: 0; padding: 5px 12px; border-radius: 7px; background: var(--raised); color: var(--text); font-size: 13px; font-weight: 650; white-space: nowrap; outline: 2px solid var(--accent); outline-offset: 2px; }
+.persistent-ask > h1:focus-visible { position: absolute; z-index: 1; top: 10px; left: 50%; transform: translateX(-50%); margin: 0; padding: 5px 12px; border-radius: 7px; background: var(--raised); color: var(--text); font-size: 13px; font-weight: 650; white-space: nowrap; outline: 2px solid var(--accent); outline-offset: 2px; }
 .persistent-ask > p[role="status"] { width: min(100%, 760px); margin: var(--space-2) auto 0; padding: 0 var(--space-4); color: var(--muted); font-size: 13px; }
 .persistent-ask > p[role="status"]:empty { display: none; }
 
@@ -1495,6 +1495,12 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
   .page-inner { padding-top: 24px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Routing choices: ranked candidates with the evidence that ranked them. */
+.route-choices { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
+.btn.route-choice { display: grid; justify-items: start; gap: 2px; min-height: 52px; padding: 8px 12px; text-align: left; }
+.route-choice-name { font-weight: 600; }
+.route-choice-reason { color: var(--muted); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
 
 /* ---- Route polish: filters, settings navigation and hit areas ---- */
 .repo-filters > summary, .session-filter-more > summary {

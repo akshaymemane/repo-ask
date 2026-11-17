@@ -59,7 +59,7 @@ class RoutingService:
             if not meaningful and not exact and item['repository_id'] not in pins:
                 continue
             score=sum(len(set(r['terms'])-generic) for r in meaningful)+(10000 if item['repository_id'] in pins else 1000 if name in qualified else 100 if exact else 0)
-            candidates.append(dict(repository_id=item['repository_id'],name=item['name'],rank=score,reason='Pinned repository' if item['repository_id'] in pins else 'Explicit repository name' if exact else 'Catalog evidence: '+', '.join(r['field']+': '+', '.join(r['terms']) for r in item['reasons']),citations=[],coverage=(state['active_snapshot'] or {}).get('coverage',{}),freshness=state['status'],implementation_enabled=state['implementation_enabled']))
+            candidates.append(dict(repository_id=item['repository_id'],name=item['name'],rank=score,reason='Pinned repository' if item['repository_id'] in pins else 'Explicit repository name' if exact else 'Catalog evidence: '+'; '.join(r['field']+': '+', '.join(t for t in r['terms'] if t not in generic) for r in meaningful),citations=[],coverage=(state['active_snapshot'] or {}).get('coverage',{}),freshness=state['status'],implementation_enabled=state['implementation_enabled']))
         candidates.sort(key=lambda c:(-c['rank'],c['repository_id']))
         candidates=candidates[:max(8,len(pins))]
         for rank,c in enumerate(candidates,1):

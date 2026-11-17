@@ -251,6 +251,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       if (!pendingQuestion) return;
       const {intent} = pendingQuestion, text = composer.value.trim();
       pendingQuestion = null;
+      try { window.sessionStorage?.removeItem(`ask-route-intent:${id}`); } catch {}
       if (!text) { draw(); return; }
       await send(text, intent);
       if (composer.value.trim() === text) composer.setValue('');
@@ -279,7 +280,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
         const status = r.status ?? r.state;
         routing = {state: status, candidates: (r.candidates || []).filter(x => status !== 'resolved' || (r.selected_repository_ids || []).includes(x.repository_id))};
         // The routing card explains what to do; the silent error only keeps the text in the composer.
-        if (status !== 'resolved' || !(r.selected_repository_ids || []).length) { pendingQuestion = {text: content, intent}; draw(); throw Object.assign(new Error(status === 'no_match' ? 'No repository matched. Choose repositories with +.' : 'Choose a repository to continue.'), {silent: true}); }
+        if (status !== 'resolved' || !(r.selected_repository_ids || []).length) { pendingQuestion = {text: content, intent}; try { window.sessionStorage?.setItem(`ask-route-intent:${id}`, intent); } catch {} draw(); throw Object.assign(new Error(status === 'no_match' ? 'No repository matched. Choose repositories with +.' : 'Choose a repository to continue.'), {silent: true}); }
         await scopeTo(r.selected_repository_ids);
       }
       if(sendAttempt && (sendAttempt.content!==content || sendAttempt.intent!==intent || sendAttempt.conversation!==id)) throw new Error('Resolve the uncertain request by retrying the same content and action before submitting another.');
@@ -313,6 +314,14 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       },
       onCancel: async () => { if (token !== epoch) return; for (const run of activeRuns()) await request(`/api/answer-runs/${enc(run.id)}/cancel`, 'POST', {}); if (token === epoch && !draft) { await load(); composerHandle?.focus(); } }});
     composer.setChips(chips);
+    // A question was waiting for repositories when the page was left: restore the choice and its text.
+    const waiting = c.pending_route;
+    if (waiting && !(c.repository_ids || []).length) {
+      routing = {state: waiting.status, candidates: waiting.candidates || []};
+      let intent = 'answer'; try { intent = window.sessionStorage?.getItem(`ask-route-intent:${id}`) || 'answer'; } catch {}
+      pendingQuestion = {text: waiting.prompt, intent};
+      if (!composer.value.trim()) composer.setValue(waiting.prompt);
+    }
     modelRoles.then(settings => { if (token === epoch) gateModels(composer, settings); }, () => {});
     if (composer.value.trim()) draft = true;
     body.append(composer.root);

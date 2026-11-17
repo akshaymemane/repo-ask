@@ -174,6 +174,14 @@ provides messages_next_cursor and plans_next_cursor. Plan get returns plan
 metadata plus version; version contains content/hash/readiness and parent_version_id.
 Use parent IDs and latest_version_id to browse immutable history.
 
+Conversation.get also returns pending_route (additive, launch readiness): null, or
+{id,status,prompt,candidates:[{repository_id,name,reason,freshness}]} when the latest
+routing decision for an unscoped, undeleted conversation is needs_selection/no_match and
+no user message was sent after it. The UI restores the repository choice and the waiting
+question from it after a reload. Choosing repositories or sending a message clears it;
+deletion and repository purge already blank the stored prompt. Catalog reasons list only
+non-generic matched terms, fields separated by "; ".
+
 The reserved M2 launch body is {plan_version_id,content_hash,idempotency_key}; the
 server derives the execution profile, limits and publication intent from that
 pinned version. Success returns {session_id,state} and navigates to

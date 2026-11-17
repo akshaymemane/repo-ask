@@ -77,7 +77,14 @@ test("needs_selection routing asks which repository", async () => {
     { repository_id: "gh:2", name: "akshaymemane/central-deploy-manager", reason: "deploy config" }] } });
   const card = host.querySelector(".thread-card");
   assert.match(visibleText(card), /Which repository\?/);
-  card.querySelectorAll("button").find((x) => x.textContent === "central-deploy-manager").click();
+  assert.match(visibleText(card), /README mentions API/, "each choice shows why it was suggested");
+  render({ messages: [user()], routing: { state: "needs_selection", candidates: [
+    { repository_id: "gh:3", name: "o/worker", reason: "Catalog evidence: name: worker, profile: and, order" }] } });
+  assert.match(visibleText(host.querySelector(".thread-card")), /Matches worker, order/, "legacy comma-separated reasons read cleanly");
+  render({ messages: [user()], routing: { state: "needs_selection", candidates: [
+    { repository_id: "gh:1", name: "akshaymemane/rcnl-app", reason: "README mentions API" },
+    { repository_id: "gh:2", name: "akshaymemane/central-deploy-manager", reason: "deploy config" }] } });
+  card.querySelectorAll(".route-choice").find((x) => x.querySelector(".route-choice-name").textContent === "central-deploy-manager").click();
   card.querySelectorAll("button").find((x) => x.textContent === "Choose…").click();
   assert.deepEqual(calls, [["onPickRoute", "gh:2"], ["onChooseRepos"]]);
 });

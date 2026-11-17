@@ -89,8 +89,25 @@ class ConversationService:
         runs=self.list_runs(ident,100)
         messages=self.list_messages(ident,100)
         plans=self.plans.list_plans(ident)
-        result.update(messages=messages['items'],messages_next_cursor=messages['next_cursor'],runs=runs['items'],runs_next_cursor=runs['next_cursor'],runs_truncated=runs['next_cursor'] is not None,plans=plans['items'],plans_next_cursor=plans['next_cursor'])
+        result.update(messages=messages['items'],messages_next_cursor=messages['next_cursor'],runs=runs['items'],runs_next_cursor=runs['next_cursor'],runs_truncated=runs['next_cursor'] is not None,plans=plans['items'],plans_next_cursor=plans['next_cursor'],pending_route=self._pending_route(row))
         return result
+
+    def _pending_route(self,row):
+        """The question still waiting for repositories, so a reload can restore the choice."""
+        if row['deleted_at'] is not None or json.loads(row['scope_json']):
+            return None
+        with self.store.read() as db:
+            latest=db.execute('SELECT id,status,prompt,created_at FROM routing_decisions WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',(row['id'],)).fetchone()
+            if not latest or latest['status'] not in ('needs_selection','no_match') or not latest['prompt']:
+                return None
+            answered=db.execute('SELECT 1 FROM conversation_messages WHERE conversation_id=? AND role=? AND created_at>=?',(row['id'],'user',latest['created_at'])).fetchone()
+        if answered:
+            return None
+        decision=self.routing.get(latest['id'])
+        if decision['status'] not in ('needs_selection','no_match'):
+            return None
+        keys=('repository_id','name','reason','freshness')
+        return dict(id=decision['id'],status=decision['status'],prompt=decision['prompt'],candidates=[{k:c.get(k) for k in keys} for c in decision['candidates']])
 
     def update_scope(self,ident,repository_ids,expected_revision):
         scope=ids(repository_ids)

@@ -15,8 +15,9 @@ async function boot(respond,{hash='#/ask/a',sessionStorage=storage(),app=false}=
  if(app){await import(new URL(`../../repoask/web/app.js?recovery=${++imports}`,import.meta.url));await settle();panel=b.document.querySelector('.persistent-ask');}
  else {ui=await createAskPanel({host:b.document.getElementById('view-ask')});panel=ui?.panel;}
  const button=t=>panel.querySelectorAll('button').find(n=>n.textContent===t);
+ const choice=t=>panel.querySelectorAll('.route-choice').find(n=>n.querySelector('.route-choice-name')?.textContent===t);
  const field=t=>panel.querySelectorAll('label').find(n=>n.textContent.startsWith(t))?.querySelector('textarea');
- return {...b,panel,ui,button,field,text:()=>visibleText(panel)};
+ return {...b,panel,ui,button,choice,field,text:()=>visibleText(panel)};
 }
 
 test('definite 4xx clears pending identity, keeps the draft and permits corrected/new-conversation sends',async()=>{
@@ -135,11 +136,30 @@ test('an unscoped question routes first, asks which repository, then scopes and 
  });
  input(b.field('Question'),'request');b.button('Ask').click();await settle();
  assert.match(b.text(),/Which repository\?/);assert.equal(sent.length,0,'nothing is sent before a repository is chosen');assert.equal(b.field('Question').value,'request');
- b.button('candidate').click();await settle(20);
+ b.choice('candidate').click();await settle(20);
  assert.deepEqual(mutations,[{repository_ids:['suggested'],expected_revision:1}]);
  assert.deepEqual(sent.map(x=>x.content),['request']);
  assert.equal(b.field('Question').value,'','the sent question does not come back as a draft');assert.equal(b.window.sessionStorage.getItem('ask-draft:a'),null);
  assert.doesNotMatch(b.text(),/Choose a repository to continue/);
+});
+
+test('a question waiting for a repository is restored after reload and sent with its original intent',async()=>{
+ let c=conversation('a',{repository_ids:[],pending_route:{id:'route_1',status:'needs_selection',prompt:'Plan retry handling',candidates:[{name:'owner/candidate',repository_id:'suggested',reason:'Catalog evidence: name: worker; profile: retry, order',freshness:'ready'}]}});
+ const mutations=[],sent=[];const store=storage();store.setItem('ask-route-intent:a','plan');
+ const b=await boot((m,u,o)=>{
+  if(u==='/api/conversations')return {items:[c]};
+  if(u==='/api/conversations/a'){if(m==='PATCH'){mutations.push(JSON.parse(o.body));c={...c,pending_route:null,repository_ids:mutations.at(-1).repository_ids,scope_revision:c.scope_revision+1};}return c;}
+  if(u==='/api/repositories/suggested/context')return {repository_id:'suggested',name:'owner/candidate'};
+  if(m==='POST' && u.endsWith('/messages')){sent.push(JSON.parse(o.body));return {id:'run',state:'queued'};}
+  return missing;
+ },{sessionStorage:store});
+ assert.match(b.text(),/Which repository\?/,'the pending choice is shown again');
+ assert.match(b.text(),/Matches worker, retry, order/,'the routing evidence is visible, not only on hover');
+ assert.equal(b.field('Question').value,'Plan retry handling','the waiting question is back in the composer');
+ b.choice('candidate').click();await settle(20);
+ assert.deepEqual(mutations,[{repository_ids:['suggested'],expected_revision:1}]);
+ assert.deepEqual(sent.map(x=>[x.content,x.intent]),[['Plan retry handling','plan']]);
+ assert.equal(store.getItem('ask-route-intent:a'),null);
 });
 
 test('scope conflict re-applies the chip edit once, then explains a second conflict',async()=>{
@@ -282,6 +302,6 @@ test('a failed repository choice or retry is reported and keeps the pending ques
  });
  b.button('Retry').click();await settle();assert.match(b.text(),/Retry queue offline/);
  input(b.field('Question'),'request');b.button('Ask').click();await settle();
- b.button('candidate').click();await settle(20);
+ b.choice('candidate').click();await settle(20);
  assert.match(b.text(),/Scope store offline/);assert.match(b.text(),/Which repository\?/,'the choice stays available');assert.equal(b.field('Question').value,'request');
 });

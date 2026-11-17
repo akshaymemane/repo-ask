@@ -75,6 +75,17 @@ function assistant(message, view, handlers) {
   return box;
 }
 
+const FILLER = new Set(["a", "an", "and", "the", "or", "of", "to", "in", "on", "for", "with"]);
+// "Catalog evidence: name: worker; profile: order, checkout" -> "Matches worker, order, checkout".
+function routeReason(reason) {
+  if (!reason) return "";
+  if (!reason.startsWith("Catalog evidence: ")) return reason;
+  // Older decisions separate fields with commas too; drop "field:" labels and filler words either way.
+  const terms = reason.slice("Catalog evidence: ".length).split(/[;,]/).map((term) => term.replace(/^\s*[\w-]+:/, "").trim())
+    .filter((term) => term && !FILLER.has(term.toLowerCase()));
+  return terms.length ? `Matches ${[...new Set(terms)].slice(0, 6).join(", ")}` : "";
+}
+
 function routingNode(routing, handlers) {
   const names = (routing.candidates || []).map((candidate) => shortName(candidate.name));
   if (routing.state === "resolved" && names.length) {
@@ -87,10 +98,15 @@ function routingNode(routing, handlers) {
   const card = el("div", undefined, "thread-card");
   if (routing.state === "needs_selection" && names.length) {
     card.append(el("p", "Which repository?", "thread-card-title"));
+    const choices = el("div", undefined, "route-choices");
     for (const candidate of routing.candidates) {
-      const choice = button(card, shortName(candidate.name), () => handlers.onPickRoute(candidate.repository_id));
-      if (candidate.reason) choice.setAttribute("title", candidate.reason);
+      const choice = button(choices, "", () => handlers.onPickRoute(candidate.repository_id));
+      choice.classList.add("route-choice");
+      choice.append(el("span", shortName(candidate.name), "route-choice-name"));
+      const why = routeReason(candidate.reason);
+      if (why) choice.append(el("span", why, "route-choice-reason"));
     }
+    card.append(choices);
   } else {
     card.append(el("p", "No repository matched this question.", "thread-card-title"));
   }

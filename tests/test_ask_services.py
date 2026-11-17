@@ -60,6 +60,28 @@ class AskTests(unittest.TestCase):
         self.index.vectors.close(); self.store.close(); self.tmp.cleanup()
     def work(self):
         Worker(self.jobs,{'ask.answer':self.service.run_answer},worker_id='answer').run_once()
+    def test_unresolved_route_survives_reload_until_scope_or_message(self):
+        conv=self.service.create()['id']
+        self.assertIsNone(self.service.get(conv)['pending_route'])
+        decision=self.routing.route('mail delivery',conv)
+        self.assertEqual(decision['status'],'needs_selection')
+        pending=self.service.get(conv)['pending_route']
+        self.assertEqual((pending['id'],pending['status'],pending['prompt']),(decision['id'],'needs_selection','mail delivery'))
+        self.assertEqual([c['repository_id'] for c in pending['candidates']],[self.repo])
+        reason=pending['candidates'][0]['reason']
+        self.assertTrue(reason.startswith('Catalog evidence: '))
+        self.assertNotRegex(reason,r'\b(?:and|the)\b')
+        # A later unresolved decision replaces the earlier one.
+        later=self.routing.route('confirmation mail retry',conv)
+        self.assertEqual(self.service.get(conv)['pending_route']['id'],later['id'])
+        # Choosing repositories resolves it.
+        self.service.update_scope(conv,[self.repo],1)
+        self.assertIsNone(self.service.get(conv)['pending_route'])
+        # Deletion redacts the prompt, so nothing is restored afterwards.
+        other=self.service.create()['id']
+        self.routing.route('mail delivery',other)
+        self.service.delete(other)
+        self.assertIsNone(self.service.get(other)['pending_route'])
     def test_routing_pins_collision_missing_revoked(self):
         self.assertEqual(self.routing.route('acme/mail-worker')['selected_repository_ids'],[self.repo])
         self.assertEqual(self.routing.route('mail delivery')['status'],'needs_selection')
