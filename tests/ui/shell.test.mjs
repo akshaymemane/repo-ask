@@ -90,6 +90,7 @@ test("modern command-center shell keeps theme, motion and compact-layout safegua
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.inspector\.has-source \{[^}]*top:\s*118px/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.session-tabs \{[^}]*top:\s*118px/);
   assert.doesNotMatch(css, /var\(--accent\) 88%, white/);
+  assert.match(css, /@media \(max-width: 1000px\)[\s\S]*?\.session-pane \{[^}]*position:\s*static[^}]*overflow:\s*clip/);
 });
 
 test("workspace pill is hidden in connected mode", async () => {

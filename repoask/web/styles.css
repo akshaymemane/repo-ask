@@ -1255,7 +1255,8 @@ figure.agent-final { margin: var(--space-3) 0 0; }
   .sessions-panel.session-detail { grid-template-columns: minmax(0, 1fr); }
   .session-header { padding-inline: var(--space-4); }
   .session-main { min-height: auto; padding-inline: var(--space-4); border-right: 0; }
-  .session-pane { position: static; max-height: none; min-height: 0; padding-inline: var(--space-4); border-top: 1px solid var(--line); }
+  /* clip, not auto: a scroll container here would trap the sticky tabs inside the pane. */
+  .session-pane { position: static; max-height: none; min-height: 0; overflow: clip; padding-inline: var(--space-4); border-top: 1px solid var(--line); }
   .session-tabs { position: sticky; top: var(--top-height); margin-inline: calc(-1 * var(--space-4)); }
 }
 @media (max-width: 640px) {

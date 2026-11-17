@@ -43,5 +43,6 @@ Claude CLI was invoked for the requested cross-harness design critique but retur
 ## Claude follow-up
 
 - Claude performed the planned cross-harness critique after review-r2 (`review-claude.md`).
-- Fixed: ≤760px `.inspector.has-source` and `.session-tabs` now offset to 118px below the sticky rail + route bar; primary hover mixes toward `--text` instead of white.
-- Required before integration: independent re-review of the fix commit, ideally with a 390/500px render of an open source inspector and a Session detail page.
+- Fixed: ≤760px `.inspector.has-source` and `.session-tabs` now offset to 118px below the sticky rail + route bar; ≤1000px `.session-pane` uses `overflow: clip` so Session tabs pin instead of overlapping the first section; primary hover mixes toward `--text` instead of white.
+- Verified in headless Chromium at 390x844 and 900x844; measurements and before/after artifacts are in `review-claude.md` and `evidence/`.
+- Required before integration: independent re-review of the Claude fix commits.
