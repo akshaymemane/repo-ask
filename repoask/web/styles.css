@@ -1488,6 +1488,58 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
   .examples { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ---- Route polish: filters, settings navigation and hit areas ---- */
+.repo-filters > summary, .session-filter-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+  transition: color 140ms ease-out, border-color 140ms ease-out, background-color 140ms ease-out;
+}
+.repo-filters > summary::-webkit-details-marker, .session-filter-more > summary::-webkit-details-marker { display: none; }
+.repo-filters > summary::after { content: "\25BE"; font-size: 10px; }
+.repo-filters > summary:hover, .session-filter-more > summary:hover { color: var(--text); background: var(--raised); }
+.repo-filters[open] > summary { color: var(--text); border-color: color-mix(in srgb, var(--accent) 36%, var(--line)); background: var(--accent-tint); }
+/* Inline layout: Chrome wraps <details> content in ::details-content, so grid/flex on details cannot reach it. */
+.repo-filters[open] { flex: 1 1 100%; }
+.repo-filters > label, .repo-filters > input { display: inline-grid; vertical-align: bottom; width: min(100%, 180px); margin: var(--space-2) var(--space-2) 0 0; }
+.repo-filters > label { gap: 4px; color: var(--muted); font-size: 12px; }
+.repo-filters > p { margin: var(--space-2) 0 0; }
+.repo-filters :is(input, select) {
+  min-height: var(--control-height);
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.repo-filters :is(input, select):focus { border-color: var(--accent); }
+.repo-filters > label > select { width: 100%; }
+.filter-chip { white-space: nowrap; }
+.settings-nav a { transition: color 140ms ease-out, background-color 140ms ease-out; }
+.settings-nav a[aria-current="page"] { box-shadow: inset 2px 0 0 var(--accent), var(--inset-highlight); font-weight: 600; }
+/* The visible track stays 34x20; the pseudo-element extends the target to 44x44. */
+.switch::before { content: ""; position: absolute; inset: -12px -5px; }
+.sessions-panel .session-filter.is-date { left: auto; right: 0; }
+
+@media (max-width: 760px) {
+  .filter-chips { flex-wrap: wrap; }
+  .settings-nav a { display: flex; align-items: center; min-height: 44px; white-space: nowrap; }
+  .settings-nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent), var(--inset-highlight); }
+  .settings-body .field-group > .setting-field { flex: 1 1 100%; }
+  :is(.repos-top input[type="search"], .repo-filters :is(input, select), .sessions-panel .session-filter :is(input, select), .settings-body .setting-field :is(input, select, textarea)) { min-height: 44px; }
+  :is(.repo-filters, .session-filter-more, .settings-body details, .existing-app) > summary { min-height: 44px; display: inline-flex; align-items: center; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   .example:hover, .rail-new:active, .btn:active, .button:active, .ask-button:active, .publication-primary:active, .icon-button:active { transform: none; }

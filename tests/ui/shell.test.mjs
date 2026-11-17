@@ -93,6 +93,15 @@ test("modern command-center shell keeps theme, motion and compact-layout safegua
   assert.match(css, /@media \(max-width: 1000px\)[\s\S]*?\.session-pane \{[^}]*position:\s*static[^}]*overflow:\s*clip/);
 });
 
+test("route polish styles repository filters and keeps compact targets usable", () => {
+  assert.match(css, /\.repo-filters :is\(input, select\) \{[^}]*border:\s*1px solid var\(--line\)/);
+  assert.match(css, /\.repo-filters > label, \.repo-filters > input \{[^}]*display:\s*inline-grid/);
+  assert.match(css, /\.switch::before \{[^}]*inset:\s*-12px -5px/);
+  assert.match(css, /\.sessions-panel \.session-filter\.is-date \{ left: auto; right: 0; \}/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.settings-nav a \{[^}]*min-height:\s*44px[^}]*white-space:\s*nowrap/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.settings-body \.field-group > \.setting-field \{ flex: 1 1 100%; \}/);
+});
+
 test("workspace pill is hidden in connected mode", async () => {
   const workspace = structuredClone(fixtures.workspace.demo_memory);
   workspace.mode = "connected";

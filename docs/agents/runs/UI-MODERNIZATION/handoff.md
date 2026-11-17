@@ -46,3 +46,22 @@ Claude CLI was invoked for the requested cross-harness design critique but retur
 - Fixed: ≤760px `.inspector.has-source` and `.session-tabs` now offset to 118px below the sticky rail + route bar; ≤1000px `.session-pane` uses `overflow: clip` so Session tabs pin instead of overlapping the first section; primary hover mixes toward `--text` instead of white.
 - Verified in headless Chromium at 390x844 and 900x844; measurements and before/after artifacts are in `review-claude.md` and `evidence/`.
 - Required before integration: independent re-review of the Claude fix commits.
+
+## Claude route polish pass (ECC frontend-design-direction + make-interfaces-feel-better)
+
+Audited Ask, Sessions list/detail, Plan, Repositories and Settings (GitHub/Models/Coding agent) at 390x844 and
+1440x900 in headless Chromium (dark). CSS-only changes:
+
+- Repositories "More filters" had no styles (browser-default selects/inputs, run-on labels). Now a token-styled
+  disclosure with a labelled inline control row; inline layout because Chrome wraps `<details>` content in
+  `::details-content`, so grid/flex on the details element cannot reach the controls.
+- Filter chips no longer wrap mid-label; they wrap as whole chips at compact widths.
+- Settings section tabs no longer break "Coding agent"/"System health" over two lines at 390px; 44px targets;
+  active tab gets the same mint edge language as the rail (left edge desktop, underline compact).
+- Switches keep the 34x20 track but get a 44x44 hit area through `::before`.
+- Sessions date popover anchors right so it no longer extends past a 390px viewport.
+- Models role fields go full width at compact widths (previously 8px past the viewport).
+- Compact inputs/selects/summaries in Repositories, Sessions and Settings get 44px minimum heights.
+
+Evidence: `evidence/repo-filters-{1440x900,390x844}.png`. All routes report `scrollWidth === clientWidth` at 390px.
+Not covered: light-mode route sweep; loading/error/success states beyond what the fixtures render.
