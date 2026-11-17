@@ -1,0 +1,24 @@
+{
+  "id": "M2-START-SESSION",
+  "title": "Start a session from the conversation without hunting for an execution profile",
+  "state": "running",
+  "base_sha": "baf068a",
+  "branch": "task/m2-start-session",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-start-session",
+  "owner": "Codex builder (Claude quota exhausted; user asked to use Codex)",
+  "origin": "User report: Ask -> Generate plan -> 'Start session' disabled. Plan readiness needs_input [execution_not_configured]; plans are generated with execution_profile_id null (repoask/ask/conversations.py:398) even though one execution profile passed its test. The only fix path is Edit plan -> Execution and publication -> choose profile -> Save immutable version; the conversation card's Start session only navigates to the plan (thread.js:112, ask.js onStartSession) and shows the reason only as a title attribute.",
+  "decisions": [
+    "Server: when a plan is generated, set execution_context.execution_profile_id to the default execution profile when exactly one non-deleted profile has a passed check for its active version; otherwise leave null. Compose it like plan readiness: ApplicationServices.enable_execution sets plans.default_execution_profile (callable returning id or None) only if unset; generation calls it if present.",
+    "Conversation plan card: when readiness is ready, 'Start session' launches directly (POST /api/sessions {plan_version_id, content_hash, idempotency_key}, key reused across double click / network retry like ask.js plan editor) and navigates to #/sessions/<id>. When not ready, keep it disabled and show the reason as visible plain text under the card (reuse plan-view.js reason sentences) with a link to the place to fix it (for execution_not_configured: open the plan editor's Execution and publication section).",
+    "No change to readiness rules, session launch validation, or the plan editor flow."
+  ],
+  "write_scope": ["repoask/ask/conversations.py (default profile at generation only)", "repoask/ask/plans.py (attribute default only)", "repoask/services.py (composition only)", "repoask/execution/profiles.py (read-only helper returning the default profile id, if needed)", "repoask/web/thread.js", "repoask/web/ask.js (onStartSession handler only)", "repoask/web/styles.css (plan card reason only)", "tests/test_publication_api.py or a new tests/test_plan_default_profile.py", "tests/ui/ask*.test.mjs, tests/ui/thread.test.mjs", "docs/agents/runs/M2-START-SESSION/**"],
+  "acceptance": [
+    "A newly generated plan with exactly one passed profile is ready (no execution_not_configured) without editing; with zero or several passed profiles it stays null and the card explains why with a fix link",
+    "Ready card: Start session launches and navigates; double click sends one launch; a network error resend reuses the key; launch errors are shown in plain words",
+    "Existing plans keep their saved profile; plan editor unchanged",
+    "Focused Python and UI tests; full Python suite and full UI suite pass"
+  ],
+  "reviewer": "fresh Codex review session (opposite harness unavailable: Claude quota); coordinator verifies live",
+  "handoff": "docs/agents/runs/M2-START-SESSION/handoff.md"
+}
