@@ -1,11 +1,10 @@
 """Bounded redaction for persisted/streamed session payloads and logs."""
 import json
 import re
+from repoask.platform.credentials import contains_credential, redact_credentials
 
 MAX_EVENT_BYTES = 8192
 _SECRET_RES = (
-    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)', re.S),
-    re.compile(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})\b'),
     re.compile(r'(?i)\b(?:authorization|password|passwd|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|token|bearer)\s*[:=]\s*[^\s,;\'"]+'),
     re.compile(r'(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}'),
 )
@@ -19,6 +18,7 @@ PRIVATE_KEYS = frozenset({'container_id', 'socket_path', 'token_file', 'token', 
 def redact_text(value, limit=4000):
     text = value if isinstance(value, str) else str(value)
     text = _CONTROL_RE.sub('', text)
+    text = redact_credentials(text, '[redacted credential]')
     for pattern in _SECRET_RES:
         text = pattern.sub('[redacted credential]', text)
     text = _HOST_PATH_RE.sub('[private host path]', text)
@@ -31,7 +31,7 @@ def contains_secret(data):
     """Conservative content guard for acquisition (bytes) and artifacts."""
     if isinstance(data, bytes):
         data = data.decode('utf-8', 'replace')
-    return any(p.search(data) for p in _SECRET_RES[:2])
+    return contains_credential(data)
 
 
 def _clean(value, depth=0):

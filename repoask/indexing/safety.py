@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import re
 from pathlib import PurePosixPath
+from repoask.platform.credentials import contains_credential
 
 CHUNKER = 'lines-symbols-v2'
 PARSER = 'text-v1'
@@ -76,7 +77,7 @@ def decode(content):
     except UnicodeError:
         return None
     # Conservative content guard, before FTS or provider calls.
-    if re.search(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})', text):
+    if contains_credential(text):
         return None
     return text.replace('\r\n', '\n')
 

@@ -70,9 +70,8 @@ def citation(index, item):
 def export_text(value):
     """Plain-text export: preserve identifiers while suppressing recognizable secrets/host paths."""
     import re
-    value=str(value)
-    value=re.sub(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)','[redacted credential]',value,flags=re.S)
-    value=re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9_-]{20,})\b','[redacted credential]',value)
+    from repoask.platform.credentials import redact_credentials
+    value=redact_credentials(str(value), '[redacted credential]')
     value=re.sub(r'(?i)\b(?:authorization|password|api[_-]?key|access[_-]?token)\s*[:=]\s*[^\s,;]+','[redacted credential]',value)
     value=re.sub(r'(?:/Users/|/home/|/private/|[A-Z]:\\Users\\)[^\s"<>]+','[private host path]',value)
     return value
