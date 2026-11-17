@@ -47,3 +47,15 @@ Machine-readable, content-free evidence: `evidence.json`. A browser GIF was reco
 5. Default PR title is "OpenDevin session <id>"; it should default to the plan goal.
 6. The PR review step does not show `omitted_paths` (generated files left out); the PR body lists them.
 7. Agent model shown in the timeline is the CLI default (claude-opus-5-5); the execution profile has no model choice.
+
+## Cancellation and recovery checks (exit gate)
+
+| # | Check | Result |
+| --- | --- | --- |
+| 16 | Cancellation: new attempt `ses_ba865aac…`, Stop requested while `running agent` | `cancelled` in 1.2 s, containment confirmed, no session containers left |
+| 17 | Recovery: attempt `ses_01788bb0…` running agent; server killed with SIGKILL | Session container `org.opendevin.session=ses_01788bb0…` left running (expected after a hard kill) |
+| 18 | Restart server | Session reconciled to `interrupted` / `runtime_interrupted`; containment event `{confirmed: true, container: terminated, harness: absent, source: recovery}`; `edits_since_last_checkpoint_may_be_lost` true; 0 containers left |
+
+Retry rule observed: only the latest attempt can be retried (`retry_exists` otherwise) — correct but the
+code is unexplained in the API error; recorded as UX finding 8.
+Setup and recovery instructions: README "Implementation sessions and draft pull requests".

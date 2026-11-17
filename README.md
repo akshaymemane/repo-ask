@@ -4,12 +4,11 @@ OpenDevin is an open-source, self-hosted workspace for finding the right GitHub
 repository, discussing a change, saving an implementation plan, and following an
 agent session through to a pull request.
 
-Development is in progress. GitHub App connections, repository discovery, model
-profiles, secure credential references and durable background jobs are integrated.
-Persistent indexing and its UI are under review. Saved Ask conversations, plans,
-isolated implementation sessions and customization are the next implementation
-slices. The bundled Ask demo remains usable throughout development; it does not
-represent a connected GitHub account or a completed implementation session.
+Development is in progress. GitHub App connections, repository discovery, persistent
+indexing, saved Ask conversations and plans, isolated implementation sessions in Docker
+with Claude Code, and draft pull request publication are integrated (M2). Customization
+(skills, plugins, memory) is next. The bundled Ask demo remains usable; it does not
+represent a connected GitHub account.
 
 The [Master PRD](Master%20PRD.md) and [12 feature specifications](docs/features)
 define the intended product. The [development workflow](docs/agents/README.md) and
@@ -40,14 +39,18 @@ hosting needs a separate authentication and TLS design.
 
 ## GitHub and model setup
 
-Open Settings → GitHub → **Connect GitHub**. OpenDevin creates a private, read-only
-GitHub App from a manifest; you review it on GitHub, click Create, and the App ID and
+Open Settings → GitHub → **Connect GitHub**. OpenDevin creates a private GitHub App
+from a manifest (contents and pull requests read & write, metadata read); you review it on GitHub, click Create, and the App ID and
 private key are stored in your OS credential vault automatically. Then install the App on
 the repositories you want. To reuse an App you already have, use "Use an existing GitHub
 App" and enter its App ID, slug and private key; its Setup URL must be
 `http://127.0.0.1:8765/api/github/callback` for the default port. OpenDevin does not
-import your GitHub CLI login. Write access (contents and pull requests) is a separate,
-later step for publishing. "Use in Ask" and "Allow changes" are independent per repository.
+import your GitHub CLI login. OpenDevin writes only to repositories where you turn on
+**Allow changes**, only on new `opendevin/…` branches, and only as draft pull requests; it
+never merges or touches the default branch. Apps created before this change were read-only:
+raise Contents and Pull requests to "Read and write" in the App's settings on GitHub, accept
+the new permissions on the installation, then click **Sync** on the Repositories page.
+"Use in Ask" and "Allow changes" are independent per repository.
 
 Provider profiles support Ollama and OpenAI-compatible chat/embedding endpoints.
 Configure capability flags, limits, dimensions, credentials and role assignments.
@@ -77,6 +80,33 @@ index at startup. The new GitHub catalog has separate pagination and is designed
 for hundreds of repositories. Until the persistent Ask slice is integrated, its
 provider roles and connected catalog do not replace the legacy demo's startup
 model and repository picker.
+
+## Implementation sessions and draft pull requests
+
+Requirements: Docker running, a container image already present locally (sessions never pull
+images and have no network; for Python, `docker pull python:3.12-slim` beforehand), and the
+Claude Code CLI installed and logged in with your own account (`claude`). Start OpenDevin with
+`--data-dir` so sessions and publications survive restarts.
+
+1. Settings → Privacy: turn off **Keep everything on this computer**. The coding agent sends
+   the plan and permitted source to Anthropic.
+2. Settings → Coding agent: set **Pull request author** (name and email used for commits), then
+   create an execution profile with your image, tick **Allow sending repository source to the
+   external coding model**, and run **Test execution profile** until it passes.
+3. Repositories: turn on **Use in Ask** and **Allow changes** for the target repository.
+4. Ask: describe the change with the repository chip attached and click **Generate plan**. Plans
+   start without an execution profile: open the plan, **Edit plan → Execution and publication**,
+   choose the tested profile and **Save immutable version**, then **Start session** there.
+5. The session page shows progress, the diff and checks. Validation runs inside the container.
+   **Stop session** cancels and confirms the container is gone.
+6. PR tab → **Create draft PR**: review repository, branches, changed paths and checks, edit the
+   title and description, then **Publish draft PR**. Newly generated files (for example
+   `__pycache__/`) are left out and listed in the description; other rejected paths block.
+
+Recovery: if OpenDevin stops while a session runs, the next start confirms the container and agent
+are gone and marks the session **interrupted** (edits after the last checkpoint may be lost); use
+**Retry as a new attempt**. A publication whose GitHub response was lost is reconciled against
+GitHub on the next start or on **Retry**, and never creates a second branch or pull request.
 
 ## Development and verification
 
