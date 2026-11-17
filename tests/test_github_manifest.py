@@ -70,7 +70,7 @@ class ManifestTests(unittest.TestCase):
         # GitHub rejects loopback hook URLs (live test 2026-11-15); OpenDevin polls, so no webhook at all.
         self.assertNotIn('hook_attributes', m)
         self.assertNotIn('127.0.0.1', m['url'].replace('http://127.0.0.1:8765/api/github/manifest/callback', ''))
-        self.assertEqual(m['default_permissions'], {'contents': 'read', 'metadata': 'read'})
+        self.assertEqual(m['default_permissions'], {'contents': 'write', 'metadata': 'read', 'pull_requests': 'write'})
         self.assertEqual(m['default_events'], [])
         self.assertFalse(m['public'])
         self.assertFalse(m['request_oauth_on_install'])

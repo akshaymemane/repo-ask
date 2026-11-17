@@ -107,7 +107,9 @@ class GitHubService:
         callback = base + '/api/github/manifest/callback'
         manifest = {'name': 'opendevin-' + random.token_hex(3), 'url': callback, 'redirect_url': callback,
                     'setup_url': base + '/api/github/callback',
-                    'public': False, 'default_permissions': {'contents': 'read', 'metadata': 'read'},
+                    # Draft PRs (F06) need contents and pull_requests write; per-call tokens stay narrower, and writes
+                    # happen only on repositories where the user enabled implementation.
+                    'public': False, 'default_permissions': {'contents': 'write', 'metadata': 'read', 'pull_requests': 'write'},
                     'default_events': [], 'request_oauth_on_install': False, 'setup_on_update': False}
         state, expires = random.token_urlsafe(32), self.clock() + 600000
         with self.manifest_lock:

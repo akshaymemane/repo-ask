@@ -21,6 +21,12 @@ prompts, containers, command arguments, or browser responses. Every external ste
 rechecks current repository access, implementation permission, the recorded session
 policy, and the granted GitHub capabilities.
 
+App permissions (coordinator decision with user approval, M2-PILOT, 2026-11-17): the GitHub App manifest
+requests `contents: write`, `pull_requests: write` and `metadata: read`. Apps created before this read
+only; their owner must raise those two permissions on GitHub and accept them on the installation.
+Installation tokens stay narrower per call (read scope for reads, the two writes only inside `run`), and
+writes remain limited to repositories with implementation enabled.
+
 ## Session handoff
 
 `SessionService.publication_snapshot(session_id)` is a trusted internal method, not an

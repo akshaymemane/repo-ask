@@ -82,7 +82,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
         box.append(output);
         return;
       }
-      box.append(el("p", "Connect GitHub to search your repositories. OpenDevin creates a private, read-only GitHub App for you; you review it on GitHub before anything is created."));
+      box.append(el("p", "Connect GitHub to search your repositories. OpenDevin creates a private GitHub App for you and you review it on GitHub first. It reads your code, and opens draft pull requests only on repositories where you turn on Allow changes."));
       const org = el("input");
       org.setAttribute("aria-label", "Organization name");
       org.placeholder = "organization name";
