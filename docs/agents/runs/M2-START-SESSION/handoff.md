@@ -40,3 +40,15 @@ Python focused command above abbreviates the interpreter as `/Users/apple/worksp
 - Coordinator must stage the final task-artifact updates and commit the complete diff; sandbox prevented the final staging/commit. Intended commit message ends `Co-Authored-By: Codex <noreply@openai.com>`.
 - Reviewer: fresh Codex review session (Claude quota unavailable), exact submitted commit; coordinator verifies live and owns integration.
 - Background processes: none left from this task; all launched test commands finished.
+
+## Review round 1
+
+- Finding: P2 at `repoask/web/ask.js:223`, completed conversation launch attempts retained their idempotency key.
+- Review base: `da08645b20dd8af6d8db04f7d94a57cd799a7246`; author: Codex builder; no delegated agents.
+- Change: confirmed responses containing a session ID clear both the in-memory launch key and sessionStorage before the navigation/epoch guard. The existing definite-rejection (4xx) cleanup remains; unknown/network outcomes retain the key for reconciliation.
+- Scope: only `repoask/web/ask.js`, `tests/ui/ask-start-fix.test.mjs`, and this Review round 1 section.
+- Requirement coverage: SE-01 and task ready-card launch/retry acceptance. Three UI cases verify key regeneration after success (returning to the same conversation/version), regeneration after a 409 rejection, and reuse after a network error; assertions cover sessionStorage cleanup/preservation as well as posted keys.
+- Checks run: `node --test tests/ui/*.test.mjs`: 275 tests, 273 passed, 2 failed. Both failures are the previously recorded `tests/ui/session-services.test.mjs` synthetic profile bootstrap failures (`execution_test_failed`); all three new cases passed. Full UI regression remains non-green.
+- Checks run: `node --test tests/ui/ask-start-fix.test.mjs`: 4 tests passed. `git diff --check`: passed.
+- No installs, network operations, push, or integration. Independent exact-commit review remains with the coordinator.
+- Submitted SHA: `uncommitted`. `git add` failed creating the worktree Git `index.lock` with `Operation not permitted`; no commit could be created. Coordinator owns staging/commit and subsequent review.

@@ -31,3 +31,42 @@ test('conversation fix opens the saved plan editor at Execution and publication'
     assert.equal(call(`/api/plans/${seed.plan.id}`).body.version.id,seed.plan.version.id);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
+
+for (const outcome of ['success', 'rejection', 'network error']) {
+  test(`conversation launch key is ${outcome === 'network error' ? 'reused' : 'regenerated'} after ${outcome}`, async()=>{
+    const c={id:'launch-c',repository_ids:[],messages:[],runs:[],plans:[{id:'launch-p',latest_version_id:'launch-v'}]};
+    const posts=[], stored=new Map();
+    const b=createBrowser(readFileSync(new URL('../../repoask/web/index.html',import.meta.url),'utf8'),{
+      hash:'#/ask/launch-c',respond:(method,url,options)=>{
+        if(url==='/api/conversations')return {items:[c]};
+        if(url==='/api/conversations/launch-c')return c;
+        if(url.startsWith('/api/plans/launch-p'))return {version:{id:'launch-v',content_hash:'saved-hash',version:1,content:{steps:[]},readiness:{state:'ready'}}};
+        if(url==='/api/sessions'){
+          posts.push(JSON.parse(options.body));
+          if(posts.length===1 && outcome==='rejection')return {status:409,body:{code:'launch_rejected'}};
+          if(posts.length===1 && outcome==='network error')throw new Error('Network connection lost');
+          return {session_id:`session-${posts.length}`};
+        }
+        return {status:404,body:{code:'not_found'}};
+      }
+    });
+    b.window.sessionStorage={getItem:k=>stored.get(k)??null,setItem:(k,v)=>stored.set(k,v),removeItem:k=>stored.delete(k)};
+    install(b);
+    const ui=await createAskPanel({host:b.document.getElementById('view-ask')});await settle();
+    const start=()=>ui.panel.querySelectorAll('button').find(n=>n.textContent==='Start session');
+    start().click();await settle();
+    assert.equal(posts.length,1);
+    const first=posts[0].idempotency_key;assert.ok(first);
+    assert.equal(stored.get('ask-launch-launch-v')??null,outcome==='network error'?first:null);
+    if(outcome==='success'){
+      assert.equal(b.window.location.hash,'#/sessions/session-1');
+      b.window.location.hash='#/ask/launch-c';await settle();
+    } else assert.match(visibleText(ui.panel),/Couldn't start session/);
+    start().click();await settle();
+    assert.equal(posts.length,2);
+    if(outcome==='network error')assert.equal(posts[1].idempotency_key,first);
+    else assert.notEqual(posts[1].idempotency_key,first);
+    assert.equal(b.window.location.hash,'#/sessions/session-2');
+    assert.equal(stored.has('ask-launch-launch-v'),false);
+  });
+}

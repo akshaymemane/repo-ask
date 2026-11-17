@@ -218,8 +218,9 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
           }
           try {
             const result = await request('/api/sessions', 'POST', {plan_version_id:v.id, content_hash:v.content_hash, idempotency_key:launchKeys.get(v.id)});
-            if (token !== epoch) return;
             if (!result.session_id) throw new Error('Session outcome unknown. Retry Start session to reconcile.');
+            launchKeys.delete(v.id); try { window.sessionStorage?.removeItem(`ask-launch-${v.id}`); } catch {}
+            if (token !== epoch) return;
             location.hash = `#/sessions/${enc(result.session_id)}`;
           } catch (error) {
             if (error.status >= 400 && error.status < 500) {
