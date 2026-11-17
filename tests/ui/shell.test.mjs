@@ -186,7 +186,9 @@ test("opening the panel moves focus into it; Escape anywhere closes it and retur
 
 test("compact side panel is modal, contains focus, and restores the background", async () => {
   const b = await boot({ api: legacyApi() });
-  globalThis.matchMedia = () => ({ matches: true });
+  let onChange;
+  const query = { matches: true, addEventListener: (name, fn) => { if (name === "change") onChange = fn; } };
+  globalThis.matchMedia = () => query;
   const { createSidePanel } = await import(`${panelUrl}?p=compact`);
   const main = b.document.createElement("main");
   const opener = b.document.createElement("button");
@@ -196,15 +198,30 @@ test("compact side panel is modal, contains focus, and restores the background",
   b.document.body.append(main);
   opener.focus();
   const panel = createSidePanel(host);
-  panel.openTab({ id: "details", title: "Details", render: (body) => body.append("Details") });
+  panel.openTab({ id: "details", title: "Details", render: (body) => {
+    const link = b.document.createElement("a"); link.href = "#details"; link.textContent = "Details";
+    const action = b.document.createElement("button"); action.textContent = "Act";
+    body.append(link, action);
+  } });
   assert.equal(host.getAttribute("role"), "dialog");
   assert.equal(host.getAttribute("aria-modal"), "true");
   assert.equal(opener.inert, true);
-  const close = host.querySelector(".side-close");
-  close.focus();
-  const event = keydown(close, "Tab");
+  const action = host.querySelectorAll("button").find((node) => node.textContent === "Act");
+  action.focus();
+  const event = keydown(action, "Tab");
   assert.equal(event.defaultPrevented, true);
   assert.ok(host.querySelector('[role="tab"]') === b.document.activeElement);
+  const reverse = keydown(b.document.activeElement, "Tab", { shiftKey: true });
+  assert.equal(reverse.defaultPrevented, true);
+  assert.equal(b.document.activeElement, action, "reverse Tab reaches the last control in DOM order");
+  panel.openTab({ id: "more", title: "More", render: (body) => body.append("More") });
+  assert.equal(opener.inert, true, "reopening preserves the original inert snapshot");
+  query.matches = false; onChange();
+  assert.equal(host.hasAttribute("aria-modal"), false);
+  assert.equal(opener.inert, false);
+  query.matches = true; onChange();
+  assert.equal(host.getAttribute("aria-modal"), "true");
+  assert.equal(opener.inert, true);
   panel.close();
   assert.equal(opener.inert, false);
   assert.equal(b.document.activeElement, opener);

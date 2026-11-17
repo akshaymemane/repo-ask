@@ -13,7 +13,8 @@ export function createSidePanel(host) {
   let returnFocus = null;
   const panelId = host.id || `side-panel-${Math.random().toString(36).slice(2)}`;
   host.id = panelId;
-  const compact = () => globalThis.matchMedia?.("(max-width: 760px)")?.matches === true;
+  const compactQuery = globalThis.matchMedia?.("(max-width: 760px)");
+  const compact = () => compactQuery?.matches === true;
   let inerted = [];
 
   const tabList = make("div", undefined, "side-tabs");
@@ -38,6 +39,7 @@ export function createSidePanel(host) {
     }
     host.setAttribute("role", "dialog");
     host.setAttribute("aria-modal", "true");
+    if (inerted.length) return;
     const outside = [];
     for (let current = host; current && current !== document.body; current = current.parentNode) {
       for (const sibling of current.parentNode?.children ?? []) {
@@ -49,11 +51,15 @@ export function createSidePanel(host) {
   }
 
   function focusable() {
-    return [
-      ...host.querySelectorAll("button"), ...host.querySelectorAll("a"),
-      ...host.querySelectorAll("input"), ...host.querySelectorAll("select"),
-      ...host.querySelectorAll("textarea"),
-    ].filter((node) => !node.disabled && node.getAttribute("tabindex") !== "-1" && !node.hidden);
+    const nodes = [];
+    const visit = (parent) => {
+      for (const node of parent.children ?? []) {
+        if (["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA"].includes(node.tagName)) nodes.push(node);
+        visit(node);
+      }
+    };
+    visit(host);
+    return nodes.filter((node) => !node.disabled && !node.inert && node.getAttribute("tabindex") !== "-1" && !node.hidden);
   }
 
   function render() {
@@ -114,6 +120,9 @@ export function createSidePanel(host) {
   };
 
   closeAll.addEventListener("click", () => api.close());
+  compactQuery?.addEventListener?.("change", () => {
+    if (!host.hidden) setCompactModal(compact());
+  });
   // Escape closes the panel from anywhere, unless a dialog (which handles its own Escape) is open.
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab" && !host.hidden && compact()) {
