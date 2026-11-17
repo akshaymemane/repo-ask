@@ -11,6 +11,14 @@ All notable user-visible changes are recorded here. The format follows
   third-party notices, issue and pull request templates, and CI for Python 3.10–3.13 on
   Linux and macOS plus UI tests and a package build check.
 
+### Fixed
+- Ask keeps a question that is waiting for a repository choice across reloads and restarts,
+  shows why each repository was suggested, and never resends a question once repositories
+  were chosen.
+- Credential detection is shared by indexing, session logs and exports, and now also catches
+  `sk-…`, `github_pat_…`, Slack and Google API key formats before source is indexed.
+- The route bar stays on one line when the source panel is open.
+
 ## [0.1.0] — first public preview
 
 ### Added
@@ -27,9 +35,10 @@ All notable user-visible changes are recorded here. The format follows
 - **Models:** Ollama, OpenAI-compatible endpoints and the Claude Code CLI as providers,
   assigned per role, with local-only mode on by default and explicit per-profile opt-in for
   sending source.
-- **Implementation sessions:** Claude Code in a network-less, capability-dropped container
-  with resource limits; live progress, guidance messages, diff, validation checks, stop with
-  containment confirmation, and interrupted/retry recovery.
+- **Implementation sessions:** the Claude Code CLI on the host with its own tools disabled,
+  acting only through OpenDevin's brokered tools on a repository copy in a network-less,
+  capability-dropped, resource-limited container; live progress, guidance messages, diff,
+  validation checks, stop with containment confirmation, and interrupted/retry recovery.
 - **Draft pull requests:** reviewed publication to new `opendevin/…` branches as draft PRs,
   generated-file omission, and reconciliation that never duplicates a branch or PR.
 - **Interface:** Ask, Sessions, Repositories and Settings in a responsive dark/light

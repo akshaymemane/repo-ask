@@ -1401,6 +1401,15 @@ h1, h2, h3, .intro-title, .session-title { text-wrap: balance; }
 }
 .page-top-title { font-size: 13px; font-weight: 650; letter-spacing: -.01em; }
 .workspace-mode { min-height: 30px; padding: 4px 9px; border-color: transparent; background: var(--surface); box-shadow: var(--inset-highlight); }
+/* One-row route bar: when space runs out (e.g. the source panel is open), pills truncate instead of wrapping out of the bar. */
+.page-top-title { flex: 0 100 auto; min-width: 6rem; }
+.page-top-pills { flex: 0 1 auto; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+.page-top-pills .pill { flex: 0 1 auto; min-width: 5rem; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+/* With the source/side panel open the route bar is narrow: keep the short workspace label, as at <=1240px. */
+.app-shell:has(.side-panel:not([hidden])) .workspace-mode-detail,
+.app-shell:has(.inspector.has-source) .workspace-mode-detail { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 1240px) { .app-shell:has(.side-panel:not([hidden])) .page-top .mode, .app-shell:has(.inspector.has-source) .page-top .mode { display: none; } }
+.page-top .top-actions { flex: none; }
 .workspace-mode-icon { font-size: 9px; }
 .mode { display: inline-flex; align-items: center; min-height: 30px; }
 .status-dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 9%, transparent); }

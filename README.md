@@ -22,13 +22,14 @@ keeps your source on your machine unless you explicitly opt a model in.
   lines in an indexed commit.
 - **Plan before changing code.** Turn a conversation into a structured, versioned
   implementation plan you can edit. Ask never runs code or edits files.
-- **Supervised sessions.** Start a session from a saved plan. A coding agent works in an
-  isolated container with no network; you watch progress, the diff and checks, can send
-  guidance, and can stop it at any time.
+- **Supervised sessions.** Start a session from a saved plan. The coding agent edits files
+  and runs commands only through OpenDevin, inside an isolated container with no network;
+  you watch progress, the diff and checks, can send guidance, and can stop it at any time.
 - **Draft pull requests only.** Review the diff and checks, then publish a draft PR to a
   new `opendevin/…` branch. Nothing is merged or pushed to a default branch.
 - **Bring your own models.** Ollama, any OpenAI-compatible endpoint, or the Claude Code
-  CLI, assigned per role (answers, plans, embeddings, summaries).
+  CLI for answers, plans and summaries; an embedding model (for example from Ollama) for
+  smarter code search.
 
 ## Quick start
 
@@ -85,8 +86,10 @@ Settings → Models. Supported providers:
 - **OpenAI-compatible servers** such as LM Studio, vLLM or llama.cpp, or hosted APIs
 - **Claude Code CLI**, using your own Claude subscription login
 
-Assign a model to each role: answering questions, writing plans, code search
-embeddings (optional, improves search) and repository summaries. **Keep everything on
+Assign a model to each role: answering questions, writing plans and repository summaries
+take any chat-capable profile; code search embeddings (optional, improves search) need an
+embedding-capable Ollama or OpenAI-compatible profile. The Claude Code CLI provides chat
+only. **Keep everything on
 this computer** is on by default; remote providers need that turned off and the profile
 explicitly allowed to receive source. Connection tests send synthetic content only.
 
@@ -104,8 +107,10 @@ images and have no network; for Python projects, `docker pull python:3.12-slim`)
    source to the external coding model**, and run **Test execution profile** until it passes.
 3. **Repositories:** turn on **Use in Ask** and **Allow changes** for the target repository.
 4. **Ask:** describe the change with the repository attached and click **Generate plan**.
-   Open the plan, **Edit plan → Execution and publication**, choose the tested profile,
-   **Save immutable version**, then **Start session**.
+   When exactly one execution profile has passed its test, new plans use it and are ready
+   to start; click **Start session** on the plan card. With several tested profiles, open the
+   plan, **Edit plan → Execution and publication**, choose one, **Save immutable version**,
+   then **Start session**.
 5. **Session:** follow progress, the diff and checks. Validation runs inside the container.
    **Stop session** cancels it and confirms the container is gone.
 6. **PR tab → Create draft PR:** review repository, branches, changed paths and checks, edit
@@ -135,8 +140,11 @@ opendevin --repo web=/path/to/storefront --repo api=/path/to/orders-api
   Manager. If secure storage is missing or locked, credential setup is blocked; there is
   no plaintext fallback.
 - Indexing never runs repository scripts and skips credential-like and generated files.
-- Sessions run with no network, dropped capabilities, a read-only root filesystem and
-  resource limits.
+- In a session, repository files and commands live in a container with no network, dropped
+  capabilities, a read-only root filesystem and resource limits. The Claude Code CLI itself
+  runs on your computer with its built-in tools, hooks, plugins and settings disabled; it can
+  act only through OpenDevin's tools into that container, and it talks to Anthropic using
+  your own login.
 
 See [SECURITY.md](SECURITY.md) for the full model and how to report a vulnerability.
 

@@ -105,6 +105,12 @@ test("route polish styles repository filters and keeps compact targets usable", 
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.settings-body \.field-group > \.setting-field \{ flex: 1 1 100%; \}/);
 });
 
+test("route bar stays one row when the source or side panel narrows it", () => {
+  assert.match(css, /\.page-top-pills \{[^}]*flex-wrap:\s*nowrap[^}]*overflow:\s*hidden/);
+  assert.match(css, /\.page-top-pills \.pill \{[^}]*text-overflow:\s*ellipsis/);
+  assert.match(css, /\.app-shell:has\(\.inspector\.has-source\) \.workspace-mode-detail/);
+});
+
 test("workspace pill is hidden in connected mode", async () => {
   const workspace = structuredClone(fixtures.workspace.demo_memory);
   workspace.mode = "connected";

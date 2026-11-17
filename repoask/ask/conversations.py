@@ -118,6 +118,9 @@ class ConversationService:
             if conv['deleted_at'] is not None or conv['scope_revision']!=expected_revision:
                 raise InvalidTransition('Scope revision changed.')
             db.execute('UPDATE conversations SET scope_json=?,scope_revision=scope_revision+1,updated_at=? WHERE id=?',(encode(scope),self.clock(),ident))
+            if scope:
+                # The user chose repositories: a question waiting for a choice is consumed, even if the scope is cleared later.
+                db.execute("UPDATE routing_decisions SET status='resolved' WHERE conversation_id=? AND status IN ('needs_selection','no_match')",(ident,))
             for row in db.execute("SELECT id FROM answer_runs WHERE conversation_id=? AND state IN ('queued','running')",(ident,)).fetchall():
                 self._stop(db,row[0],'scope_changed')
         return self.get(ident)

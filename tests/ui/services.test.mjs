@@ -13,7 +13,7 @@ test('UI profile CRUD, roles and local policy persist through real FeatureAPI an
   const browser=createBrowser(readFileSync(new URL('../../repoask/web/index.html',import.meta.url),'utf8'),{hash:'#/settings',respond(method,url,options){
    if(url==='/api/repos')return {repos:[],model:null};
    const parsed=new URL(url,'http://localhost');
-   return JSON.parse(execFileSync('python3',[bridge,directory],{input:JSON.stringify({method,path:parsed.pathname,query:parsed.search.slice(1),body:options.body?JSON.parse(options.body):undefined}),encoding:'utf8'}));
+   return JSON.parse(execFileSync(process.env.REPOASK_TEST_PYTHON||'python3',[bridge,directory],{input:JSON.stringify({method,path:parsed.pathname,query:parsed.search.slice(1),body:options.body?JSON.parse(options.body):undefined}),encoding:'utf8'}));
   }});
   install(browser);await import(new URL('../../repoask/web/app.js?real-services',import.meta.url));await settle();
   const root=browser.document.getElementById('settings-content');
@@ -23,7 +23,7 @@ test('UI profile CRUD, roles and local policy persist through real FeatureAPI an
   browser.window.location.hash='#/settings/models';await settle();
   let form=button('Create profile').closest('form');input(form,'Profile name').value='Real local profile';input(form,'Model identifier').value='synthetic';form.requestSubmit();await settle();
   assert.match(visibleText(root),/Real local profile/);
-  const api=(method,path,body)=>JSON.parse(execFileSync('python3',[bridge,directory],{input:JSON.stringify({method,path,query:'',body}),encoding:'utf8'})).body;
+  const api=(method,path,body)=>JSON.parse(execFileSync(process.env.REPOASK_TEST_PYTHON||'python3',[bridge,directory],{input:JSON.stringify({method,path,query:'',body}),encoding:'utf8'})).body;
   const labelled=label=>root.querySelectorAll('button').find(x=>x.getAttribute('aria-label')===label);
   // Jobs are assigned with the pickers at the top of Models; the new profile is listed there without a reload.
   const ask=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='Answering questions');

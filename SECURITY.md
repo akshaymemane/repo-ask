@@ -27,7 +27,7 @@ when they show a way around one of these boundaries:
 | Source privacy | Local-only mode is on by default. Repository source is sent to a remote model only after the user turns local-only mode off and opts the specific provider or execution profile in. |
 | Ask | Ask reads indexed snapshots and calls configured models. It never runs repository commands or edits files. |
 | Indexing | Indexing reads committed files only and never runs repository install or build scripts. Credential-like files and generated artifacts are excluded. |
-| Sessions | Coding sessions run in a container with no network (`--network none`), all capabilities dropped, a read-only root filesystem, memory/CPU/process limits and timeouts, using an image already present locally (never pulled). Stopping a session confirms the container and agent processes are gone, or reports a containment failure. |
+| Sessions | Repository files and commands for a session live in a container with no network (`--network none`), all capabilities dropped, a read-only root filesystem, memory/CPU/process limits and timeouts, using an image already present locally (never pulled). The coding-agent CLI (Claude Code) runs **on the host**, in an empty private temporary directory, with its built-in tools, hooks, plugins, settings, memory and slash commands disabled; it can act only through OpenDevin's brokered tools, which operate inside that container. The CLI needs network access to its model provider and uses the user's own login, with turn, budget and time limits. Stopping a session confirms the container and agent processes are gone, or reports a containment failure. |
 | GitHub writes | Only for repositories with **Allow changes** on, only to new `opendevin/…` branches, and only as draft pull requests after explicit publication. OpenDevin never merges and never pushes to a default branch. |
 | Permissions | Repository content and model output cannot widen a plan's scope, a session's grants or a repository's permissions. (User-managed skills, plugins and memory are not available yet.) |
 
@@ -39,6 +39,7 @@ report those upstream, though we welcome a heads-up).
 ## What a session can see
 
 The coding agent receives the saved plan and the repository source permitted by the
-plan, and it runs with the credentials of the coding-agent CLI the user logged in with
-(for example Claude Code). Treat a session like giving that agent read/write access to a
-copy of the repository: review the diff before publishing a pull request.
+plan, and its CLI runs on the host with the credentials the user logged in with (for
+example Claude Code). Its access to the repository copy goes through OpenDevin's tools into
+the container. Treat a session like giving that agent read/write access to a copy of the
+repository: review the diff before publishing a pull request.

@@ -77,6 +77,17 @@ class AskTests(unittest.TestCase):
         # Choosing repositories resolves it.
         self.service.update_scope(conv,[self.repo],1)
         self.assertIsNone(self.service.get(conv)['pending_route'])
+        # Clearing the scope later does not resurrect the consumed question.
+        self.service.update_scope(conv,[],2)
+        self.assertIsNone(self.service.get(conv)['pending_route'])
+        # Nor does choosing repositories after the prompt was abandoned, then removing them.
+        third=self.service.create()['id']
+        self.routing.route('mail delivery',third)
+        self.service.update_scope(third,[self.repo],1); self.service.update_scope(third,[],2)
+        self.assertIsNone(self.service.get(third)['pending_route'])
+        # A new unresolved question after that is pending again.
+        fresh=self.routing.route('mail delivery again',third)
+        self.assertEqual(self.service.get(third)['pending_route']['id'],fresh['id'])
         # Deletion redacts the prompt, so nothing is restored afterwards.
         other=self.service.create()['id']
         self.routing.route('mail delivery',other)
