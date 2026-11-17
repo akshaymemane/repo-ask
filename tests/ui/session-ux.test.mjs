@@ -140,7 +140,9 @@ test('the timeline folds setup, groups work, reads checkpoints plainly and shows
   assert.match(work.querySelector('summary').textContent, /^Worked for 4 s · 2 steps in 1 file$/);
   assert.match(visibleText(work), /Checkpoint saved · \+1 −1 in 1 file · 2 paths left out/); assert.match(visibleText(work), /Read · calc\.py/);
   const message = activity.querySelector('.timeline-entry.has-message .agent-message');
-  assert.equal(message.querySelector('p').textContent, unsafe);
+  // Markdown renders as elements; the HTML-like part stays literal text.
+  const para = message.querySelector('p');
+  assert.equal(para.textContent, '<img src=x onerror=alert(1)> done\ncode'); assert.equal(para.querySelector('strong').textContent, 'done'); assert.equal(para.querySelector('code').textContent, 'code');
   assert.equal(ui.panel.querySelector('img'), null); assert.equal(ui.panel.querySelectorAll('[data-seq="13"]').length, 1);
   assert.equal(activity.querySelectorAll('.agent-message').length, 1, 'the result repeating the last message is shown once');
   const when = activity.querySelector('[data-seq="12"] time');

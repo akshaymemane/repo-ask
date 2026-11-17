@@ -89,15 +89,33 @@ Codex reviewed `c187e61` and requested changes (3 × P2). All three are fixed in
 
 Round 1 checks run: `node --test tests/ui/*.test.mjs` exit 0, 249 tests, 249 pass. No Python files changed in this round; the Python suite result above (611 OK, 9 skipped on `bf90958`) still applies to unchanged Python code.
 
+## Round 2 (coordinator)
+
+Branch `task/m2-session-ux-2`, created from integrated `f8eb533` in the same worktree. The coordinator granted temporary scope for `repoask/web/ui.js` (shared renderer) and `repoask/web/ask.js` (this fix only).
+
+| Finding | Change | Test |
+| --- | --- | --- |
+| Agent messages showed raw Markdown (`**Change:**`, fences, `- ` bullets) in the result card and timeline | New `renderMarkdown(text)` in `ui.js`. It builds elements and text nodes only (no `innerHTML`) and covers paragraphs (single line breaks kept), `**bold**`, `` `inline code` `` (also inside bold), fenced code blocks (``` or ~~~; a fence closes only on the same character at equal or greater length; an unclosed fence runs to the end), and unordered and ordered lists (with `start` when not 1). Everything else stays literal text, including links (no anchors), headings and quotes. `sessions.js` uses it only for agent message text, in the result card's final message and in timeline messages. The clamped timeline preview now clamps the rendered block with a fade. | New `tests/ui/session-markdown.test.mjs`: each construct, literal fallbacks, `<img onerror>`/`<script>`/`<b>` kept as text, no elements inside code blocks, and the result card plus timeline integration. `session-ux` timeline test updated to assert rendered `strong`/`code` while the HTML-like part stays text. |
+| On a direct load of `#/sessions`, a late conversation-history answer overwrote the sessions rail | In `ask.js`, `refreshHistory` now calls `publishHistory()`. That publishes only while an Ask route is active (empty hash, `#/ask…`, `#/plans/…`, matching `app.js` `routeFromHash`). Otherwise it keeps the items and marks them unpublished, and a `hashchange` onto an Ask route publishes them. The existing `app.js:424` refetch on Sessions → Ask still runs and repopulates. | `shell.test.mjs`: "a late conversation history answer on a direct load of Sessions keeps the sessions rail; Ask shows conversations again". This is a real app boot with the first `/api/conversations` held open. The rail stays "Recent sessions" after the answer arrives; after navigating to `#/ask` it shows conversations and no session links. |
+
+Round 2 checks run:
+
+- `node --test tests/ui/*.test.mjs`: exit 0, 258 tests, 258 pass.
+- Both regression tests were confirmed to fail on `f8eb533`: the shell race test, and the result-card Markdown integration test.
+- Read-only visual check through the GET-only preview proxy (zero non-GET requests; proxy stopped afterwards). The pilot completed session's final message renders bold labels, inline code, a bullet list and a scrolling code block. A direct load of `#/sessions` keeps "Recent sessions".
+- No Python files changed, so the Python suite was not rerun this round.
+
+Remaining note: `app.js:424` refetches history only when coming from Sessions. A path such as Sessions → Settings → Ask now relies on the kept-and-published-on-arrival history in `ask.js`, which covers it.
+
 ## Risks and next action
 
 Known gaps and deferrals:
 
-1. **Cold load into `#/sessions` can show conversations in the rail.** `ask.js` loads conversation history unconditionally at boot. When that request finishes after the sessions list, it overwrites "Recent sessions". This happened in some, but not all, cold loads during the visual run. In-app navigation is unaffected. The fix belongs in `ask.js` (forbidden scope for this card): skip `setRecent` while the route is not Ask. Owner: coordinator / Ask owner. This race existed before this card.
+1. **(Fixed in Round 2.)** **Cold load into `#/sessions` could show conversations in the rail.** `ask.js` loads conversation history unconditionally at boot. When that request finishes after the sessions list, it overwrites "Recent sessions". This happened in some, but not all, cold loads during the visual run. In-app navigation is unaffected. The fix belongs in `ask.js` (forbidden scope for this card): skip `setRecent` while the route is not Ask. Owner: coordinator / Ask owner. This race existed before this card.
 2. **The list cannot show "PR open".** The session list and detail projections report `publication.state: "not_started"` even for the session whose draft PR is published (observed on the pilot). The detail page reads `/publication` and shows "PR open" correctly, but list rows would need a read per row. Suggested follow-up: the API projects the real publication state, or adds `plan_title`, on session rows. Owner: coordinator / runtime.
 3. **Plan titles cost one GET per distinct plan on a page.** At most 25, cached per panel. A `plan_title` field in the session list projection would remove these reads; that is an API change, so out of scope.
 4. **Repository names page through `/api/repositories?limit=100`.** Cached for 5 minutes per panel. On a failure the raw id is shown, which is the honest fallback.
-5. **Agent messages are plain text.** Markdown is not rendered, per the brief ("rendered as text, never HTML"), so markdown syntax such as backticks and `**` stays visible.
+5. **(Superseded in Round 2.)** Agent messages now render a safe Markdown subset; anything outside it stays literal text, and HTML is never interpreted.
 6. **User messages stay in a separate "Your messages" section.** It is hidden when empty; messages are not interleaved into the timeline.
 7. **On mobile the details pane stacks after the thread.** The Diff and Checks tabs therefore sit at the bottom of the page.
 

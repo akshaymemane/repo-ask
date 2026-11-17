@@ -162,3 +162,28 @@ test("opening the panel moves focus into it; Escape anywhere closes it and retur
   assert.equal(panel.isOpen(), false);
   assert.equal(b.document.activeElement, second);
 });
+
+test("a late conversation history answer on a direct load of Sessions keeps the sessions rail; Ask shows conversations again", async () => {
+  let releaseHistory; let historyReads = 0;
+  const session = { id: "s1", plan_id: "p1", plan_version_id: "v1", attempt: 2, state: "completed", phase: "completed", repositories: [{ repository_id: "gh:9", role: "write" }], created_at: Date.now() - 5000, publication: {} };
+  const api = { ...legacyApi(),
+    "GET /api/sessions": { status: 200, body: { items: [session], next_cursor: null } },
+    "GET /api/conversations": () => { historyReads += 1; return historyReads === 1 ? new Promise((resolve) => { releaseHistory = resolve; }) : { items: [{ id: "c1", title: "Deploy flow", updated_at: Date.now() }], next_cursor: null }; },
+  };
+  // app.js awaits the first history read at top level, so this boot does not await the module import.
+  const respond = (method, url) => { const value = api[`${method} ${url.split("?")[0]}`]; return (typeof value === "function" ? value(url) : value) ?? { status: 404, body: { error: "Page not found." } }; };
+  const b = createBrowser(html, { hash: "#/sessions", respond }); install(b); loads += 1;
+  const loaded = import(`${appUrl}?shell=${loads}`);
+  for (let i = 0; i < 20 && !releaseHistory; i += 1) await settle();
+  await settle();
+  const heading = () => b.document.getElementById("recent-heading").textContent;
+  const hrefs = () => b.document.getElementById("recent-list").querySelectorAll("a").map((a) => a.getAttribute("href"));
+  assert.equal(heading(), "Recent sessions"); assert.deepEqual(hrefs(), ["#/sessions/s1"]);
+  assert.ok(releaseHistory, "conversation history was requested at boot");
+  releaseHistory({ items: [{ id: "c0", title: "Old chat", updated_at: Date.now() }], next_cursor: null }); await loaded; await settle(); await settle();
+  assert.equal(heading(), "Recent sessions", "the late Ask answer does not replace the sessions rail"); assert.deepEqual(hrefs(), ["#/sessions/s1"]);
+  // Returning to Ask repopulates conversations (app.js refreshes history when leaving Sessions).
+  b.window.location.hash = "#/ask"; for (let i = 0; i < 5; i += 1) await settle();
+  assert.equal(heading(), "Recent"); assert.ok(hrefs().includes("#/ask/c1") || hrefs().includes("#/ask/c0"), hrefs().join(","));
+  assert.ok(!hrefs().some((h) => h.startsWith("#/sessions/")));
+});

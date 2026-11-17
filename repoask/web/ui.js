@@ -130,3 +130,61 @@ export function createModal({ title, onClose } = {}) {
   };
   return api;
 }
+
+// Safe Markdown subset for agent prose: paragraphs, **bold**, `inline code`, fenced code blocks,
+// unordered and ordered lists. Built only from elements and text nodes (never innerHTML), so markup
+// in the input stays literal text. Anything else, including links and headings, is shown as written.
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+const BULLET = /^\s{0,3}[-*+]\s+(.*)$/;
+const NUMBERED = /^\s{0,3}(\d{1,9})[.)]\s+(.*)$/;
+const INLINE = /`([^`\n]+)`|\*\*(?=\S)([^\n]*?\S)\*\*/g;
+
+function inline(parent, text, allowBold = true) {
+  let last = 0;
+  for (const match of text.matchAll(INLINE)) {
+    if (match[2] !== undefined && !allowBold) continue;
+    if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
+    if (match[1] !== undefined) parent.append(el("code", match[1]));
+    else { const strong = el("strong"); inline(strong, match[2], false); parent.append(strong); }
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
+export function renderMarkdown(text, className = "md") {
+  const root = el("div", undefined, className);
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  let paragraph = [];
+  const flush = () => {
+    if (!paragraph.length) return;
+    const p = el("p");
+    paragraph.forEach((line, i) => { if (i) p.append(document.createTextNode("\n")); inline(p, line); });
+    root.append(p); paragraph = [];
+  };
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const fence = FENCE.exec(line);
+    if (fence) {
+      flush();
+      const body = [];
+      // A fence closes on a line of the same character, at least as long; an unclosed fence runs to the end.
+      const close = new RegExp(`^\\s{0,3}${fence[1][0]}{${fence[1].length},}\\s*$`);
+      for (i += 1; i < lines.length && !close.test(lines[i]); i += 1) body.push(lines[i]);
+      const pre = el("pre"); pre.append(el("code", body.join("\n"))); root.append(pre);
+      continue;
+    }
+    const bullet = BULLET.exec(line), numbered = NUMBERED.exec(line);
+    if (bullet || numbered) {
+      flush();
+      const ordered = Boolean(numbered && !bullet), list = el(ordered ? "ol" : "ul"), pattern = ordered ? NUMBERED : BULLET;
+      if (ordered && numbered[1] !== "1") list.setAttribute("start", String(Number(numbered[1])));
+      for (; i < lines.length && pattern.test(lines[i]); i += 1) { const item = pattern.exec(lines[i]); const li = el("li"); inline(li, ordered ? item[2] : item[1]); list.append(li); }
+      i -= 1; root.append(list);
+      continue;
+    }
+    if (!line.trim()) { flush(); continue; }
+    paragraph.push(line);
+  }
+  flush();
+  return root;
+}

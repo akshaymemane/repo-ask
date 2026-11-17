@@ -75,7 +75,17 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     button(pendingNotice,'Discard pending request',()=>{sendAttempt=null;persistAttempt();renderPending();say('Pending client attempt discarded. Draft text is preserved; any accepted server request is unchanged.');});
   }
   window.addEventListener('beforeunload', e => { if (draft) { e.preventDefault(); e.returnValue = ''; } });
-  let historyGeneration=0, historyItems=[];
+  let historyGeneration=0, historyItems=[], historyUnpublished=false;
+  // Recent belongs to the visible area: a late history answer while Sessions (or any non-Ask page) is
+  // showing must not replace that area's list. Matches app.js routeFromHash's Ask routes.
+  const askRouteActive=()=>/^(#\/?)?$|^#\/ask(\/|$)|^#\/plans\//.test(location.hash);
+  function publishHistory(){
+    if(!askRouteActive()){historyUnpublished=true;return;}
+    historyUnpublished=false;
+    shell.setRecent(historyItems,{heading:'Recent',onMore:historyNext?()=>refreshHistory(historyNext):null});
+  }
+  // Arriving on Ask shows the history kept while another page was active (app.js also refetches it).
+  window.addEventListener('hashchange',()=>{if(historyUnpublished&&askRouteActive())publishHistory();});
   async function refreshHistory(cursor, supplied) {
     const generation=++historyGeneration;
     try {
@@ -87,7 +97,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       for (const c of page.items){const href=`#/ask/${enc(c.id)}`;if(seen.has(href))continue;seen.add(href);
         historyItems.push({href,title:c.title || `Untitled · ${relativeTime(c.updated_at ?? c.created_at ?? Date.now())}`,meta:relativeTime(c.updated_at ?? c.created_at ?? Date.now())});}
       historyNext=page.next_cursor || null;
-      shell.setRecent(historyItems,{heading:'Recent',onMore:historyNext?()=>refreshHistory(historyNext):null});
+      publishHistory();
       historyNotice.replaceChildren();
     } catch(error) {
       if(generation!==historyGeneration)return;

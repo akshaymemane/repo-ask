@@ -1,5 +1,5 @@
 // Durable session views consume safe public projections. Source is always text.
-import { badge, relativeTime } from './ui.js';
+import { badge, relativeTime, renderMarkdown } from './ui.js';
 import { readRepositoryPages } from './repo-source.js';
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (cls) n.className = cls; return n; };
 const enc = encodeURIComponent;
@@ -721,7 +721,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (offerRetry && !s.successor_id) { const b = button(result, 'Retry', retryAction); b.classList.add('btn', 'btn-primary'); b.dataset.focus = 'result-retry'; b.dataset.retry = '1'; b.disabled = retryLocked(); b.setAttribute('aria-label', 'Retry as a new attempt'); }
       if (s.successor_id) { const p = el('p', 'A newer attempt exists: ', 'session-result-next'); link(p, 'open the next attempt', `#/sessions/${enc(s.successor_id)}`); result.append(p); }
       if (message) {
-        const box = el('figure', undefined, 'agent-message agent-final'); const cap = el('figcaption', "Agent's final message"); const body = el('p', message);
+        const box = el('figure', undefined, 'agent-message agent-final'); const cap = el('figcaption', "Agent's final message"); const body = renderMarkdown(message);
         box.append(cap, body); result.append(box);
       }
     });
@@ -738,7 +738,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
         const when = el('time', Number.isFinite(e.created_at) ? relativeTime(e.created_at) : '', 'timeline-time');
         when.setAttribute('title', `${time(e.created_at)} · #${e.seq}`); if (Number.isFinite(e.created_at)) when.setAttribute('datetime', new Date(e.created_at).toISOString());
         li.append(mark, el('span', d.label, 'timeline-label'), when);
-        if (d.message) { const box = el('div', undefined, `agent-message${d.agent ? '' : ' is-note'}${d.message === finalText ? ' is-clamped' : ''}`); box.append(el('p', d.message)); li.append(box); }
+        if (d.message) { const box = el('div', undefined, `agent-message${d.agent ? '' : ' is-note'}${d.message === finalText ? ' is-clamped' : ''}`); box.append(renderMarkdown(d.message)); li.append(box); }
         return li;
       };
       const folded = (key, label, items, openByDefault = false) => {

@@ -1,0 +1,90 @@
+// Agent messages render a small, safe Markdown subset (ui.js renderMarkdown): elements and text
+// nodes only, so HTML-like input stays literal text and links never become anchors.
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {readFileSync} from 'node:fs';
+import {createBrowser, install, settle} from './dom.mjs';
+import {renderMarkdown} from '../../repoask/web/ui.js';
+import {createSessionPanel} from '../../repoask/web/sessions.js';
+
+function md(text) {
+  install(createBrowser('<!doctype html><html><body></body></html>', {respond: () => ({status: 404, body: {}})}));
+  return renderMarkdown(text);
+}
+const tags = root => root.children.map(n => n.tagName.toLowerCase());
+
+test('paragraphs split on blank lines and keep single line breaks', () => {
+  const root = md('First line\nsecond line\n\nNext paragraph');
+  assert.ok(root.classList.contains('md'));
+  assert.deepEqual(tags(root), ['p', 'p']);
+  assert.equal(root.children[0].textContent, 'First line\nsecond line'); assert.equal(root.children[1].textContent, 'Next paragraph');
+});
+
+test('bold and inline code become strong and code; code inside bold is still code', () => {
+  const p = md('**Change:** edit `calc.py:2` and **keep `average()`** as is').children[0];
+  assert.deepEqual(p.querySelectorAll('strong').map(n => n.textContent), ['Change:', 'keep average()']);
+  assert.deepEqual(p.querySelectorAll('code').map(n => n.textContent), ['calc.py:2', 'average()']);
+  assert.equal(p.textContent, 'Change: edit calc.py:2 and keep average() as is');
+});
+
+test('a ** inside inline code stays literal, and unmatched markers stay as written', () => {
+  const p = md('Use `a ** b` for powers; 2 * 3 and **unclosed').children[0];
+  assert.equal(p.querySelector('code').textContent, 'a ** b'); assert.equal(p.querySelector('strong'), null);
+  assert.equal(p.textContent, 'Use a ** b for powers; 2 * 3 and **unclosed');
+});
+
+test('fenced code blocks keep their text exactly, including Markdown and HTML inside', () => {
+  const root = md('Ran:\n```sh\npython -c "print(\'ok\')"\n**not bold** <b>x</b>\n```\nDone.');
+  assert.deepEqual(tags(root), ['p', 'pre', 'p']);
+  const code = root.querySelector('pre > code');
+  assert.equal(code.textContent, 'python -c "print(\'ok\')"\n**not bold** <b>x</b>');
+  assert.equal(code.children.length, 0, 'no elements inside a code block');
+  assert.equal(md('```\nunclosed\nstill code').querySelector('pre code').textContent, 'unclosed\nstill code');
+  assert.equal(md('~~~~\na\n~~~\nb\n~~~~').querySelector('pre code').textContent, 'a\n~~~\nb', 'a shorter fence does not close a longer one');
+});
+
+test('unordered and ordered lists, with inline formatting and a non-1 start', () => {
+  const root = md('Changes:\n- `calc.py:2`: fixed **add**\n* average() unchanged\n\n3. third\n4) fourth');
+  assert.deepEqual(tags(root), ['p', 'ul', 'ol']);
+  const [ul, ol] = [root.querySelector('ul'), root.querySelector('ol')];
+  assert.deepEqual(ul.querySelectorAll('li').map(li => li.textContent), ['calc.py:2: fixed add', 'average() unchanged']);
+  assert.equal(ul.querySelector('li code').textContent, 'calc.py:2'); assert.equal(ul.querySelector('li strong').textContent, 'add');
+  assert.equal(ol.getAttribute('start'), '3'); assert.deepEqual(ol.querySelectorAll('li').map(li => li.textContent), ['third', 'fourth']);
+  assert.equal(md('1. one\n2. two').querySelector('ol').hasAttribute('start'), false);
+});
+
+test('links, headings and other syntax stay literal text; no anchors are created', () => {
+  const root = md('# Heading\nSee [the docs](https://example.com/x) and <https://example.com>\n> quote');
+  assert.equal(root.querySelector('a'), null); assert.equal(root.querySelector('h1'), null); assert.equal(root.querySelector('blockquote'), null);
+  assert.equal(root.textContent, '# Heading\nSee [the docs](https://example.com/x) and <https://example.com>\n> quote');
+});
+
+test('HTML-like input stays text: no img, script or other elements are created from it', () => {
+  const input = '<img src=x onerror=alert(1)>\n<script>alert(1)</script>\n- <b>item</b>\n**<i>bold</i>**';
+  const root = md(input);
+  for (const tag of ['img', 'script', 'b', 'i']) assert.equal(root.querySelector(tag), null, tag);
+  assert.match(root.textContent, /<img src=x onerror=alert\(1\)>/); assert.match(root.textContent, /<script>alert\(1\)<\/script>/);
+  assert.equal(root.querySelector('li').textContent, '<b>item</b>'); assert.equal(root.querySelector('strong').textContent, '<i>bold</i>');
+});
+
+test('the session result card renders the agent\'s final message as safe Markdown', async () => {
+  const html = readFileSync(new URL('../../repoask/web/index.html', import.meta.url), 'utf8');
+  const text = '**Change:**\n- `calc.py:2`: return a + b\n\n```\npython -c "ok"\n```\n<img src=x onerror=alert(1)>';
+  const s = {id: 's', plan_id: 'p', plan_version_id: 'v', attempt: 1, state: 'completed', phase: 'completed', source_available: true, repositories: [], runner: {containment: 'confirmed'}, capabilities: {}, usage: {}, outcome: {}, publication: {}, created_at: Date.now() - 5000, pending_question: null};
+  const b = createBrowser(html, {hash: '#/sessions/s', respond: (m, u) => {
+    if (u === '/api/sessions/s') return s;
+    if (u.includes('/events?')) return {items: [{session_id: 's', seq: 1, type: 'agent.summary', payload: {kind: 'result', status: 'completed', text}, created_at: Date.now()}], next_seq: 1, has_more: false};
+    if (u.includes('/messages?')) return {items: [], next_cursor: null};
+    if (u.endsWith('/validations')) return {items: [], fully_validated: false};
+    return {status: 404, body: {code: 'not_found'}};
+  }});
+  install(b); b.document.getElementById('view-sessions').hidden = false;
+  const data = new Map(); b.window.sessionStorage = {getItem: k => data.get(k), setItem: (k, v) => data.set(k, v), removeItem: k => data.delete(k)};
+  const request = async (path, method = 'GET') => { const r = await b.window.fetch(path, {method}); const v = await r.json(); if (!r.ok) { const e = new Error(v.code); e.status = r.status; e.code = v.code; throw e; } return v; };
+  const ui = createSessionPanel({host: b.document.getElementById('sessions-content'), request, pollMs: 1e6}); ui.open(); await settle(); await settle();
+  const final = ui.panel.querySelector('.session-result .agent-final .md');
+  assert.equal(final.querySelector('strong').textContent, 'Change:'); assert.equal(final.querySelector('li code').textContent, 'calc.py:2');
+  assert.equal(final.querySelector('pre code').textContent, 'python -c "ok"');
+  assert.equal(ui.panel.querySelector('img'), null); assert.match(final.textContent, /<img src=x onerror=alert\(1\)>/);
+  assert.ok(ui.panel.querySelector('.session-activity .agent-message.is-clamped .md'), 'the timeline preview uses the same renderer'); ui.close();
+});
