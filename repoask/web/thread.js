@@ -1,4 +1,5 @@
 // Renders an Ask conversation as a chat thread. Pure view: all actions go through handlers.
+import { readinessSentences } from "./plan-view.js";
 import { button, el } from "./ui.js";
 
 const ERROR_WORDS = {
@@ -109,10 +110,24 @@ function planCard(plan, view, handlers) {
   }
   const actions = el("div", undefined, "plan-card-actions");
   button(actions, "View plan", () => handlers.onViewPlan(plan.id));
-  const start = button(actions, "Start session", () => handlers.onStartSession(plan.id), { variant: "primary" });
+  const start = button(actions, "Start session", async (_event, control) => {
+    if (control.disabled) return;
+    control.disabled = true;
+    try { await handlers.onStartSession(plan.id); }
+    finally { control.disabled = !plan.ready || view.staleScopeSincePlan?.planId === plan.id; }
+  }, { variant: "primary" });
   start.disabled = !plan.ready || view.staleScopeSincePlan?.planId === plan.id;
   if (!plan.ready && plan.reason) start.setAttribute("title", plan.reason);
   card.append(actions);
+  if (!plan.ready) {
+    const codes = (plan.reason || '').split(', ').filter(Boolean);
+    const reason = el("p", readinessSentences({blocking_reasons: codes}).reasons.join(' ') || 'Review the plan before starting.', "plan-card-reason");
+    const fix = el("a", codes.includes('execution_not_configured') ? "Edit plan → Execution and publication" : "Review and fix plan");
+    fix.setAttribute("href", `#/plans/${encodeURIComponent(plan.id)}${plan.latest ? `/${encodeURIComponent(plan.latest)}` : ''}`);
+    fix.addEventListener("click", event => { event.preventDefault(); handlers.onStartSession(plan.id, {fix: true}); });
+    reason.append(' ', fix);
+    card.append(reason);
+  }
   return card;
 }
 

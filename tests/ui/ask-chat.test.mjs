@@ -308,3 +308,34 @@ test("the landing hint is styled to the composer's width, centered under it", as
   assert.equal(style.width, declaredStyle(composer, css).width);
   assert.equal(style["text-align"], "center");
 });
+
+test("conversation Start launches once, retries a lost response with the same key, and navigates", async () => {
+  const c = {id:'launch-c', repository_ids:[], messages:[], runs:[], plans:[{id:'launch-p', latest_version_id:'launch-v'}]};
+  const posts = [];
+  let fail = true, release;
+  const b = await boot((method, url, options) => {
+    if (url === '/api/conversations') return {items:[c]};
+    if (url === '/api/conversations/launch-c') return c;
+    if (url.startsWith('/api/plans/launch-p')) return {version:{id:'launch-v',content_hash:'saved-hash',version:1,content:{steps:[]},readiness:{state:'ready'}}};
+    if (url === '/api/sessions') {
+      posts.push(JSON.parse(options.body));
+      if (fail) return new Promise((resolve, reject) => { release = () => reject(new Error('Network connection lost')); });
+      return {session_id:'session-created'};
+    }
+    return {status:404,body:{code:'not_found'}};
+  }, {hash:'#/ask/launch-c'});
+  const start = b.button('Start session');
+  start.click(); start.click();
+  await settle();
+  assert.equal(posts.length, 1);
+  release(); await settle();
+  assert.match(visibleText(b.ui.panel), /Couldn't start session: Network connection lost/);
+  fail = false;
+  start.click(); await settle();
+  assert.equal(posts.length, 2);
+  assert.deepEqual(posts[1], posts[0]);
+  assert.equal(posts[0].plan_version_id, 'launch-v');
+  assert.equal(posts[0].content_hash, 'saved-hash');
+  assert.ok(posts[0].idempotency_key);
+  assert.equal(b.window.location.hash, '#/sessions/session-created');
+});

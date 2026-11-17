@@ -33,6 +33,7 @@ class PlanService:
     def __init__(self,store,index,providers,*,execution_preflight=None,clock=now_ms):
         self.store,self.index,self.providers=store,index,providers
         self.execution_preflight,self.clock=execution_preflight,clock
+        self.default_execution_profile=None
 
     def validate(self,content,conversation_id=None):
         shape(content,('goal','user_request'),('repositories','citations','findings','requirements','steps','validation','risks','assumptions','open_questions','execution_context','publication'))

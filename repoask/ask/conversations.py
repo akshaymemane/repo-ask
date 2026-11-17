@@ -394,8 +394,9 @@ class ConversationService:
                         if native_plan:
                             parsed=bind_plan(parsed,prompt,bindings,evidence)
                         content=self.plans.validate(parsed,run['conversation_id'])
-                        # Execution, stale-base acceptance and auto-publication require user choices.
-                        content['execution_context']['execution_profile_id']=None
+                        # Only an unambiguous tested profile may be selected automatically.
+                        default_profile=getattr(self.plans,'default_execution_profile',None)
+                        content['execution_context']['execution_profile_id']=default_profile() if callable(default_profile) else None
                         content['execution_context']['base_choices']={}
                         content['publication']={'policy':'manual_draft'}
                         for c in content['citations']:

@@ -106,6 +106,8 @@ class ApplicationServices:
         # Plan readiness asks the session service whether a saved version could launch now.
         if getattr(self.plans, 'execution_preflight', False) is None and callable(getattr(sessions, 'preflight', None)):
             self.plans.execution_preflight = sessions.preflight
+        if getattr(self.plans, 'default_execution_profile', False) is None and callable(getattr(execution_profiles, 'default_profile_id', None)):
+            self.plans.default_execution_profile = execution_profiles.default_profile_id
         # Draft publication reads the trusted session snapshot; it registers its own purge hook.
         if publications is None:
             from .publication import PublicationService

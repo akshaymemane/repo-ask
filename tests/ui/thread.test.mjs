@@ -138,3 +138,14 @@ test("the server's 'Plan saved' receipt is hidden when its plan card is shown", 
   render({ messages: [user(), answer({ content: "Plan saved: plan_other", citations: [] })], plans: [plan] });
   assert.match(visibleText(host), /Plan saved: plan_other/, "an unmatched receipt still shows");
 });
+
+test("unconfigured execution has a visible explanation and editor fix link", async () => {
+  const {host, calls, render} = await setup();
+  render({plans:[{id:'p',latest:'v',ready:false,reason:'execution_not_configured'}]});
+  assert.match(visibleText(host.querySelector('.plan-card-reason')), /Choose a tested execution profile/);
+  const fix = host.querySelector('.plan-card-reason a');
+  assert.equal(fix.getAttribute('href'), '#/plans/p/v');
+  assert.match(fix.textContent, /Execution and publication/);
+  fix.click();
+  assert.deepEqual(calls, [['onStartSession','p',{fix:true}]]);
+});

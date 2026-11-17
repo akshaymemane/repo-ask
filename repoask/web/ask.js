@@ -189,7 +189,46 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const handlers = {
       onCitation: (citation, trigger) => cite(citation, token, trigger),
       onViewPlan: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
-      onStartSession: planId => { const p = plans.find(x => x.id === planId); location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`; },
+      onStartSession: async (planId, {fix = false} = {}) => {
+        const p = plans.find(x => x.id === planId);
+        if (fix) {
+          if (!guard()) return;
+          discardDraft();
+          acceptedHash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`;
+          location.hash = `#/plans/${enc(planId)}${p?.latest ? `/${enc(p.latest)}` : ''}`;
+          await load();
+          [...body.querySelectorAll('button')].find(n => n.textContent === 'Edit plan')?.click();
+          const section = [...(planEditor?.querySelectorAll('details') || [])].find(n => n.querySelector('summary')?.textContent === 'Execution and publication');
+          if (section) { section.setAttribute('open', ''); section.querySelector('summary')?.focus(); }
+          return;
+        }
+        if (!p?.ready || stale?.planId === planId || token !== epoch) return;
+        try {
+          if (draft || planDraft) throw new Error('Save edits before starting.');
+          const fresh = await request(`/api/plans/${enc(planId)}${p.latest ? `?version_id=${enc(p.latest)}` : ''}`);
+          if (token !== epoch) return;
+          const v = fresh.version;
+          if (v.readiness?.state !== 'ready') throw new Error('Readiness changed. Open the plan and review what needs fixing.');
+          if (p.latest && v.id !== p.latest) throw new Error('Plan version changed. Reload the conversation before starting.');
+          if (!v.id || !v.content_hash) throw new Error('Plan details unavailable. Open the saved plan and try again.');
+          if (!launchKeys.has(v.id)) {
+            let key; try { key = window.sessionStorage?.getItem(`ask-launch-${v.id}`); } catch {}
+            key ||= globalThis.crypto.randomUUID(); launchKeys.set(v.id, key);
+            try { window.sessionStorage?.setItem(`ask-launch-${v.id}`, key); } catch {}
+          }
+          try {
+            const result = await request('/api/sessions', 'POST', {plan_version_id:v.id, content_hash:v.content_hash, idempotency_key:launchKeys.get(v.id)});
+            if (token !== epoch) return;
+            if (!result.session_id) throw new Error('Session outcome unknown. Retry Start session to reconcile.');
+            location.hash = `#/sessions/${enc(result.session_id)}`;
+          } catch (error) {
+            if (error.status >= 400 && error.status < 500) {
+              launchKeys.delete(v.id); try { window.sessionStorage?.removeItem(`ask-launch-${v.id}`); } catch {}
+            }
+            throw error;
+          }
+        } catch (error) { if (token === epoch) say(`Couldn't start session: ${String(error.message || error).replaceAll('_', ' ')}. Retry Start session or open the plan to review its settings.`); }
+      },
       onRegenerate: () => { if (composer.value.trim()) return [...composer.root.querySelectorAll('button')].find(b => b.textContent === 'Generate plan')?.click(); say('Describe the change again, then choose Generate plan to make a new version with the current repositories.'); composer.focus(); },
       onRetry: async runId => { try { await request(`/api/answer-runs/${enc(runId)}/retry`, 'POST', {}); if (token === epoch) { await load(); composerHandle?.focus(); } } catch (error) { if (token === epoch) say(error); } },
       onPickRoute: async repositoryId => {

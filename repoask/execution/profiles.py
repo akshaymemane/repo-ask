@@ -276,6 +276,19 @@ class ExecutionProfileService:
             return self._version(db, self._row(db, 'execution_profile_versions', version_id))
 
     @_storage_boundary
+    def default_profile_id(self):
+        """Select only a unique live profile whose active version passed its check."""
+        with self.store.read() as db:
+            passed = []
+            for row in db.execute('SELECT id,active_version_id FROM execution_profiles WHERE deleted_at IS NULL'):
+                check = self._check(db, row['active_version_id'])
+                if check and check['status'] == 'passed':
+                    passed.append(row['id'])
+                    if len(passed) > 1:
+                        return None
+            return passed[0] if passed else None
+
+    @_storage_boundary
     def list_profiles(self, limit=50, cursor=None):
         if type(limit) is not int or not 1 <= limit <= 100:
             _error('validation')
