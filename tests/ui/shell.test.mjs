@@ -97,7 +97,10 @@ test("route polish styles repository filters and keeps compact targets usable", 
   assert.match(css, /\.repo-filters :is\(input, select\) \{[^}]*border:\s*1px solid var\(--line\)/);
   assert.match(css, /\.repo-filters > label, \.repo-filters > input \{[^}]*display:\s*inline-grid/);
   assert.match(css, /\.switch::before \{[^}]*inset:\s*-12px -5px/);
-  assert.match(css, /\.sessions-panel \.session-filter\.is-date \{ left: auto; right: 0; \}/);
+  assert.match(css, /\.sessions-panel \.session-filter\.is-date \{ left: auto; right: 0; box-shadow: var\(--shadow-float\); \}/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.switch \{ margin-block: 12px; \}/);
+  assert.match(css, /:where\(a\) \{ color: var\(--accent\);/);
+  assert.doesNotMatch(css, /0 16px 40px #0006;\s*\n?\s*backdrop|-18px 0 54px #0005; \}|--text-muted, #a9b1bf/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.settings-nav a \{[^}]*min-height:\s*44px[^}]*white-space:\s*nowrap/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.settings-body \.field-group > \.setting-field \{ flex: 1 1 100%; \}/);
 });
