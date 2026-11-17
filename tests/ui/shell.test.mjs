@@ -81,7 +81,12 @@ test("modern command-center shell keeps theme, motion and compact-layout safegua
   assert.doesNotMatch(css, /transition:\s*all/);
   assert.doesNotMatch(css, /will-change:\s*all/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.rail \{[^}]*position:\s*sticky/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.rail \{[^}]*flex-wrap:\s*nowrap[^}]*height:\s*62px/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.rail-new \{[^}]*min-height:\s*44px/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.rail \.primary-nav a \{[^}]*min-height:\s*44px/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.page-top \{[^}]*top:\s*62px/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.workspace \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.workspace \{[^}]*height:\s*calc\(100dvh - 118px\)/);
 });
 
 test("workspace pill is hidden in connected mode", async () => {

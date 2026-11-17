@@ -1468,19 +1468,18 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
 
 @media (max-width: 760px) {
   .btn, .button, .ask-button, .publication-primary, .icon-button { min-height: 44px; }
-  .rail { position: sticky; top: 0; z-index: 8; padding: 8px 10px; gap: 8px; background: color-mix(in srgb, var(--sunken) 94%, transparent); backdrop-filter: blur(16px); }
-  .rail .brand { min-height: 40px; padding: 0 6px; }
-  .rail .brand > span:last-child { display: none; }
-  .rail-new { min-height: 40px; padding-inline: 10px; font-size: 0; }
+  .rail { position: sticky; top: 0; z-index: 8; flex-wrap: nowrap; height: 62px; padding: 8px 10px; gap: 8px; background: color-mix(in srgb, var(--sunken) 94%, transparent); backdrop-filter: blur(16px); }
+  .rail .brand { display: none; }
+  .rail-new { flex: none; min-height: 44px; padding-inline: 10px; font-size: 0; }
   .rail-new span { margin: 0; font-size: 18px; }
-  .rail .primary-nav { min-width: 0; overflow-x: auto; }
+  .rail .primary-nav { order: initial; width: auto; min-width: 0; overflow-x: auto; }
   .rail .primary-nav ul { flex-wrap: nowrap; }
-  .rail .primary-nav a { min-height: 40px; padding-inline: 11px; white-space: nowrap; }
-  .page-top { top: 57px; min-width: 0; padding-inline: 12px; }
+  .rail .primary-nav a { min-height: 44px; padding-inline: 11px; white-space: nowrap; }
+  .page-top { top: 62px; min-width: 0; padding-inline: 12px; }
   .workspace-mode-detail, .mode { display: none; }
   .workspace-mode { max-width: 128px; overflow: hidden; }
   .workspace-mode strong { overflow: hidden; text-overflow: ellipsis; }
-  .workspace { grid-template-columns: minmax(0, 1fr); height: calc(100dvh - 113px); }
+  .workspace { grid-template-columns: minmax(0, 1fr); height: calc(100dvh - 118px); }
   .page-inner { padding-top: 24px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
 }

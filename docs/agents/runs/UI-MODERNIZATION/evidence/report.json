@@ -3,7 +3,7 @@
   "targetViewports": ["500x844", "1440x900"],
   "accessibility": {
     "status": "pass",
-    "evidence": "Keyboard Tab reached the compact Repositories navigation link in logical order with a computed 2px solid visible outline; landmarks and labels remained exposed in the accessibility tree."
+    "evidence": "Keyboard Tab reached the compact Repositories navigation link in logical order with a computed 2px solid visible outline; compact New conversation and route links computed to 44px. Landmarks and labels remained exposed in the accessibility tree. Light mode was inspected with Chrome color-scheme emulation: surfaces, focus, muted text and mint actions remained distinct."
   },
   "responsive": {
     "status": "pass",
@@ -12,27 +12,27 @@
   "contentStates": {
     "loading": {
       "status": "pass",
-      "evidence": "The shell, route title and setup surface remain stable while workspace/model reads complete."
+      "evidence": "Source-review check: existing loading copy and stable shell containers were unchanged by this CSS/branding-only modernization."
     },
     "empty": {
       "status": "pass",
-      "evidence": "The empty Ask workspace retains the primary composer and direct setup actions."
+      "evidence": "Rendered check: both artifacts show the empty Ask workspace retaining the primary composer and direct setup actions."
     },
     "error": {
       "status": "pass",
-      "evidence": "Existing semantic error and retry components retain danger tokens, readable contrast and surrounding context."
+      "evidence": "Source-review check: semantic error/retry DOM and danger token usage were unchanged; this state was not represented in the two rendered artifacts."
     },
     "partial": {
       "status": "pass",
-      "evidence": "The sample workspace shows available local model discovery while GitHub setup remains unavailable, without hiding either state."
+      "evidence": "Rendered check: the sample setup surface shows available local model discovery while GitHub setup remains unavailable, without hiding either state."
     },
     "success": {
       "status": "pass",
-      "evidence": "Success badges and primary actions use the mint semantic token without relying on color alone."
+      "evidence": "Source-review check: success labels remain textual and now use the mint semantic token; a completed-success fixture was not included in the rendered artifacts."
     },
     "permission": {
       "status": "pass",
-      "evidence": "The secure-storage boundary is named in the setup surface and the next safe setup action remains visible."
+      "evidence": "Rendered check: the setup surface names the secure-storage boundary and leaves the next safe setup action visible."
     }
   },
   "renderedEvidence": [
