@@ -742,6 +742,24 @@
       "next_action": "Integrated and checked live (list, published, cancelled, interrupted sessions; direct #/sessions load; Markdown agent messages). Session mode marked complete by the coordinator at the user's request. Deferred, API changes: PR state in list rows (publication shows not_started in session rows) and plan_title on session rows."
     },
     {
+      "id": "SESSION-DEVIN-UI",
+      "milestone": "post-M2",
+      "title": "Devin-inspired session workspace hierarchy and responsive inspector",
+      "state": "integrated",
+      "feature_ids": ["F05", "F06", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "codex",
+      "depends_on": ["M2-SESSION-UX"],
+      "branch": "task/session-workspace-ui",
+      "base_sha": "210ece4",
+      "submitted_sha": "f20b5c1",
+      "reviewer_session": "fresh independent Codex reviewer; approved after phase-rail fix",
+      "review_verdict": "approved",
+      "handoff": "docs/agents/runs/SESSION-DEVIN-UI/handoff.md",
+      "integration_sha": "0930b49",
+      "next_action": "Integrated. User restart is required to load the redesigned session workspace."
+    },
+    {
       "id": "M2-FOLLOWUPS",
       "milestone": "post-M2",
       "title": "Minor follow-ups from M2 reviews and the live pilot",
