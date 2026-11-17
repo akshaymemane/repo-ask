@@ -1665,7 +1665,7 @@
       "id": "UI-MODERNIZATION",
       "milestone": "post-M2",
       "title": "Modernize the OpenDevin workspace visual language",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": ["F11"],
       "planned_persona": "experience",
       "planned_harness": "codex+claude",
@@ -1674,7 +1674,11 @@
       "base_sha": "880a681",
       "proposed_write_scope": ["repoask/web/index.html", "repoask/web/styles.css", "repoask/web/ui.js", "tests/ui/", "docs/agents/runs/UI-MODERNIZATION/"],
       "handoff": "docs/agents/runs/UI-MODERNIZATION/handoff.md",
-      "next_action": "Define and implement a calm technical command-center visual system, then validate desktop/mobile rendered evidence and independent review."
+      "submitted_sha": "c29854c",
+      "reviewer_session": "fresh independent Codex reviewer; approved Codex visual system (r2), then Claude compact-overlay, route-polish and review-r3 fixes (r4)",
+      "review_verdict": "approved",
+      "integration_sha": "1d9cac7",
+      "next_action": "Integrated. Graphite/mint command-center visual system, compact sticky rail with clear overlays, styled route filters, 44px compact targets and themed light-mode shadows/links. Session-services bridge tests should be rerun in a working execution environment."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
