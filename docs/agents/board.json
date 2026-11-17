@@ -760,6 +760,46 @@
       "next_action": "Integrated. User restart is required to load the redesigned session workspace."
     },
     {
+      "id": "UI-SYSTEM-FOUNDATION",
+      "milestone": "post-M2",
+      "title": "Unify shell hierarchy, navigation, controls, tones and responsive tokens",
+      "state": "running",
+      "feature_ids": ["F11"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["SESSION-DEVIN-UI"],
+      "branch": "task/ui-system-foundation",
+      "base_sha": "6a1cea8",
+      "proposed_write_scope": ["repoask/web/index.html", "repoask/web/styles.css", "repoask/web/ui.js", "repoask/web/shell.js", "repoask/web/app.js", "tests/ui/"],
+      "handoff": "docs/agents/runs/UI-SYSTEM-FOUNDATION/handoff.md",
+      "next_action": "Claude experience builder is implementing the shared UI foundation; exact-commit Codex review required."
+    },
+    {
+      "id": "UI-INTERACTION-CONSISTENCY",
+      "milestone": "post-M2",
+      "title": "Unify compact-panel semantics, tab ARIA, mentions and picker keyboard behavior",
+      "state": "backlog",
+      "feature_ids": ["F11"],
+      "planned_persona": "experience",
+      "planned_harness": "codex",
+      "depends_on": ["UI-SYSTEM-FOUNDATION"],
+      "proposed_write_scope": ["repoask/web/panel.js", "repoask/web/mentions.js", "repoask/web/picker.js", "tests/ui/"],
+      "handoff": "docs/agents/runs/UI-INTERACTION-CONSISTENCY/handoff.md",
+      "next_action": "Start after the shared foundation integrates to avoid CSS and test ownership conflicts."
+    },
+    {
+      "id": "UI-ROUTE-CONSISTENCY",
+      "milestone": "post-M2",
+      "title": "Remove route-level redundancies across Ask, plans, repositories, sessions and settings",
+      "state": "backlog",
+      "feature_ids": ["F04", "F05", "F11"],
+      "planned_persona": "experience",
+      "planned_harness": "codex",
+      "depends_on": ["UI-SYSTEM-FOUNDATION", "UI-INTERACTION-CONSISTENCY"],
+      "handoff": "docs/agents/runs/UI-ROUTE-CONSISTENCY/handoff.md",
+      "next_action": "Coordinator will shape exact route slices after the two shared-system waves."
+    },
+    {
       "id": "M2-FOLLOWUPS",
       "milestone": "post-M2",
       "title": "Minor follow-ups from M2 reviews and the live pilot",
