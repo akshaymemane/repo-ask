@@ -912,6 +912,7 @@ dialog.modal::backdrop { background: #05060899; }
   .repos-table tbody tr { padding: var(--space-3); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
   .repos-table tbody :is(th, td) { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(0, 1fr); align-items: center; gap: var(--space-2); padding: 6px 0; border: 0; }
   .repos-table tbody :is(th, td)::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .repos-table tbody th small { grid-column: 2; }
   .repos-table .repo-name { justify-self: start; }
 }
 .repo-name { padding: 0; min-height: 0; color: var(--text); font-weight: 600; font-size: 14px; }
@@ -973,7 +974,7 @@ dialog.modal::backdrop { background: #05060899; }
 /* Older connected forms (provider profiles, coding agent, existing GitHub App) inside Settings:
    same type scale, fields and spacing as the rest of the page. */
 .settings-body .connected-panel { margin: 0; padding: 0; border: 0; font-size: 14px; }
-.existing-app > .connected-panel { margin-top: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.existing-app > .connected-panel { margin-top: var(--space-3); padding: var(--space-3) 0 0; border: 0; border-top: 1px solid var(--line); background: transparent; }
 .settings-body .connected-panel h2 { margin: 0 0 var(--space-2); font-size: 16px; font-weight: 650; }
 .settings-body .connected-panel h3 { margin: 0 0 var(--space-2); font-size: 14px; font-weight: 650; }
 .settings-body .connected-panel p { max-width: 72ch; margin: 0 0 var(--space-2); color: var(--muted); font-size: 13px; line-height: 1.5; }
@@ -981,7 +982,7 @@ dialog.modal::backdrop { background: #05060899; }
 .settings-body .page-status:empty { display: none; }
 .settings-body .connected-panel .button { margin: 0; min-height: 32px; padding: 5px 12px; white-space: nowrap; }
 .settings-body .connected-panel :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.settings-body .setting-box { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: 10px; background: var(--page); }
+.settings-body .setting-box { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: var(--space-3) 0 0; border: 0; border-top: 1px solid var(--line); background: transparent; }
 .settings-body .settings-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); align-items: start; margin: var(--space-2) 0 0; }
 .settings-body .settings-form > :is(h3, p, .button, .page-status) { grid-column: 1 / -1; justify-self: start; }
 .settings-body .setting-field { gap: 6px; font-size: 13px; font-weight: 500; color: var(--text); }
@@ -1195,10 +1196,7 @@ figure.agent-final { margin: var(--space-3) 0 0; }
 
 /* Persistent workspace inspector, inspired by an IDE rather than a dashboard card. */
 .session-pane { position: sticky; top: var(--top-height); max-height: calc(100dvh - var(--top-height)); min-height: calc(100dvh - var(--top-height)); overflow: auto; display: grid; align-content: start; gap: var(--space-4); min-width: 0; padding: 0 var(--space-5) var(--space-5); background: color-mix(in srgb, var(--surface) 78%, var(--page)); }
-.session-workspace-head { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 9px auto; align-items: center; gap: 2px 9px; margin: 0 calc(-1 * var(--space-5)); padding: 12px var(--space-5); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); }
-.session-workspace-head > span:last-child { grid-column: 2; font-size: 11px; }
-.session-workspace-mark { grid-row: 1 / span 2; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 65%, transparent); }
-.session-tabs { position: sticky; top: 57px; z-index: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) 0; padding: 0 var(--space-4); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 96%, transparent); backdrop-filter: blur(12px); }
+.session-tabs { position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) 0; padding: 0 var(--space-4); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 96%, transparent); backdrop-filter: blur(12px); }
 .session-tab { min-width: 0; padding: 11px 6px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
 .session-tab:hover { color: var(--text); }
 .session-tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
@@ -1251,7 +1249,6 @@ figure.agent-final { margin: var(--space-3) 0 0; }
   .session-header { padding-inline: var(--space-4); }
   .session-main { min-height: auto; padding-inline: var(--space-4); border-right: 0; }
   .session-pane { position: static; max-height: none; min-height: 0; padding-inline: var(--space-4); border-top: 1px solid var(--line); }
-  .session-workspace-head { margin-inline: calc(-1 * var(--space-4)); padding-inline: var(--space-4); }
   .session-tabs { position: sticky; top: var(--top-height); margin-inline: calc(-1 * var(--space-4)); }
 }
 @media (max-width: 640px) {
@@ -1265,7 +1262,6 @@ figure.agent-final { margin: var(--space-3) 0 0; }
   .session-stage-number { display: none; }
   .session-main { padding-inline: var(--space-3); }
   .session-section, .session-pane { padding-inline: var(--space-3); }
-  .session-workspace-head { margin-inline: calc(-1 * var(--space-3)); padding-inline: var(--space-3); }
   .session-tabs { margin-inline: calc(-1 * var(--space-3)); padding-inline: var(--space-1); }
   .session-composer-actions { flex-wrap: wrap; }
   .session-row-top { flex-wrap: wrap; row-gap: 2px; }

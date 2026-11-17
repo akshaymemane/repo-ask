@@ -127,7 +127,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
       const wrap = el("div");
       wrap.append(githubSetup());
       if (sections.github) {
-        const existing = el("details", undefined, "existing-app");
+        const existing = el("details", undefined, "existing-app settings-flat-section");
         existing.append(el("summary", "Use an existing GitHub App"), sections.github);
         request("/api/github/connections").then((data) => { if ((data.connections || []).length) existing.setAttribute("open", ""); }, () => { existing.setAttribute("open", ""); });
         wrap.append(existing);

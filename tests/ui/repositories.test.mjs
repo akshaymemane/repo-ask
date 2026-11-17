@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
 import { createBrowser, input, install, settle, visibleText } from "./dom.mjs";
 
 const pageUrl = pathToFileURL(fileURLToPath(new URL("../../repoask/web/repositories.js", import.meta.url))).href;
@@ -9,6 +10,7 @@ const panelUrl = pathToFileURL(fileURLToPath(new URL("../../repoask/web/panel.js
 let loads = 0;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const HASH = "c5bd264359aaf9f03b77644838ae7575855b6c53";
+const css = readFileSync(new URL("../../repoask/web/styles.css", import.meta.url), "utf8");
 const catalogItem = (id, name, over = {}) => ({ id, owner: "akshaymemane", name, full_name: `akshaymemane/${name}`, language: "TypeScript", pushed_at: "2026-11-03T16:45:50Z",
   index_enabled: true, implementation_enabled: false, access_state: "accessible", default_branch: "main", visibility: "private", ...over });
 const contextItem = (id, name, over = {}) => ({ repository_id: id, name: `akshaymemane/${name}`, kind: "github", eligible: true, status: "ready", implementation_enabled: false,
@@ -69,6 +71,7 @@ test("one merged table with plain status, no hashes, and a keyword-only banner",
   assert.equal(region.getAttribute("aria-label"), "Repository catalog");
   const repoRow = row(host, "rcnl-app");
   assert.deepEqual([...repoRow.querySelectorAll("th"), ...repoRow.querySelectorAll("td")].map((cell) => cell.dataset.label), ["Repository", "Status", "Used in Ask", "Changes allowed"]);
+  assert.match(css, /\.repos-table tbody th small\s*\{\s*grid-column:\s*2;/, "mobile metadata stays beneath the repository name column");
   assert.match(text, /3 repositories loaded\./);
 });
 

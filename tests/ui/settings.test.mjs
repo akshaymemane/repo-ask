@@ -57,6 +57,7 @@ test("Connect GitHub posts the manifest form to GitHub with the state", async ()
   await page.show("github");
   await settle();
   assert.match(visibleText(host), /Existing GitHub controls/);
+  assert.ok(host.querySelector(".existing-app").classList.contains("settings-flat-section"), "legacy controls use the flat settings section presentation");
   host.querySelectorAll("button").find((x) => x.textContent === "Connect GitHub").click();
   await settle();
   assert.deepEqual(calls.find(([, p]) => p === "/api/github/manifest/start"), ["POST", "/api/github/manifest/start", {}]);

@@ -5,6 +5,7 @@ import {createBrowser, install, settle, input, keydown, visibleText} from './dom
 import {createSessionPanel, createExecutionSettings} from '../../repoask/web/sessions.js';
 import {createAskPanel} from '../../repoask/web/ask.js';
 const html = readFileSync(new URL('../../repoask/web/index.html', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../../repoask/web/styles.css', import.meta.url), 'utf8');
 const session = (id='s', changes={}) => ({id,plan_id:'p',plan_version_id:'v',content_hash:'a'.repeat(64),attempt:1,state:'running',phase:'agent',source_available:true,execution:{profile_id:'e',profile_version_id:'ev',version:2,adapter:'claude_code',cli_version:'2.1',image_id:'sha256:image',destination:{kind:'remote',disclosure:'source leaves machine'}},limits:{runner:{memory_mib:512,wall_seconds:600},agent:{max_turns:12,max_budget_usd:1}},repositories:[{repository_id:'gh:1',role:'write',base_sha:'b'.repeat(40),base_branch:'main',session_branch:'session/s'}],runner:{containment:'pending'},capabilities:{ask_user:true,follow_up:false},usage:{},outcome:{},publication:{policy:'manual'},created_at:Date.now()-5000,latest_seq:0,pending_question:null,...changes});
 const profile = (id='e', changes={}) => ({id,name:'Coding',active_version_id:'ev',version:{id:'ev',version:1,adapter:'claude_code',auth_mode:'cli_login',config:{image:'python:3.12-slim',allow_external_source:true,runner_limits:{memory_mib:512},agent_limits:{max_turns:12}}},check:null,...changes});
 const button = (root, text) => [...root.querySelectorAll('button')].find(n=>n.textContent===text);
@@ -176,6 +177,8 @@ test('session detail has a center thread and a page-owned pane with Progress, Di
  assert.equal(composer(main).getAttribute('placeholder'),'Guide the agent while it works…');
  const tabs=pane.querySelectorAll('[role="tab"]');assert.deepEqual(tabs.map(t=>t.textContent),['Progress','Diff','Checks','PR']);
  assert.equal(pane.querySelector('.session-workspace-head'),null,'the tablist is the pane heading; no duplicate Workspace banner');
+ assert.match(css,/\.session-tabs\s*\{[^}]*top:\s*0;/,'desktop tabs stick at the top after the workspace banner was removed');
+ assert.doesNotMatch(css,/\.session-workspace-(?:head|mark)\s*\{/,'removed workspace banner has no stale CSS');
  assert.ok(pane.querySelector('.session-run'), 'run details belong to the workspace inspector');
  assert.match(visibleText(pane),/Bound retries/);assert.doesNotMatch(visibleText(pane),/a\.py/);
  tabs[0].focus();keydown(tabs[0],'ArrowRight');await settle();
