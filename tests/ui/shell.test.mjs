@@ -187,3 +187,22 @@ test("a late conversation history answer on a direct load of Sessions keeps the 
   assert.equal(heading(), "Recent"); assert.ok(hrefs().includes("#/ask/c1") || hrefs().includes("#/ask/c0"), hrefs().join(","));
   assert.ok(!hrefs().some((h) => h.startsWith("#/sessions/")));
 });
+
+test("returning to Ask from any page restores conversations in the rail (Ask → Sessions → Settings → Ask)", async () => {
+  const session = { id: "s1", plan_id: "p1", plan_version_id: "v1", attempt: 1, state: "completed", phase: "completed", repositories: [], created_at: Date.now() - 5000, publication: {} };
+  const api = { ...legacyApi(),
+    "GET /api/sessions": { status: 200, body: { items: [session], next_cursor: null } },
+    "GET /api/conversations": { status: 200, body: { items: [{ id: "c1", title: "Deploy flow", updated_at: Date.now() }], next_cursor: null } },
+  };
+  const b = await boot({ hash: "#/ask", api });
+  const heading = () => b.document.getElementById("recent-heading").textContent;
+  const hrefs = () => b.document.getElementById("recent-list").querySelectorAll("a").map((a) => a.getAttribute("href"));
+  const go = async (hash) => { b.window.location.hash = hash; for (let i = 0; i < 6; i += 1) await settle(); };
+  assert.equal(heading(), "Recent"); assert.deepEqual(hrefs(), ["#/ask/c1"]);
+  await go("#/sessions"); assert.equal(heading(), "Recent sessions"); assert.deepEqual(hrefs(), ["#/sessions/s1"]);
+  await go("#/settings"); assert.equal(heading(), "Recent sessions", "Settings does not own the rail");
+  await go("#/ask"); assert.equal(heading(), "Recent"); assert.deepEqual(hrefs(), ["#/ask/c1"]);
+  // Moving within Ask does not rebuild the rail.
+  const before = b.document.getElementById("recent-list").firstChild;
+  await go("#/ask/c1"); assert.equal(b.document.getElementById("recent-list").firstChild, before);
+});

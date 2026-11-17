@@ -107,6 +107,18 @@ Round 2 checks run:
 
 Remaining note: `app.js:424` refetches history only when coming from Sessions. A path such as Sessions → Settings → Ask now relies on the kept-and-published-on-arrival history in `ask.js`, which covers it.
 
+## Round 3
+
+Codex reviewed `78815ee` and requested changes (3 × P2, reproduced). All three are fixed on `task/m2-session-ux-2`, each with a focused test. Every new test was confirmed to fail against `78815ee`'s code and pass with the fix.
+
+| Finding | Change | Test |
+| --- | --- | --- |
+| P2 `ask.js:88`: Ask history was not restored on every return path. Ask → Sessions → Settings → Ask left "Recent sessions" in the rail, because `historyUnpublished` stayed false after an earlier publish and `app.js` refetches only when coming directly from Sessions. | `ask.js` tracks whether the previous route was Ask. Every arrival on an Ask route from any other route republishes the cached history (once it has loaded). Moves within Ask do not rebuild the rail. A late answer while away is still kept, not published. | `shell.test.mjs`: "returning to Ask from any page restores conversations in the rail (Ask → Sessions → Settings → Ask)". Full app boot. It also asserts that Settings does not take over the rail and that moving within Ask keeps the same rail nodes. The Round 2 late-answer test still passes. |
+| P2 `ui.js:140`: inline parsing was quadratic on adversarial input (`" **a".repeat(n)` took 786 ms at 64k) | The regex `matchAll` is replaced by one left-to-right pass. A code span closes at the next backtick. A bold run closes at the first later `**` preceded by a non-space character. When a closer search fails, no later opener of that kind can succeed, so that kind is switched off for the rest of the text and nothing is rescanned. Output is unchanged for ordinary input; all earlier renderer tests pass. | `session-markdown.test.mjs`: "inline parsing stays linear on adversarial input". With caps lifted, 64k-character inputs for six adversarial patterns each render in under 100 ms, and doubling 32k → 64k units must cost less than 3.5× the time. Measured: `" **a"` at 16k/32k/64k chars took 2.5/3.5/5.7 ms. |
+| P2 `ui.js:156`: no output cap (a 40k-character bullet message produced 10,000 list items) | `MARKDOWN_LIMITS = {chars: 20000, nodes: 600}`. Text beyond 20,000 characters is not parsed. A shared node budget covers blocks, list items, inline elements and text nodes; when it runs out, rendering stops. A capped message ends with "… message truncated", followed by a closed "Show the full message as plain text" disclosure that holds the whole source as a single text node. Both are hidden in the clamped timeline preview. | "a long bullet message is capped by node count…" (`li` count and total elements bounded; marker; full text exact and element-free). "a message over the character cap renders only the cap…". "ordinary messages are not marked as truncated". |
+
+Round 3 checks run: `node --test tests/ui/*.test.mjs` exit 0, 263 tests, 263 pass. No Python files changed in this round.
+
 ## Risks and next action
 
 Known gaps and deferrals:

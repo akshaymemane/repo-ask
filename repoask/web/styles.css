@@ -1117,6 +1117,11 @@ dialog.modal::backdrop { background: #05060899; }
 .md code { padding: 0 4px; border-radius: 4px; background: var(--page); font-size: .92em; }
 .sessions-panel .md pre { margin-block: 0; padding: 8px 10px; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 .md pre code { padding: 0; background: none; font-size: inherit; }
+.md-truncated { color: var(--warning); font-size: 12px; }
+.sessions-panel details.md-full { padding: 0; border: 0; }
+.md-full > summary { color: var(--muted); font-size: 12px; }
+.sessions-panel .md-full pre { max-height: 20rem; white-space: pre-wrap; }
+.agent-message.is-clamped .md-truncated, .agent-message.is-clamped .md-full { display: none; }
 .agent-message.is-clamped .md { max-height: 4.7em; overflow: hidden; color: var(--muted); -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
 figure.agent-final { margin: var(--space-3) 0 0; }
 .agent-final figcaption { margin-bottom: var(--space-1); color: var(--muted); font-size: 12px; }

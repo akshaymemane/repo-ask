@@ -134,57 +134,86 @@ export function createModal({ title, onClose } = {}) {
 // Safe Markdown subset for agent prose: paragraphs, **bold**, `inline code`, fenced code blocks,
 // unordered and ordered lists. Built only from elements and text nodes (never innerHTML), so markup
 // in the input stays literal text. Anything else, including links and headings, is shown as written.
+// Parsing is linear in the input, and output is capped; a capped message says so and keeps the full
+// text available as plain text.
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const BULLET = /^\s{0,3}[-*+]\s+(.*)$/;
 const NUMBERED = /^\s{0,3}(\d{1,9})[.)]\s+(.*)$/;
-const INLINE = /`([^`\n]+)`|\*\*(?=\S)([^\n]*?\S)\*\*/g;
+export const MARKDOWN_LIMITS = { chars: 20000, nodes: 600 };
+const isSpace = (ch) => ch === undefined || /\s/.test(ch);
 
-function inline(parent, text, allowBold = true) {
-  let last = 0;
-  for (const match of text.matchAll(INLINE)) {
-    if (match[2] !== undefined && !allowBold) continue;
-    if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
-    if (match[1] !== undefined) parent.append(el("code", match[1]));
-    else { const strong = el("strong"); inline(strong, match[2], false); parent.append(strong); }
-    last = match.index + match[0].length;
+// One left-to-right pass. A code span closes at the next backtick; a bold run at the first later "**"
+// preceded by a non-space character. When a search for a closer fails, no later opener of that kind
+// can succeed either, so that kind is switched off for the rest of the text: no position is rescanned.
+function inline(parent, text, budget, allowBold = true) {
+  let plain = 0, i = 0, codeOpen = true, boldOpen = allowBold;
+  const flush = (end) => { if (end > plain) { budget.nodes -= 1; parent.append(document.createTextNode(text.slice(plain, end))); } };
+  while (i < text.length) {
+    if (budget.nodes <= 2) { budget.truncated = budget.stopped = true; break; }
+    const ch = text[i];
+    if (ch === "`" && codeOpen) {
+      const end = text.indexOf("`", i + 1);
+      if (end === -1) codeOpen = false;
+      else if (end > i + 1) { flush(i); budget.nodes -= 1; parent.append(el("code", text.slice(i + 1, end))); i = end + 1; plain = i; continue; }
+    } else if (ch === "*" && boldOpen && text[i + 1] === "*" && !isSpace(text[i + 2])) {
+      let from = i + 3, end = -1;
+      while ((end = text.indexOf("**", from)) !== -1 && isSpace(text[end - 1])) from = end + 1;
+      if (end === -1) boldOpen = false;
+      else { flush(i); budget.nodes -= 1; const strong = el("strong"); inline(strong, text.slice(i + 2, end), budget, false); parent.append(strong); i = end + 2; plain = i; continue; }
+    }
+    i += 1;
   }
-  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+  flush(text.length);
 }
 
 export function renderMarkdown(text, className = "md") {
   const root = el("div", undefined, className);
-  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const source = String(text ?? "").replace(/\r\n?/g, "\n");
+  const budget = { nodes: MARKDOWN_LIMITS.nodes, truncated: source.length > MARKDOWN_LIMITS.chars, stopped: false };
+  const shown = budget.truncated ? source.slice(0, MARKDOWN_LIMITS.chars) : source;
+  const lines = shown.split("\n");
   let paragraph = [];
+  const block = (node) => { budget.nodes -= 1; root.append(node); return node; };
   const flush = () => {
     if (!paragraph.length) return;
-    const p = el("p");
-    paragraph.forEach((line, i) => { if (i) p.append(document.createTextNode("\n")); inline(p, line); });
-    root.append(p); paragraph = [];
+    const p = block(el("p"));
+    paragraph.forEach((line, i) => { if (i) p.append(document.createTextNode("\n")); inline(p, line, budget); });
+    paragraph = [];
   };
   for (let i = 0; i < lines.length; i += 1) {
+    if (budget.stopped || budget.nodes <= 0) { budget.truncated = true; break; }
     const line = lines[i];
     const fence = FENCE.exec(line);
     if (fence) {
       flush();
-      const body = [];
       // A fence closes on a line of the same character, at least as long; an unclosed fence runs to the end.
       const close = new RegExp(`^\\s{0,3}${fence[1][0]}{${fence[1].length},}\\s*$`);
+      const body = [];
       for (i += 1; i < lines.length && !close.test(lines[i]); i += 1) body.push(lines[i]);
-      const pre = el("pre"); pre.append(el("code", body.join("\n"))); root.append(pre);
+      const pre = block(el("pre")); pre.append(el("code", body.join("\n"))); budget.nodes -= 1;
       continue;
     }
     const bullet = BULLET.exec(line), numbered = NUMBERED.exec(line);
     if (bullet || numbered) {
       flush();
-      const ordered = Boolean(numbered && !bullet), list = el(ordered ? "ol" : "ul"), pattern = ordered ? NUMBERED : BULLET;
+      const ordered = Boolean(numbered && !bullet), list = block(el(ordered ? "ol" : "ul")), pattern = ordered ? NUMBERED : BULLET;
       if (ordered && numbered[1] !== "1") list.setAttribute("start", String(Number(numbered[1])));
-      for (; i < lines.length && pattern.test(lines[i]); i += 1) { const item = pattern.exec(lines[i]); const li = el("li"); inline(li, ordered ? item[2] : item[1]); list.append(li); }
-      i -= 1; root.append(list);
+      for (; i < lines.length && pattern.test(lines[i]); i += 1) {
+        if (budget.nodes <= 2) { budget.truncated = budget.stopped = true; break; }
+        const item = pattern.exec(lines[i]); const li = el("li"); budget.nodes -= 1; inline(li, ordered ? item[2] : item[1], budget); list.append(li);
+      }
+      i -= 1;
       continue;
     }
     if (!line.trim()) { flush(); continue; }
     paragraph.push(line);
   }
   flush();
+  if (budget.truncated) {
+    // The marker and the full plain text sit outside the budget: one paragraph and one text node.
+    root.append(el("p", "… message truncated", "md-truncated"));
+    const full = el("details", undefined, "md-full"), label = el("summary", "Show the full message as plain text");
+    full.append(label, el("pre", source)); root.append(full);
+  }
   return root;
 }

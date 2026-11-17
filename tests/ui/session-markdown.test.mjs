@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import {createBrowser, install, settle} from './dom.mjs';
-import {renderMarkdown} from '../../repoask/web/ui.js';
+import {renderMarkdown, MARKDOWN_LIMITS} from '../../repoask/web/ui.js';
 import {createSessionPanel} from '../../repoask/web/sessions.js';
 
 function md(text) {
@@ -87,4 +87,50 @@ test('the session result card renders the agent\'s final message as safe Markdow
   assert.equal(final.querySelector('pre code').textContent, 'python -c "ok"');
   assert.equal(ui.panel.querySelector('img'), null); assert.match(final.textContent, /<img src=x onerror=alert\(1\)>/);
   assert.ok(ui.panel.querySelector('.session-activity .agent-message.is-clamped .md'), 'the timeline preview uses the same renderer'); ui.close();
+});
+
+// ---- Review round 3: linear parsing and output caps ----
+
+test('inline parsing stays linear on adversarial input (caps lifted so the parser itself is measured)', () => {
+  const saved = {...MARKDOWN_LIMITS};
+  Object.assign(MARKDOWN_LIMITS, {chars: 1e7, nodes: 1e7});
+  try {
+    md('warm up **a** `b`');
+    for (const unit of [' **a', '**a ', '`', ' `a', '** ', '**`a']) {
+      const input = unit.repeat(Math.ceil(65536 / unit.length));
+      const started = performance.now(); const root = md(input); const ms = performance.now() - started;
+      assert.ok(ms < 100, `${JSON.stringify(unit)} × ${input.length} chars took ${ms.toFixed(1)} ms`);
+      assert.ok(root.children.length > 0, 'something rendered');
+    }
+    // Doubling the input roughly doubles the work; a quadratic scan would quadruple it.
+    const time = n => { const input = ' **a'.repeat(n); const t = performance.now(); md(input); return performance.now() - t; };
+    time(8192); const small = Math.max(time(32768), 1), large = time(65536);
+    assert.ok(large < small * 3.5, `32k→64k units: ${small.toFixed(1)} ms → ${large.toFixed(1)} ms`);
+  } finally { Object.assign(MARKDOWN_LIMITS, saved); }
+});
+
+test('a long bullet message is capped by node count with a visible marker and the full text as plain text', () => {
+  const source = '- item\n'.repeat(10000);
+  const root = md(source);
+  const items = root.querySelectorAll('li').length;
+  assert.ok(items > 0 && items <= MARKDOWN_LIMITS.nodes, `${items} list items`);
+  const all = root.querySelectorAll('*').length;
+  assert.ok(all <= MARKDOWN_LIMITS.nodes + 6, `${all} elements`);
+  assert.equal(root.querySelector('.md-truncated').textContent, '… message truncated');
+  const full = root.querySelector('details.md-full');
+  assert.equal(full.open, false); assert.equal(full.querySelector('summary').textContent, 'Show the full message as plain text');
+  assert.equal(full.querySelector('pre').textContent, source.replace(/\r\n?/g, '\n')); assert.equal(full.querySelector('pre').children.length, 0);
+});
+
+test('a message over the character cap renders only the cap and says it was truncated', () => {
+  const source = 'word '.repeat(6000) + 'TAIL';
+  const root = md(source);
+  const rendered = root.children.filter(n => !n.classList.contains('md-truncated') && !n.classList.contains('md-full')).map(n => n.textContent).join('');
+  assert.ok(rendered.length <= MARKDOWN_LIMITS.chars); assert.doesNotMatch(rendered, /TAIL/);
+  assert.ok(root.querySelector('.md-truncated')); assert.match(root.querySelector('details.md-full pre').textContent, /TAIL$/);
+});
+
+test('ordinary messages are not marked as truncated', () => {
+  const root = md('**Change:**\n- one\n- two\n\n```\ncode\n```');
+  assert.equal(root.querySelector('.md-truncated'), null); assert.equal(root.querySelector('.md-full'), null);
 });

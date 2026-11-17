@@ -75,17 +75,19 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     button(pendingNotice,'Discard pending request',()=>{sendAttempt=null;persistAttempt();renderPending();say('Pending client attempt discarded. Draft text is preserved; any accepted server request is unchanged.');});
   }
   window.addEventListener('beforeunload', e => { if (draft) { e.preventDefault(); e.returnValue = ''; } });
-  let historyGeneration=0, historyItems=[], historyUnpublished=false;
+  let historyGeneration=0, historyItems=[], historyLoaded=false, wasOnAsk=null;
   // Recent belongs to the visible area: a late history answer while Sessions (or any non-Ask page) is
   // showing must not replace that area's list. Matches app.js routeFromHash's Ask routes.
   const askRouteActive=()=>/^(#\/?)?$|^#\/ask(\/|$)|^#\/plans\//.test(location.hash);
   function publishHistory(){
-    if(!askRouteActive()){historyUnpublished=true;return;}
-    historyUnpublished=false;
+    historyLoaded=true;
+    if(!askRouteActive())return;
     shell.setRecent(historyItems,{heading:'Recent',onMore:historyNext?()=>refreshHistory(historyNext):null});
   }
-  // Arriving on Ask shows the history kept while another page was active (app.js also refetches it).
-  window.addEventListener('hashchange',()=>{if(historyUnpublished&&askRouteActive())publishHistory();});
+  // Every arrival on Ask from another page (Sessions, Settings, Repositories…) restores the kept
+  // conversation history, since that page may have replaced the rail. Moves within Ask leave it alone.
+  window.addEventListener('hashchange',()=>{const onAsk=askRouteActive();if(onAsk&&wasOnAsk===false&&historyLoaded)publishHistory();wasOnAsk=onAsk;});
+  wasOnAsk=askRouteActive();
   async function refreshHistory(cursor, supplied) {
     const generation=++historyGeneration;
     try {
