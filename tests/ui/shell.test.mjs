@@ -72,6 +72,18 @@ test("shell foundation has one visible route title and no obsolete topbar height
   assert.doesNotMatch(css, /\.persistent-ask button, \.persistent-ask a/);
 });
 
+test("modern command-center shell keeps theme, motion and compact-layout safeguards", () => {
+  assert.match(html, /name="color-scheme" content="dark light"/);
+  assert.match(html, /class="brand-mark"[^>]*>OD</);
+  assert.match(css, /--accent:\s*#70e1c0/);
+  assert.match(css, /--inset-highlight:/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.doesNotMatch(css, /transition:\s*all/);
+  assert.doesNotMatch(css, /will-change:\s*all/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.rail \{[^}]*position:\s*sticky/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.workspace \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+});
+
 test("workspace pill is hidden in connected mode", async () => {
   const workspace = structuredClone(fixtures.workspace.demo_memory);
   workspace.mode = "connected";
