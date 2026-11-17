@@ -15,6 +15,9 @@ export function attachMentions(textarea, { request, onPick, exclude = () => [] }
   textarea.parentNode.append(menu);
   textarea.setAttribute("aria-controls", menu.id);
   textarea.setAttribute("aria-autocomplete", "list");
+  textarea.setAttribute("aria-haspopup", "listbox");
+  textarea.setAttribute("role", "combobox");
+  textarea.setAttribute("aria-expanded", "false");
 
   let options = [];
   let active = 0;
@@ -60,6 +63,7 @@ export function attachMentions(textarea, { request, onPick, exclude = () => [] }
       empty.setAttribute("aria-disabled", "true");
       menu.append(empty);
       menu.hidden = false;
+      textarea.setAttribute("aria-expanded", "true");
       textarea.removeAttribute("aria-activedescendant");
       return;
     }

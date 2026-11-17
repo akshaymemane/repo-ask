@@ -91,7 +91,7 @@ test("not-indexed repo is disabled and offers Index now", async () => {
   assert.deepEqual(calls.find(([method]) => method === "POST"), ["POST", "/api/repositories/gh%3A2/index", {}]);
 });
 
-test("arrow keys move between rows and Enter confirms", async () => {
+test("arrow keys move between rows and Enter never confirms implicitly", async () => {
   const { b, openRepoPicker, request } = await setup((path) => path.startsWith("/api/context") ? { items: [ctx(1), ctx(2)], next_cursor: null } : { items: [] });
   const result = openRepoPicker({ request, selected: [], trigger: b.document.getElementById("plus") });
   await settle();
@@ -102,6 +102,10 @@ test("arrow keys move between rows and Enter confirms", async () => {
   assert.equal(b.document.activeElement, rowFor(b, "repo-2").querySelector("input"));
   b.document.activeElement.click();
   keydown(b.document.activeElement, "Enter");
+  assert.ok(b.document.querySelector("dialog").open, "Enter on a checkbox leaves the picker open");
+  keydown(search, "Enter");
+  assert.ok(b.document.querySelector("dialog").open, "Enter in search leaves the picker open");
+  footerButton(b, "Add").click();
   assert.deepEqual(await result, [{ id: "gh:2", name: "repo-2" }]);
 });
 

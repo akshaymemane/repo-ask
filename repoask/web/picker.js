@@ -123,9 +123,6 @@ export function openRepoPicker({ request, selected = [], trigger }) {
       event.preventDefault();
       if (index <= 0) search.focus();
       else boxes[index - 1].focus();
-    } else if (event.key === "Enter" && event.target.tagName !== "BUTTON") {
-      event.preventDefault();
-      confirm();
     }
   });
 

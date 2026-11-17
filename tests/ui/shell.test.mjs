@@ -126,6 +126,9 @@ test("side panel opens tabs, closes on Escape and restores focus", async () => {
   assert.equal(panel.isOpen(), true);
   assert.equal(host.hidden, false);
   assert.deepEqual(host.querySelectorAll('[role="tab"]').map((t) => t.textContent.replace("×", "").trim()), ["api.ts", "routes.ts"]);
+  const selected = host.querySelector('[role="tab"][aria-selected="true"]');
+  assert.equal(selected.getAttribute("aria-controls"), host.querySelector('[role="tabpanel"]').id);
+  assert.equal(host.querySelector('[role="tabpanel"]').getAttribute("aria-labelledby"), selected.id);
   assert.match(visibleText(host), /second file/);
   host.querySelectorAll('[role="tab"]')[0].click();
   assert.match(visibleText(host), /first file/);
@@ -179,6 +182,32 @@ test("opening the panel moves focus into it; Escape anywhere closes it and retur
   keydown(b.document.body, "Escape");
   assert.equal(panel.isOpen(), false);
   assert.equal(b.document.activeElement, second);
+});
+
+test("compact side panel is modal, contains focus, and restores the background", async () => {
+  const b = await boot({ api: legacyApi() });
+  globalThis.matchMedia = () => ({ matches: true });
+  const { createSidePanel } = await import(`${panelUrl}?p=compact`);
+  const main = b.document.createElement("main");
+  const opener = b.document.createElement("button");
+  const host = b.document.createElement("aside");
+  host.hidden = true;
+  main.append(opener, host);
+  b.document.body.append(main);
+  opener.focus();
+  const panel = createSidePanel(host);
+  panel.openTab({ id: "details", title: "Details", render: (body) => body.append("Details") });
+  assert.equal(host.getAttribute("role"), "dialog");
+  assert.equal(host.getAttribute("aria-modal"), "true");
+  assert.equal(opener.inert, true);
+  const close = host.querySelector(".side-close");
+  close.focus();
+  const event = keydown(close, "Tab");
+  assert.equal(event.defaultPrevented, true);
+  assert.ok(host.querySelector('[role="tab"]') === b.document.activeElement);
+  panel.close();
+  assert.equal(opener.inert, false);
+  assert.equal(b.document.activeElement, opener);
 });
 
 test("a late conversation history answer on a direct load of Sessions keeps the sessions rail; Ask shows conversations again", async () => {

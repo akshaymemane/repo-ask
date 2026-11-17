@@ -38,6 +38,9 @@ test("typing @rc opens a listbox and Enter picks the highlighted repo", async ()
   await type(textarea, "Explain @rc");
   const menu = b.document.querySelector('[role="listbox"]');
   assert.ok(menu && !menu.hidden, "menu opens");
+  assert.equal(textarea.getAttribute("role"), "combobox");
+  assert.equal(textarea.getAttribute("aria-haspopup"), "listbox");
+  assert.equal(textarea.getAttribute("aria-expanded"), "true");
   assert.match(calls.find((p) => p.startsWith("/api/context")), /query=rc/);
   const options = menu.querySelectorAll('[role="option"]');
   assert.deepEqual(options.map((o) => visibleText(o).split("·")[0].trim()), ["rcnl-app"], "only pickable repos are offered");
@@ -47,6 +50,7 @@ test("typing @rc opens a listbox and Enter picks the highlighted repo", async ()
   assert.deepEqual(picked, [{ id: "gh:1", name: "rcnl-app" }]);
   assert.equal(textarea.value, "Explain ");
   assert.equal(menu.hidden, true);
+  assert.equal(textarea.getAttribute("aria-expanded"), "false");
   assert.equal(textarea.hasAttribute("aria-activedescendant"), false);
 });
 
@@ -118,6 +122,7 @@ test("indexed matches past the first unindexed ones are still offered; no match 
   await type(textarea, "@zzz");
   const menu = b.document.querySelector('[role="listbox"]');
   assert.equal(menu.hidden, false);
+  assert.equal(textarea.getAttribute("aria-expanded"), "true");
   assert.match(visibleText(menu), /No indexed repositories match/);
   assert.equal(keydown(textarea, "Enter").defaultPrevented, false, "Enter is not swallowed when there is nothing to pick");
 });
