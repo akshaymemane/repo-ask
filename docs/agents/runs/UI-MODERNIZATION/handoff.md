@@ -39,3 +39,9 @@
 ## Harness note
 
 Claude CLI was invoked for the requested cross-harness design critique but returned its weekly-limit message before inference. The result is therefore Codex-authored and requires independent review; it must not be reported as Claude-authored or Claude-approved.
+
+## Claude follow-up
+
+- Claude performed the planned cross-harness critique after review-r2 (`review-claude.md`).
+- Fixed: ≤760px `.inspector.has-source` and `.session-tabs` now offset to 118px below the sticky rail + route bar; primary hover mixes toward `--text` instead of white.
+- Required before integration: independent re-review of the fix commit, ideally with a 390/500px render of an open source inspector and a Session detail page.

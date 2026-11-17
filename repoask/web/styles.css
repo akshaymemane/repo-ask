@@ -1410,7 +1410,7 @@ h1, h2, h3, .intro-title, .session-title { text-wrap: balance; }
 .btn:hover:not(:disabled), .button:hover:not(:disabled), .icon-button:hover:not(:disabled) { box-shadow: var(--inset-highlight), 0 4px 12px #0003; }
 .btn:active:not(:disabled), .button:active:not(:disabled), .ask-button:active:not(:disabled), .publication-primary:active:not(:disabled), .icon-button:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .btn-primary, .ask-button, .publication-primary { box-shadow: var(--inset-highlight), 0 6px 18px color-mix(in srgb, var(--accent) 18%, transparent); }
-.btn-primary:hover:not(:disabled), .ask-button:hover:not(:disabled), .publication-primary:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 88%, white); }
+.btn-primary:hover:not(:disabled), .ask-button:hover:not(:disabled), .publication-primary:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
 .icon-button { font-size: 16px; }
 
 .workspace { grid-template-columns: 218px minmax(0, 1fr) minmax(290px, 31%); }
@@ -1476,6 +1476,9 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
   .rail .primary-nav ul { flex-wrap: nowrap; }
   .rail .primary-nav a { min-height: 44px; padding-inline: 11px; white-space: nowrap; }
   .page-top { top: 62px; min-width: 0; padding-inline: 12px; }
+  /* Offset sticky/fixed layers below the sticky 62px rail + 56px route bar. */
+  .inspector.has-source { top: 118px; }
+  .session-tabs { top: 118px; }
   .workspace-mode-detail, .mode { display: none; }
   .workspace-mode { max-width: 128px; overflow: hidden; }
   .workspace-mode strong { overflow: hidden; text-overflow: ellipsis; }

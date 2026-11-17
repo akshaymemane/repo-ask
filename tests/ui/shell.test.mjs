@@ -87,6 +87,9 @@ test("modern command-center shell keeps theme, motion and compact-layout safegua
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.page-top \{[^}]*top:\s*62px/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.workspace \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.workspace \{[^}]*height:\s*calc\(100dvh - 118px\)/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.inspector\.has-source \{[^}]*top:\s*118px/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.session-tabs \{[^}]*top:\s*118px/);
+  assert.doesNotMatch(css, /var\(--accent\) 88%, white/);
 });
 
 test("workspace pill is hidden in connected mode", async () => {
