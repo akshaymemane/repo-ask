@@ -9,16 +9,16 @@ Verdict: **CHANGES_REQUESTED**
 
 ## Findings
 
-1. **Major — expanded switch targets overlap adjacent compact repository permission rows.**  
-   `repoask/web/styles.css:1531`, with compact row layout at `styles.css:920` and switch size at `styles.css:752`.  
+1. **Major — expanded switch targets overlap adjacent compact repository permission rows.**
+   `repoask/web/styles.css:1531`, with compact row layout at `styles.css:920` and switch size at `styles.css:752`.
    The new absolutely positioned `::before` extends each 34×20 switch to 44×44 without reserving any layout space. At ≤760px the repository table becomes stacked cells with only 6px vertical padding: a switch row reserves approximately 32px, while its hit region extends 12px above and below the track. Consecutive “Used in Ask” and “Changes allowed” cells contain switches in the same grid column (`repoask/web/repositories.js:253-269`), so their expanded targets can overlap; the later painted switch can intercept a tap intended for the preceding row. This is especially inappropriate for a write-permission control. Source-derived geometry, not an independently rendered hit test. **Fix:** reserve a real 44px layout box for each switch (render the 34×20 track inside it), or give every switch-bearing row/wrapper sufficient height and spacing to contain the entire target. Verify `elementFromPoint` and actual clicks across both adjacent targets at 390px, including row boundaries and the desktop table.
 
-2. **Minor — light surfaces still inherit disproportionately dark shadows.**  
-   `repoask/web/styles.css:1444`, `styles.css:1447`, `styles.css:1450`, `styles.css:1411`; Sessions date popover at `styles.css:1075`.  
+2. **Minor — light surfaces still inherit disproportionately dark shadows.**
+   `repoask/web/styles.css:1444`, `styles.css:1447`, `styles.css:1450`, `styles.css:1411`; Sessions date popover at `styles.css:1075`.
    `.composer, .composer-v2, .session-composer` and their `:focus-within` variants retain `0 16px 40px #0006`; `.side-panel` retains `-18px 0 54px #0005`; `.btn:hover:not(:disabled), .button:hover:not(:disabled), .icon-button:hover:not(:disabled)` retain `0 4px 12px #0003`; `.sessions-panel .session-filter.is-date` retains `0 12px 30px #05060866`. These bypass the existing light-specific shadow tokens, which use much lower opacity, leaving Ask/Sessions composers, source/settings side panels, shared route buttons and the date disclosure with dark-mode shadow strength. The card group at `styles.css:1456-1458` also hard-codes `#0001`, though its 7% opacity is less concerning. **Fix:** use semantic shadow tokens (including directional composer/panel variants if needed) and inspect all four requested routes in light mode. These declarations predate the reviewed diff; record as inherited polish debt, not a new Claude regression. Visual severity is source-review only.
 
-3. **Minor — inherited light-mode text exceptions remain outside the otherwise sound palette.**  
-   `repoask/web/styles.css:647` and `styles.css:1341-1343`.  
+3. **Minor — inherited light-mode text exceptions remain outside the otherwise sound palette.**
+   `repoask/web/styles.css:647` and `styles.css:1341-1343`.
    `.session-facts dt` uses undefined `--text-muted` with fallback `#a9b1bf`, approximately 2.16:1 against white. Session facts therefore bypass `--muted` in light mode. The small `.brand-mark, .intro-icon` accent text on `--accent-tint` computes to approximately 4.45:1 (`#087d66` on `#e2f4ef`), just below 4.5:1 if treated as normal text; the brand/logo exemption may apply, but informational text should not reuse this pair without adjustment. By comparison, `--muted` is 5.56:1 on white and 4.91:1 on `--sunken`, and accent is 5.08:1 on white. **Fix:** change facts labels to `var(--muted)` and slightly darken accent text on tint where normal-text contrast is required. Both exceptions are inherited, not introduced by these three commits.
 
 ## Checks run
