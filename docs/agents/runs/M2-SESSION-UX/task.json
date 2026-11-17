@@ -1,0 +1,15 @@
+{
+  "id": "M2-SESSION-UX",
+  "title": "Session list and session page UI/UX overhaul",
+  "state": "running",
+  "base_sha": "51f5839",
+  "branch": "task/m2-session-ux",
+  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-session-ux",
+  "owner": "Claude experience agent",
+  "brief": "docs/agents/runs/M2-SESSION-UX/brief.md",
+  "write_scope": ["repoask/web/sessions.js (session list, detail, publication panel presentation)", "repoask/web/shell.js and repoask/web/app.js (recent-session labels only)", "repoask/web/styles.css (session rules)", "repoask/web/ui.js (small shared helpers only)", "tests/ui/session*.test.mjs", "tests/ui/shell.test.mjs (recent labels only)", "docs/agents/runs/M2-SESSION-UX/**"],
+  "forbidden_scope": ["repoask/*.py", "repoask/**/*.py", "repoask/web/ask.js", "repoask/web/settings*.js"],
+  "acceptance": ["Every brief item addressed or explicitly deferred with a reason", "No API changes; raw identifiers only in details/titles", "All existing session behaviors and their test coverage kept", "Full UI suite and full Python suite pass", "Accessible: keyboard, focus, labels, live regions; responsive at 390px and 1440px"],
+  "reviewer": "Codex (opposite harness)",
+  "handoff": "docs/agents/runs/M2-SESSION-UX/handoff.md"
+}
