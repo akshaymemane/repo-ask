@@ -613,12 +613,21 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   function renderPhaseRail() {
     if (!phaseRail || !current) return;
     const state = current.state, phaseName = current.phase || '';
-    const active = terminal.has(state) ? 4 : state === 'validating' || phaseName === 'validation' ? 3 : state === 'queued' || state === 'provisioning' ? 1 : 2;
+    let active = state === 'completed' ? 4 : state === 'validating' || phaseName === 'validation' ? 3 : state === 'queued' || state === 'provisioning' ? 1 : 2;
+    // Failed terminal records often replace the useful phase with "failed"/"cancelled".
+    // Use durable events to show only the last phase we can prove was reached.
+    if (terminal.has(state) && state !== 'completed') {
+      active = 1;
+      for (const event of events.values()) {
+        if (event.type === 'validation.started' || event.type === 'validation.finished') active = Math.max(active, 3);
+        else if (event.type === 'tool.started' || event.type === 'tool.finished' || event.type === 'tool.denied' || event.type === 'checkpoint' || event.type === 'agent.summary' || (event.type === 'session.state' && event.payload?.state === 'running')) active = Math.max(active, 2);
+      }
+    }
     const failed = ['failed', 'blocked', 'interrupted'].includes(state);
     const stages = [['01', 'Prepare'], ['02', 'Implement'], ['03', 'Verify'], ['04', 'Review']];
     phaseRail.replaceChildren();
     for (let i = 0; i < stages.length; i++) {
-      const item = el('div', undefined, `session-stage${i + 1 < active || (active === 4 && state === 'completed') ? ' is-done' : ''}${i + 1 === active ? ' is-current' : ''}${failed && i + 1 === active ? ' is-failed' : ''}`);
+      const item = el('div', undefined, `session-stage${i + 1 < active || state === 'completed' ? ' is-done' : ''}${i + 1 === active ? ' is-current' : ''}${terminal.has(state) && state !== 'completed' && i + 1 === active ? ' is-stopped' : ''}${failed && i + 1 === active ? ' is-failed' : ''}`);
       item.append(el('span', stages[i][0], 'session-stage-number'), el('span', stages[i][1], 'session-stage-label'));
       phaseRail.append(item);
     }

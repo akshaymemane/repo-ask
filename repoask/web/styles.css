@@ -1100,6 +1100,7 @@ dialog.modal::backdrop { background: #05060899; }
 .session-stage.is-done::after { background: var(--success); }
 .session-stage.is-current { color: var(--text); background: var(--raised); }
 .session-stage.is-current::after { background: var(--accent); }
+.session-stage.is-stopped::after { background: var(--muted); }
 .session-stage.is-failed::after { background: var(--danger); }
 .session-stage-number { color: inherit; font: 10px var(--mono); opacity: .72; }
 .session-stage-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; text-transform: uppercase; }

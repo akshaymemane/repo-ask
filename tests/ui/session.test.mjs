@@ -186,6 +186,31 @@ test('session detail has a center thread and a page-owned pane with Progress, Di
  keydown(b.document.activeElement,'Escape');assert.equal(pane.hidden,false);assert.ok(pane.isConnected);ui.close();
 });
 
+test('the phase rail never claims unverified work for failed terminal sessions',async t=>{
+ const cases=[
+  ['failed',[],0],
+  ['cancelled',[{session_id:'s',seq:1,type:'session.state',payload:{state:'running'},created_at:1}],1],
+  ['interrupted',[{session_id:'s',seq:1,type:'validation.started',payload:{ordinal:1},created_at:1}],2],
+  ['completed',[],3],
+ ];
+ for(const [state,eventItems,current] of cases)await t.test(state,async()=>{
+  const b=setup((m,u)=>{
+   if(u.includes('/events?'))return {items:eventItems,next_seq:eventItems.length,has_more:false};
+   if(u==='/api/sessions/s')return session('s',{state,phase:state,runner:{containment:'confirmed'}});
+   return basic(m,u);
+  });
+  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+  const stages=ui.panel.querySelectorAll('.session-stage');
+  assert.equal(stages[current].classList.contains('is-current'),true,state);
+  if(state==='completed')assert.equal(stages.every(stage=>stage.classList.contains('is-done')),true);
+  else {
+   assert.equal(stages[current].classList.contains('is-stopped'),true,state);
+   assert.equal(stages.filter(stage=>stage.classList.contains('is-done')).length,current,state);
+  }
+  ui.close();
+ });
+});
+
 test('Stop sits in the session header while active and is absent once terminal and contained',async()=>{
  let s=session('s',{state:'running'});const b=setup((m,u)=>u==='/api/sessions/s'?s:basic(m,u));
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
