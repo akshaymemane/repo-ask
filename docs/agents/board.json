@@ -782,7 +782,7 @@
       "id": "UI-INTERACTION-CONSISTENCY",
       "milestone": "post-M2",
       "title": "Unify compact-panel semantics, tab ARIA, mentions and picker keyboard behavior",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": ["F11"],
       "planned_persona": "experience",
       "planned_harness": "codex",
@@ -791,7 +791,11 @@
       "handoff": "docs/agents/runs/UI-INTERACTION-CONSISTENCY/handoff.md",
       "branch": "task/ui-interaction-consistency",
       "base_sha": "42c9011",
-      "next_action": "Codex experience builder is implementing compact-panel semantics, ARIA relationships, mentions and picker keyboard behavior."
+      "submitted_sha": "69f2cbf",
+      "reviewer_session": "fresh independent Codex reviewer; approved after inert snapshot, DOM-order focus and viewport synchronization fixes",
+      "review_verdict": "approved",
+      "integration_sha": "69f2cbf",
+      "next_action": "Integrated. Compact panels, tab relationships, mentions and picker keyboard behavior now share consistent accessible interaction rules."
     },
     {
       "id": "UI-ROUTE-CONSISTENCY",
