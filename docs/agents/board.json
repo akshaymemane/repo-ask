@@ -801,7 +801,7 @@
       "id": "UI-ROUTE-CONSISTENCY",
       "milestone": "post-M2",
       "title": "Remove route-level redundancies across Ask, plans, repositories, sessions and settings",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": ["F04", "F05", "F11"],
       "planned_persona": "experience",
       "planned_harness": "codex",
@@ -810,7 +810,11 @@
       "base_sha": "4b02d6e",
       "proposed_write_scope": ["repoask/web/settings.js", "repoask/web/repositories.js", "repoask/web/ask.js", "repoask/web/plan-view.js", "repoask/web/sessions.js", "repoask/web/styles.css", "tests/ui/"],
       "handoff": "docs/agents/runs/UI-ROUTE-CONSISTENCY/handoff.md",
-      "next_action": "Codex experience builder is removing redundant hierarchy and normalizing route-specific status, labels, empty states and responsive presentation from the joint Claude/Codex audit."
+      "submitted_sha": "94acb61",
+      "reviewer_session": "fresh independent Codex reviewer; approved after sticky-tab, mobile metadata and Settings flattening fixes",
+      "review_verdict": "approved",
+      "integration_sha": "94acb61",
+      "next_action": "Integrated. Route hierarchy, repository language and responsive presentation, Settings nesting, plan metadata and Session workspace chrome are consistent."
     },
     {
       "id": "M2-FOLLOWUPS",
