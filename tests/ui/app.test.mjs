@@ -91,7 +91,7 @@ test("navigation exposes Ask, Repositories and Settings as keyboard links with a
   }
 });
 
-test("route focus targets are not clipped or outline-less once focused (review-r1 UX-10)", async () => {
+test("route focus stays on the accessible H1 while the shell remains the only visible title", async () => {
   // Uses the real styles.css cascade (see css.mjs limits); a real browser check is still in the handoff checklist.
   const app = await boot({ api: legacyApi() });
   const focusedStyle = (id) => declaredStyle(app.byId(id), css, { focused: app.document.activeElement === app.byId(id) });
@@ -101,9 +101,15 @@ test("route focus targets are not clipped or outline-less once focused (review-r
   assert.equal(resting.width, "1px");
 
   await app.go("#/settings");
-  assert.match(focusedStyle("settings-title").outline || "", /solid/);
+  assert.equal(app.document.activeElement, app.byId("settings-title"));
+  assert.equal(focusedStyle("settings-title")["clip-path"], "inset(50%)");
+  assert.equal(app.byId("page-header-title").textContent, "Settings");
+  assert.match(app.byId("view-settings").querySelector(".page-lede").textContent, /workspace health/i);
   await app.go("#/repositories");
-  assert.match(focusedStyle("repositories-title").outline || "", /solid/);
+  assert.equal(app.document.activeElement, app.byId("repositories-title"));
+  assert.equal(focusedStyle("repositories-title")["clip-path"], "inset(50%)");
+  assert.equal(app.byId("page-header-title").textContent, "Repositories");
+  assert.match(app.byId("view-repositories").querySelector(".page-lede").textContent, /Choose which repositories/);
 
   await app.go("#/ask");
   assert.equal(app.document.activeElement, app.byId("ask-title"));

@@ -12,6 +12,8 @@
 
 Unified the shell foundation without changing route modules. Sessions now owns a stable navigation slot whose pending state preserves layout and whose unavailable state collapses only after a definitive 404. The shell exposes the sole visible route title while the route H1 remains in the accessibility tree and focusable; session detail titles remain visible. Shared control, tone, sizing, radius and typography tokens replace competing button primitives and obvious shared hard-coded colors. Legacy button names remain compatibility aliases. Broad persistent-Ask selectors are limited to direct, unclassed fallback elements, and provably overridden session rules were removed.
 
+Review round 1 corrections keep focused route H1s visually hidden so focus never duplicates the shell title, and retain each route's visible lede as useful guidance. Regression coverage checks focus, shell-title state and lede presence across navigation.
+
 Changed files, all within assigned scope: `repoask/web/index.html`, `repoask/web/styles.css`, `repoask/web/shell.js`, `repoask/web/app.js`, `tests/ui/app.test.mjs`, `tests/ui/shell.test.mjs`, and this handoff. No API or data contract changed.
 
 ## Verification evidence

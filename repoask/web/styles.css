@@ -696,13 +696,9 @@ dialog::backdrop { background: #070810be; }
 .page-top-title { font-size: var(--text-md); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page-top-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .page-top .top-actions { margin-left: auto; }
-.page-header .route-title:not(:focus), .page-header .page-lede {
+.page-header .route-title {
   position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
   clip-path: inset(50%); white-space: nowrap;
-}
-.page-header .route-title:focus {
-  position: fixed; z-index: 30; top: var(--space-2); left: 50%; transform: translateX(-50%);
-  padding: 5px 12px; border-radius: var(--radius); background: var(--raised); font-size: var(--text-sm);
 }
 .pill { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--muted); white-space: nowrap; }
 .pill-ok { color: var(--success); }

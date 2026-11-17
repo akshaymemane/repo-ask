@@ -64,7 +64,8 @@ test("shell foundation has one visible route title and no obsolete topbar height
   const b = await boot({ hash: "#/repositories", api: legacyApi() });
   assert.equal(b.document.getElementById("page-header-title").tagName, "P");
   assert.equal(b.document.getElementById("repositories-title").tagName, "H1");
-  assert.match(css, /\.page-header \.route-title:not\(:focus\)/);
+  assert.match(css, /\.page-header \.route-title\s*\{/);
+  assert.doesNotMatch(css, /\.page-header \.page-lede/);
   assert.doesNotMatch(css, /\.topbar\b/);
   assert.doesNotMatch(css, /--top-height:\s*(?:96|100)px/);
   assert.match(css, /\.btn, \.button, \.ask-button, \.publication-primary/);
