@@ -1660,6 +1660,21 @@
       "completion_depends_on": [
         "M2-SESSIONS"
       ]
+    },
+    {
+      "id": "UI-MODERNIZATION",
+      "milestone": "post-M2",
+      "title": "Modernize the OpenDevin workspace visual language",
+      "state": "running",
+      "feature_ids": ["F11"],
+      "planned_persona": "experience",
+      "planned_harness": "codex+claude",
+      "depends_on": ["UI-SYSTEM-FOUNDATION", "UI-INTERACTION-CONSISTENCY", "UI-ROUTE-CONSISTENCY"],
+      "branch": "task/ui-modernization",
+      "base_sha": "880a681",
+      "proposed_write_scope": ["repoask/web/index.html", "repoask/web/styles.css", "repoask/web/ui.js", "tests/ui/", "docs/agents/runs/UI-MODERNIZATION/"],
+      "handoff": "docs/agents/runs/UI-MODERNIZATION/handoff.md",
+      "next_action": "Define and implement a calm technical command-center visual system, then validate desktop/mobile rendered evidence and independent review."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
