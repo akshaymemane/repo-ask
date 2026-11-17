@@ -98,12 +98,16 @@ test('inline parsing stays linear on adversarial input (caps lifted so the parse
     md('warm up **a** `b`');
     for (const unit of [' **a', '**a ', '`', ' `a', '** ', '**`a']) {
       const input = unit.repeat(Math.ceil(65536 / unit.length));
-      const started = performance.now(); const root = md(input); const ms = performance.now() - started;
+      // Best of three: other test files run in parallel, so one sample can absorb a GC pause.
+      let root, ms = Infinity;
+      for (let i = 0; i < 3; i++) { const started = performance.now(); root = md(input); ms = Math.min(ms, performance.now() - started); }
       assert.ok(ms < 100, `${JSON.stringify(unit)} × ${input.length} chars took ${ms.toFixed(1)} ms`);
       assert.ok(root.children.length > 0, 'something rendered');
     }
     // Doubling the input roughly doubles the work; a quadratic scan would quadruple it.
-    const time = n => { const input = ' **a'.repeat(n); const t = performance.now(); md(input); return performance.now() - t; };
+    const time = n => { const input = ' **a'.repeat(n); let best = Infinity;
+      for (let i = 0; i < 5; i++) { const t = performance.now(); md(input); best = Math.min(best, performance.now() - t); }
+      return best; };
     time(8192); const small = Math.max(time(32768), 1), large = time(65536);
     assert.ok(large < small * 3.5, `32k→64k units: ${small.toFixed(1)} ms → ${large.toFixed(1)} ms`);
   } finally { Object.assign(MARKDOWN_LIMITS, saved); }
