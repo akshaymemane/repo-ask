@@ -151,7 +151,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
         else link.removeAttribute("aria-current");
       }
       body.replaceChildren(builders[id]());
-      status.textContent = githubStatusText(code) ?? "";
+      status.textContent = id === "github" ? githubStatusText(code) ?? "" : "";
     },
   };
 }

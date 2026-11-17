@@ -904,6 +904,16 @@ dialog.modal::backdrop { background: #05060899; }
 .repos-table th, .repos-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; font-weight: 400; }
 .repos-table thead th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .repos-table tbody th small { display: block; color: var(--muted); font-size: 12px; }
+@media (max-width: 640px) {
+  .repos-table-box { overflow: visible; }
+  .repos-table, .repos-table tbody, .repos-table tr, .repos-table th, .repos-table td { display: block; width: 100%; }
+  .repos-table thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+  .repos-table tbody { display: grid; gap: var(--space-3); }
+  .repos-table tbody tr { padding: var(--space-3); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .repos-table tbody :is(th, td) { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(0, 1fr); align-items: center; gap: var(--space-2); padding: 6px 0; border: 0; }
+  .repos-table tbody :is(th, td)::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .repos-table .repo-name { justify-self: start; }
+}
 .repo-name { padding: 0; min-height: 0; color: var(--text); font-weight: 600; font-size: 14px; }
 .repo-name:hover { color: var(--accent); }
 .detail-title { font-size: 16px; font-weight: 650; margin-bottom: var(--space-1); }

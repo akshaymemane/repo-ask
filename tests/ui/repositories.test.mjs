@@ -63,6 +63,13 @@ test("one merged table with plain status, no hashes, and a keyword-only banner",
   assert.match(text, /Answers use keyword search only\. Turn on smarter search/);
   assert.ok(host.querySelectorAll("a").find((a) => a.getAttribute("href") === "#/settings/models"));
   assert.match(text, /synced 5 min ago/);
+  assert.deepEqual(host.querySelectorAll(".filter-chip").map((button) => button.textContent), ["All", "Used in Ask", "Changes allowed", "Needs attention"]);
+  const region = host.querySelector(".repos-table-box");
+  assert.equal(region.getAttribute("role"), "region");
+  assert.equal(region.getAttribute("aria-label"), "Repository catalog");
+  const repoRow = row(host, "rcnl-app");
+  assert.deepEqual([...repoRow.querySelectorAll("th"), ...repoRow.querySelectorAll("td")].map((cell) => cell.dataset.label), ["Repository", "Status", "Used in Ask", "Changes allowed"]);
+  assert.match(text, /3 repositories loaded\./);
 });
 
 test("Use in Ask saves immediately with both selection fields", async () => {
@@ -113,14 +120,22 @@ test("cancelling the Allow changes confirmation keeps it off", async () => {
   assert.equal(control.getAttribute("aria-checked"), "false");
 });
 
-test("Problems filter shows failed and inaccessible repositories; search queries the server", async () => {
+test("Needs attention filter shows failed and inaccessible repositories; search queries the server", async () => {
   const { host, calls } = await setup();
-  host.querySelectorAll("button").find((x) => x.textContent === "Problems").click();
+  host.querySelectorAll("button").find((x) => x.textContent === "Needs attention").click();
   await settle();
   assert.deepEqual(host.querySelectorAll("tbody tr").map((tr) => tr.querySelector("th").textContent.split("TypeScript")[0]), ["central-deploy-manager", "cube-workbench"]);
   input(host.querySelector('input[type="search"]'), "rcnl");
   await wait(260); await settle();
   assert.ok(calls.some(([, path]) => path.startsWith("/api/repositories?") && path.includes("query=rcnl")));
+});
+
+test("empty catalog links directly to GitHub settings", async () => {
+  const empty = () => ({ items: [], next_cursor: null });
+  const { host } = await setup({ "GET /api/repositories": empty, "GET /api/context/repositories": empty });
+  const link = host.querySelector('a[href="#/settings/github"]');
+  assert.ok(link);
+  assert.equal(link.textContent, "Connect GitHub in Settings");
 });
 
 test("clicking a repository opens details with plain skipped reasons and its index controls", async () => {

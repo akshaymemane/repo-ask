@@ -171,7 +171,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     current = c;
     const chips = await repoNames(c.repository_ids || [], token); if (token !== epoch) return;
     header({title: c.title || 'Untitled conversation', pills: chips.map(chip => ({text: chip.name}))});
-    const heading = el('h3', c.title || 'Untitled conversation'); heading.className = 'conversation-title';
+    const heading = el('h3', c.title || 'Untitled conversation'); heading.className = 'conversation-title sr-only';
     body.replaceChildren(heading);
     for (const chip of chips.filter(chip => chip.missing)) body.append(el('p', `${chip.id} · repository context unavailable. It stays in scope; remove it or reload.`));
     const info = el('details'); info.className = 'conversation-details'; info.append(el('summary', 'Details'));
@@ -389,7 +389,7 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
     const nameFor=repository=>knownNames.get(repository) || repository;
     const doc=renderPlanDocument(v,{nameFor,onCitation:(citation,trigger)=>cite(citation,token,trigger)});
     // Identifiers and the execution/publication controls are folded so editable fields lead.
-    const info=el('details');info.className='plan-editor-more';info.append(el('summary','Version details'));
+    const info=el('details');info.className='plan-editor-more';info.append(el('summary','Plan metadata'));
     const impl=el('details');impl.className='plan-editor-more';impl.append(el('summary','Execution and publication'));
     editor.replaceChildren(el('h3',`Edit plan · version ${v.version}`),el('p','Saving creates a new version. This version never changes.'),info);
     info.append(el('p',`Version ${v.id} · SHA256 ${v.content_hash}`));

@@ -175,7 +175,7 @@ test('session detail has a center thread and a page-owned pane with Progress, Di
  const planLink=header.querySelector('a[href="#/plans/p/v"]');assert.equal(planLink.textContent,'Plan v3');assert.match(planLink.getAttribute('aria-label'),/Retry plan/);
  assert.equal(composer(main).getAttribute('placeholder'),'Guide the agent while it works…');
  const tabs=pane.querySelectorAll('[role="tab"]');assert.deepEqual(tabs.map(t=>t.textContent),['Progress','Diff','Checks','PR']);
- assert.match(visibleText(pane.querySelector('.session-workspace-head')),/Workspace\s*Inspect the plan, changes, checks, and delivery/);
+ assert.equal(pane.querySelector('.session-workspace-head'),null,'the tablist is the pane heading; no duplicate Workspace banner');
  assert.ok(pane.querySelector('.session-run'), 'run details belong to the workspace inspector');
  assert.match(visibleText(pane),/Bound retries/);assert.doesNotMatch(visibleText(pane),/a\.py/);
  tabs[0].focus();keydown(tabs[0],'ArrowRight');await settle();

@@ -1125,9 +1125,6 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     send = el('button', 'Send', 'button btn btn-primary'); send.type = 'submit'; row.append(send); send.disabled = true;
     pendingMessage = storage.get(`session-message-${currentID}`); if (pendingMessage) compose.value = pendingMessage.content || '';
     form.addEventListener('submit', e => { e.preventDefault(); if (send.disabled || !form.isConnected || !live(token)) return; sendMessage(send, compose.value.trim(), responseTo.value || null, true); });
-    const workspaceHead = el('div', undefined, 'session-workspace-head');
-    workspaceHead.append(el('div', undefined, 'session-workspace-mark'), el('strong', 'Workspace'), el('span', 'Inspect the plan, changes, checks, and delivery', 'detail-muted'));
-    pane.append(workspaceHead);
     const tabList = el('div', undefined, 'session-tabs'); tabList.setAttribute('role', 'tablist'); tabList.setAttribute('aria-label', 'Session details'); pane.append(tabList);
     progress = el('section', undefined, 'session-section'); patches = el('section', undefined, 'session-section session-side'); checks = el('section', undefined, 'session-section session-side'); publication = el('section', undefined, 'session-section');
     patches.append(el('h2', 'Diff')); checks.append(el('h2', 'Checks'));

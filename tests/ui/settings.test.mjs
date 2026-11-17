@@ -43,6 +43,15 @@ test("section navigation shows one section at a time", async () => {
   assert.match(visibleText(host), /The coding agent isn't available in this build\./);
 });
 
+test("GitHub callback status does not leak into other settings sections", async () => {
+  const { page, host } = await setup();
+  await page.show("github", { code: "connected" });
+  assert.match(visibleText(host), /GitHub connected\./);
+  await page.show("privacy", { code: "connected" });
+  await settle();
+  assert.doesNotMatch(visibleText(host), /GitHub connected\./);
+});
+
 test("Connect GitHub posts the manifest form to GitHub with the state", async () => {
   const { page, host, submitted, calls } = await setup();
   await page.show("github");

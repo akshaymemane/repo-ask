@@ -28,6 +28,8 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   assert.match(visibleText(panel),/What you asked/);assert.doesNotMatch(visibleText(panel),/SHA256/);
   button('Edit plan').click();await settle();
   assert.equal(side.hidden,false);
+  assert.ok(side.querySelectorAll('summary').find(x=>x.textContent==='Plan metadata'));
+  assert.equal(side.querySelectorAll('summary').find(x=>x.textContent==='Version details'),undefined);
   assert.match(visibleText(side),/implementation_not_permitted/);
   assert.equal(button('Start session').disabled,true);
   side.querySelectorAll('button').find(x=>x.textContent.includes('worker.py:1')).click();await settle();
@@ -45,7 +47,7 @@ test('real AskAPI plan edit, immutable history, exact source, export and conflic
   assert.match(visibleText(panel),/Human edited goal/);button('Edit plan').click();await settle();
   button('Export this saved version').click();await settle();assert.match(visibleText(side),new RegExp(latest.version.content_hash));assert.match(visibleText(side),/Human edited goal/);
   const old=side.querySelectorAll('a').find(x=>x.textContent==='Previous version');old.click();await settle(30);button('Edit plan').click();await settle();assert.equal(field('goal').value,'Bound delivery retries');
-  b.window.location.hash=`#/ask/${seed.conversation.id}`;await settle(30);assert.match(visibleText(panel),/Durable UI test/);
+  b.window.location.hash=`#/ask/${seed.conversation.id}`;await settle(30);assert.match(visibleText(panel),/Durable UI test/);assert.ok(panel.querySelector('.conversation-title').classList.contains('sr-only'));
   input(field('Question or planning request'),'How does mail delivery work?');button('Ask').click();await settle(30);
   const c=call(`/api/conversations/${seed.conversation.id}`).body;assert.equal(c.messages.filter(x=>x.role==='user').length,1);assert.equal(c.runs.length,1);
   button('Cancel').click();await settle(30);assert.equal(call(`/api/conversations/${seed.conversation.id}`).body.runs[0].state,'cancelled');

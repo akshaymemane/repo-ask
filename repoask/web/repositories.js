@@ -3,7 +3,7 @@ import { badge, button, createModal, el, relativeTime, toggleSwitch } from "./ui
 import { repoStatus, readRepositoryPages } from "./repo-source.js";
 
 const enc = encodeURIComponent;
-const FILTERS = ["All", "In Ask", "Can change", "Problems"];
+const FILTERS = ["All", "Used in Ask", "Changes allowed", "Needs attention"];
 const SKIP_WORDS = { generated: "generated files", sensitive: "files that look like secrets", binary_or_sensitive: "binary or secret-like files" };
 const CONFIRMED_KEY = "od.allowConfirmed";
 
@@ -54,6 +54,9 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   const more = el("p", "", "detail-muted");
   // The table scrolls inside its own box on narrow screens; the page never scrolls sideways.
   const tableBox = el("div", undefined, "repos-table-box");
+  tableBox.setAttribute("tabindex", "0");
+  tableBox.setAttribute("role", "region");
+  tableBox.setAttribute("aria-label", "Repository catalog");
   tableBox.append(table);
   root.append(top, banner, notice, status, tableBox, more);
   host.replaceChildren(root);
@@ -73,9 +76,9 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
   search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => refresh(), 200); });
 
   const matches = (row) => filter === "All"
-    || (filter === "In Ask" && row.inAsk)
-    || (filter === "Can change" && row.canChange)
-    || (filter === "Problems" && (row.status.tone === "danger" || row.status.label === "No access" || row.status.label.startsWith("Waiting")));
+    || (filter === "Used in Ask" && row.inAsk)
+    || (filter === "Changes allowed" && row.canChange)
+    || (filter === "Needs attention" && (row.status.tone === "danger" || row.status.label === "No access" || row.status.label.startsWith("Waiting")));
 
   // Saves on one row run in order; each sends the row's latest intended state so switches never undo each other.
   function save(row, patch) {
@@ -241,14 +244,18 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       const tr = el("tr");
       const name = el("th");
       name.setAttribute("scope", "row");
+      name.dataset.label = "Repository";
       button(name, row.name, () => openDetails(row), { variant: "ghost" }).classList.add("repo-name");
       name.append(el("small", [row.meta?.language, row.meta?.pushed_at ? `pushed ${relativeTime(Date.parse(row.meta.pushed_at))}` : null].filter(Boolean).join(" · ")));
       const statusCell = el("td");
+      statusCell.dataset.label = "Status";
       statusCell.append(badge(row.status.tone, row.status.label));
       const askCell = el("td");
+      askCell.dataset.label = "Used in Ask";
       const ask = toggleSwitch({ label: `Use in Ask for ${row.name}`, checked: row.inAsk, onChange: (next) => save(row, { index_enabled: next }) });
       row.controls = { ask }; askCell.append(ask.root);
       const changeCell = el("td");
+      changeCell.dataset.label = "Changes allowed";
       if (row.github) {
         const allow = toggleSwitch({ label: `Allow changes in ${row.name}`, checked: row.canChange, onChange: async (next) => {
           if (next && !confirmedIds().has(row.id)) {
@@ -266,7 +273,14 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
       bodyRows.append(tr);
     }
     table.replaceChildren(head, bodyRows);
-    status.textContent = visible.length ? "" : rows.length ? "No repositories match this filter." : "No repositories yet. Connect GitHub in Settings.";
+    status.replaceChildren();
+    if (!visible.length && rows.length) status.append("No repositories match these filters.");
+    else if (!rows.length) {
+      status.append("No repositories yet. ");
+      const connect = el("a", "Connect GitHub in Settings");
+      connect.setAttribute("href", "#/settings/github");
+      status.append(connect, ".");
+    }
   }
 
   async function refresh() {
@@ -293,7 +307,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
         inAsk: c.eligible, canChange: false, status: repoStatus(c) }));
       rows = [...github, ...others];
       const pages = catalog.pages || context.pages || 1;
-      more.textContent = `Loaded ${rows.length} ${rows.length === 1 ? "repository" : "repositories"} across ${pages} ${pages === 1 ? "page" : "pages"}. Filters apply to these loaded results.`;
+      more.textContent = `${rows.length} ${rows.length === 1 ? "repository" : "repositories"} loaded${pages > 1 ? ` from ${pages} pages` : ""}.`;
       const embedding = roles.roles?.embedding;
       embeddingVersionId = embedding?.version_id ?? null;
       const keywordOnly = rows.some((row) => row.context?.active_snapshot && (row.context.active_snapshot.mode ?? row.context.active_snapshot.coverage?.mode) === "lexical_only");
