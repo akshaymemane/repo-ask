@@ -1,0 +1,70 @@
+{
+  "session": {
+    "id": "ses_58809f369319ff90157902bd",
+    "state": "completed",
+    "outcome": {
+      "result": "reviewable",
+      "rejected_paths": 0,
+      "publication_eligible": false
+    }
+  },
+  "validations": {
+    "passed": 1,
+    "failed": 0,
+    "timeout": 0,
+    "error": 0,
+    "not_run": 0,
+    "unavailable": 0
+  },
+  "fully_validated": true,
+  "diff": {
+    "base_sha": "2605d804824ba70d5e72f487ff82595b909c95f8",
+    "diff_hash": "b73d3a44e61c4f6ed9acb81790f9c42fc371590850a2a00ecf05e299889b2b42",
+    "files": [
+      [
+        "calc.py",
+        "modified",
+        1,
+        1
+      ]
+    ],
+    "omitted": [
+      "__pycache__/calc.cpython-312.pyc",
+      "__pycache__/test_calc.cpython-312.pyc"
+    ]
+  },
+  "publication": {
+    "id": "pub_987b958aa2550cc67b3a3708",
+    "state": "published",
+    "policy": "manual_draft",
+    "expected_base_sha": "2605d804824ba70d5e72f487ff82595b909c95f8",
+    "head_branch": "opendevin/ses_58809f369319ff90157902bd-96c99e3e2a",
+    "commit_sha": "b2674c37ac5daf5a0e7b80f36770ef739614935e",
+    "head_sha": "b2674c37ac5daf5a0e7b80f36770ef739614935e",
+    "pull_request_number": 1,
+    "pull_request_url": "https://github.com/akshaymemane/opendevin-pilot/pull/1",
+    "pull_request_state": "open",
+    "checks": {
+      "fully_validated": true
+    },
+    "error_code": null
+  },
+  "github": {
+    "pr": {
+      "baseRefName": "main",
+      "files": [
+        {
+          "path": "calc.py",
+          "additions": 1,
+          "deletions": 1
+        }
+      ],
+      "headRefName": "opendevin/ses_58809f369319ff90157902bd-96c99e3e2a",
+      "isDraft": true,
+      "number": 1,
+      "state": "OPEN",
+      "url": "https://github.com/akshaymemane/opendevin-pilot/pull/1"
+    },
+    "main_sha": "2605d804824ba70d5e72f487ff82595b909c95f8"
+  }
+}

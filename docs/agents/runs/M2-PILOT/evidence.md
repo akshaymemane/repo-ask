@@ -27,3 +27,23 @@ App: integration code at `ff0a6da`, then `62f33cd` (plan preflight fix) — loca
 2. Plans are generated with no execution profile; choosing one is buried in Edit plan → Execution and publication and requires saving a new version. A single tested profile should be preselected or offered on the plan.
 3. The conversation card's "Start session" only opens the plan; the real launch control is inside the plan editor.
 4. Stale copy "Sessions arrive with M2" / "Implementation (M2)" — fixed in `f931041`.
+
+## Completion (2026-11-17)
+
+| # | Step | Result |
+| --- | --- | --- |
+| 10 | Generated-artifact fix `fb1ba26` (Codex author, Claude review approved) integrated `5132c08`; app restarted | Old attempt stays blocked by design (stored outcome not reinterpreted) |
+| 11 | Session page → "Retry as a new attempt" | `ses_58809f36…` completed in ~25 s, `reviewable`, `rejected_paths 0`; validation passed in the container |
+| 12 | Preview | `publication_permission_denied`: **defect** — the App manifest requested read-only permissions, so no setup-created App could publish. User chose "request write at setup"; fix `5048484` (Codex approved), integrated; user raised the existing App to Contents and Pull requests read & write and accepted on the installation |
+| 13 | Repositories → Sync; preview | publishable; base `main` @ `2605d80` not diverged; changed `calc.py`; omitted `__pycache__/*.pyc` (2) |
+| 14 | PR tab → Create draft PR → review → title "Fix add() in calc.py to return a + b" → Publish draft PR | `published`, Draft PR #1 open, commit `b2674c3`, branch `opendevin/ses_58809f369319ff90157902bd-96c99e3e2a` |
+| 15 | Independent GitHub check (`gh`, read-only) | https://github.com/akshaymemane/opendevin-pilot/pull/1 — draft, one file `calc.py` +1/−1, author Akshay Memane <akshaymemane@users.noreply.github.com>, `main` unchanged at `2605d80`, no bytecode published |
+
+Machine-readable, content-free evidence: `evidence.json`. A browser GIF was recorded but its export failed
+(extension disconnected after the 50-frame cap); API and GitHub evidence above are the record.
+
+## Additional UX findings
+
+5. Default PR title is "OpenDevin session <id>"; it should default to the plan goal.
+6. The PR review step does not show `omitted_paths` (generated files left out); the PR body lists them.
+7. Agent model shown in the timeline is the CLI default (claude-opus-5-5); the execution profile has no model choice.
