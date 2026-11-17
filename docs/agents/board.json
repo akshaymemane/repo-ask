@@ -763,7 +763,7 @@
       "id": "UI-SYSTEM-FOUNDATION",
       "milestone": "post-M2",
       "title": "Unify shell hierarchy, navigation, controls, tones and responsive tokens",
-      "state": "running",
+      "state": "integrated",
       "feature_ids": ["F11"],
       "planned_persona": "experience",
       "planned_harness": "claude",
@@ -772,20 +772,26 @@
       "base_sha": "6a1cea8",
       "proposed_write_scope": ["repoask/web/index.html", "repoask/web/styles.css", "repoask/web/ui.js", "repoask/web/shell.js", "repoask/web/app.js", "tests/ui/"],
       "handoff": "docs/agents/runs/UI-SYSTEM-FOUNDATION/handoff.md",
-      "next_action": "Claude experience builder is implementing the shared UI foundation; exact-commit Codex review required."
+      "submitted_sha": "42c9011",
+      "reviewer_session": "fresh independent Codex reviewer; approved after title-focus correction",
+      "review_verdict": "approved",
+      "integration_sha": "42c9011",
+      "next_action": "Integrated. Stable navigation, one visible route title, responsive header tokens and shared control compatibility are in place."
     },
     {
       "id": "UI-INTERACTION-CONSISTENCY",
       "milestone": "post-M2",
       "title": "Unify compact-panel semantics, tab ARIA, mentions and picker keyboard behavior",
-      "state": "backlog",
+      "state": "running",
       "feature_ids": ["F11"],
       "planned_persona": "experience",
       "planned_harness": "codex",
       "depends_on": ["UI-SYSTEM-FOUNDATION"],
       "proposed_write_scope": ["repoask/web/panel.js", "repoask/web/mentions.js", "repoask/web/picker.js", "tests/ui/"],
       "handoff": "docs/agents/runs/UI-INTERACTION-CONSISTENCY/handoff.md",
-      "next_action": "Start after the shared foundation integrates to avoid CSS and test ownership conflicts."
+      "branch": "task/ui-interaction-consistency",
+      "base_sha": "42c9011",
+      "next_action": "Codex experience builder is implementing compact-panel semantics, ARIA relationships, mentions and picker keyboard behavior."
     },
     {
       "id": "UI-ROUTE-CONSISTENCY",
