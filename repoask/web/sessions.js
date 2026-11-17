@@ -34,8 +34,9 @@ export function phaseBadge(s, checks = null, pub = null) {
   if (s.state === 'waiting_for_user') return {label: 'needs your input', tone: 'warn'};
   if (s.state === 'completed') return checks?.items?.some(c => c.status === 'failed') ? {label: 'completed · checks failing', tone: 'warn'} : {label: 'completed', tone: 'ok'};
   if (s.state === 'cancelled') return {label: 'cancelled', tone: 'off'};
-  if (s.state === 'stopping' || s.stop_requested) return {label: 'stopping', tone: 'warn'};
+  // Terminal states win over a recorded stop request: a finished session is never "stopping".
   if (terminal.has(s.state)) return {label: human(s.state === 'interrupted' || s.state === 'blocked' ? s.state : 'failed'), tone: 'danger'};
+  if (s.state === 'stopping' || s.stop_requested) return {label: 'stopping', tone: 'warn'};
   if (s.state === 'queued' || s.state === 'provisioning') return {label: 'starting', tone: 'info'};
   if (s.state === 'validating') return {label: 'running checks', tone: 'info'};
   return {label: 'running', tone: 'info'};
@@ -501,7 +502,9 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   let status, statusEphemeral = false, conn, reconnect, summary, header, titleNode, meta, phase, result, activity, patches, checks, progress, publication, messageRows, questionArea;
   let form, compose, composeLabel, targetLabel, ended, send, responseTo, stop, retry, prAction, moreEvents, moreMessages, listEmpty, selectTab = () => {};
   // Display names: plan titles and repository names replace raw identifiers wherever people scan.
-  const planTitles = new Map(), repoNames = {map: new Map(), at: 0, pending: null};
+  // Resolved titles (a string, or null for a valid plan without one) are kept apart from in-flight reads,
+  // so a view opened while a read is pending awaits it instead of treating it as settled.
+  const planTitles = new Map(), planReads = new Map(), repoNames = {map: new Map(), at: 0, pending: null};
   const planTitle = s => planTitles.get(s.plan_id) || null;
   const repoName = (id, full = false) => { const r = repoNames.map.get(id); return (full ? r?.full || r?.name : r?.name || r?.full) || id || 'unknown repository'; };
   const repos = s => Array.isArray(s.repositories) ? s.repositories : [];
@@ -518,8 +521,13 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   }
   function loadPlanTitles(items) {
     const wanted = [...new Set(items.map(s => s.plan_id).filter(id => typeof id === 'string' && !planTitles.has(id)))];
-    for (const id of wanted) planTitles.set(id, null);
-    return Promise.allSettled(wanted.map(id => request(`/api/plans/${enc(id)}`).then(p => { if (p?.id === id && typeof p.title === 'string' && p.title.trim()) planTitles.set(id, p.title.trim()); })));
+    return Promise.allSettled(wanted.map(id => {
+      if (!planReads.has(id)) {
+        // A failed read is not cached, so the next list load or reload tries again.
+        planReads.set(id, request(`/api/plans/${enc(id)}`).then(p => { planTitles.set(id, p?.id === id && typeof p.title === 'string' && p.title.trim() ? p.title.trim() : null); }).finally(() => planReads.delete(id)));
+      }
+      return planReads.get(id);
+    }));
   }
   // Names arrive after the first paint; the list and rail repaint once when they do.
   function resolveNames(items, token, paint) {
@@ -950,7 +958,8 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       renderSummary();
       const failure = results.find(r => r.status === 'rejected');
       const tip = `Saved activity through #${cursor}. Closing this page does not stop background work.`;
-      setConnection('live', '', tip);
+      // A partial failure is not "Live": the indicator degrades and Reconnect stays available.
+      if (failure) setConnection('reconnecting', 'some saved state unavailable', tip); else setConnection('live', '', tip);
       if (failure) say(`Some saved state is unavailable: ${failure.reason.message}. Reconnect retries from event #${cursor}.`, true);
       else if (!sourceAllowed) say('Source unavailable. Previously displayed source has been cleared.', true);
       else if (statusEphemeral && (terminal.has(current.state) || !current.stop_requested)) say('');

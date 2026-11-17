@@ -6,7 +6,7 @@
 - Persona, branch and worktree: experience and accessibility engineer; `task/m2-session-ux`; `/Users/apple/workspace/vibe-coding/opendevin-m2-session-ux`.
 - Base SHA and submitted commit SHA(s): card base `51f5839`, branch base `9312a10` (brief commit); implementation `bf90958`; this handoff is in the commit that follows it.
 - Task card and requirement IDs: `docs/agents/runs/M2-SESSION-UX/task.json` and `brief.md` (F05 session UI follow-up).
-- Status: review.
+- Status: review (round 1 findings addressed; see "Review round 1").
 
 ## Outcome
 
@@ -76,6 +76,18 @@ Also fixed while here: a finished session with `stop_requested: true` used to ke
 Fixture-only versus real: all new tests use fixtures. Real integration is covered by the existing `session-services` bridge test, which passes, and by the read-only visual run against the live pilot data. No real data was copied into tests. Screenshots stay in the session scratchpad (not committed) because they show pilot repository names.
 
 Not run: screen-reader testing with real assistive technology; browsers other than Chrome; manual zoom at 200%.
+
+## Review round 1
+
+Codex reviewed `c187e61` and requested changes (3 × P2). All three are fixed in the commit that follows this handoff edit, and each has a focused test in `tests/ui/session-ux.test.mjs`. Each of the four new tests was confirmed to fail against `c187e61` and pass with the fix.
+
+| Finding | Change | Test |
+| --- | --- | --- |
+| P2 `sessions.js:37`: failed, interrupted or blocked sessions with `stop_requested: true` showed a "stopping" badge | `phaseBadge` handles every terminal state before the stopping check. Unfinished work with a stop request still shows "stopping". | "every terminal state wins over a recorded stop request in the badge": failed, interrupted, blocked, cancelled and completed with `stop_requested: true`, a running control case, and the rendered header badge |
+| P2 `sessions.js:953`: when the session read succeeded but a child read failed, the indicator said "Live" and hid Reconnect while the status asked the user to reconnect | A partial failure sets the indicator to "Reconnecting… · some saved state unavailable", which keeps Reconnect visible. A later refresh with no failures returns to "Live", hides Reconnect and clears the advice. | "a failed child read degrades the indicator and keeps Reconnect until a refresh fully succeeds": validations return 503, then recovery through Reconnect |
+| P2 `sessions.js:519`: an in-flight plan-title read was cached as `null`, so leaving and returning before it resolved repainted early, the old completion was fenced, and the title stuck at "Saved plan" | Resolved titles (`planTitles`) are kept separate from in-flight reads (`planReads`). Re-entry awaits the pending promise. A failed read is not cached and is retried on the next load. | "a plan title still loading when the reader leaves and returns is awaited…" (delayed response across list → detail → list; one read only), and "a failed plan title read is retried by the next load" |
+
+Round 1 checks run: `node --test tests/ui/*.test.mjs` exit 0, 249 tests, 249 pass. No Python files changed in this round; the Python suite result above (611 OK, 9 skipped on `bf90958`) still applies to unchanged Python code.
 
 ## Risks and next action
 

@@ -318,3 +318,57 @@ test('the rail lists recent sessions by plan title with repository · attempt ·
 test('durations read at a glance', () => {
   assert.equal(duration(0.2), 'under 1 s'); assert.equal(duration(25), '25 s'); assert.equal(duration(250), '4 min 10 s'); assert.equal(duration(120), '2 min'); assert.equal(duration(7500), '2 h 5 min'); assert.equal(duration(null), null);
 });
+
+// ---- Review round 1 ----
+
+test('every terminal state wins over a recorded stop request in the badge', async () => {
+  const {phaseBadge} = await import('../../repoask/web/sessions.js');
+  for (const [state, label] of [['failed', 'failed'], ['interrupted', 'interrupted'], ['blocked', 'blocked'], ['cancelled', 'cancelled'], ['completed', 'completed']]) {
+    assert.equal(phaseBadge(session('s', {state, stop_requested: true})).label, label, state);
+  }
+  assert.equal(phaseBadge(session('s', {state: 'running', stop_requested: true})).label, 'stopping');
+  const b = setup((m, u) => u === '/api/sessions/s' ? session('s', {state: 'interrupted', stop_requested: true, runner: {containment: 'confirmed'}}) : undefined);
+  const ui = await open(b);
+  assert.equal(ui.panel.querySelector('.session-phase').textContent, 'interrupted'); ui.close();
+});
+
+test('a failed child read degrades the indicator and keeps Reconnect until a refresh fully succeeds', async () => {
+  let failing = true;
+  const b = setup((m, u) => { if (failing && u.endsWith('/validations')) return {status: 503, body: {code: 'upstream_unavailable'}}; });
+  const ui = await open(b);
+  const header = ui.panel.querySelector('.session-header'), indicator = header.querySelector('.session-live');
+  assert.equal(indicator.dataset.state, 'reconnecting'); assert.match(visibleText(indicator), /^Reconnecting… · some saved state unavailable$/);
+  assert.equal(button(header, 'Reconnect').hidden, false); assert.match(visibleText(header.querySelector('.session-status')), /Some saved state is unavailable: upstream.unavailable\. Reconnect retries/);
+  failing = false; button(header, 'Reconnect').click(); await settle();
+  assert.equal(visibleText(indicator), 'Live'); assert.equal(button(header, 'Reconnect').hidden, true);
+  assert.equal(header.querySelector('.session-status').textContent, '', 'the stale reconnect advice clears'); ui.close();
+});
+
+test('a plan title still loading when the reader leaves and returns is awaited, not treated as missing', async () => {
+  let release; let reads = 0;
+  const b = setup((m, u) => {
+    if (u.startsWith('/api/sessions?')) return {items: [session('s', {state: 'completed'})], next_cursor: null};
+    if (u === '/api/plans/plan-a') { reads += 1; return new Promise(r => { release = r; }); }
+    // The detail page's own versioned plan read never answers, so only the list read can supply the title.
+    if (u.startsWith('/api/plans/plan-a?')) return new Promise(() => {});
+  }, '#/sessions');
+  const ui = await open(b);
+  assert.equal(ui.panel.querySelector('a.session-row-title').textContent, 'Saved plan');
+  b.window.location.hash = '#/sessions/s'; await settle();
+  b.window.location.hash = '#/sessions'; await settle(); await settle();
+  assert.equal(reads, 1, 'the pending read is reused, not repeated');
+  release(plan); await settle(); await settle();
+  assert.equal(ui.panel.querySelector('a.session-row-title').textContent, 'Fix the rounding bug'); ui.close();
+});
+
+test('a failed plan title read is retried by the next load', async () => {
+  let fail = true; let reads = 0;
+  const b = setup((m, u) => {
+    if (u.startsWith('/api/sessions?')) return {items: [session('s', {state: 'completed'})], next_cursor: null};
+    if (u === '/api/plans/plan-a') { reads += 1; return fail ? {status: 503, body: {code: 'upstream_unavailable'}} : plan; }
+  }, '#/sessions');
+  const ui = await open(b);
+  assert.equal(ui.panel.querySelector('a.session-row-title').textContent, 'Saved plan');
+  fail = false; button(ui.panel, 'Reload').click(); await settle(); await settle();
+  assert.equal(reads, 2); assert.equal(ui.panel.querySelector('a.session-row-title').textContent, 'Fix the rounding bug'); ui.close();
+});
