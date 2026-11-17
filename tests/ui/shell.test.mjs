@@ -79,6 +79,12 @@ test("createShell sets recent items, header title and pills", async () => {
   const item = recent.querySelector('a[href="#/ask/c1"]');
   assert.match(visibleText(item), /How is rcnl-app structured\?.*2 min ago · rcnl-app/s);
   assert.ok(item.querySelector(".attention"));
+  assert.equal(item.hasAttribute("title"), false);
+  // A recent session label keeps its full plan title as a tooltip while the row truncates it.
+  shell.setRecent([{ href: "#/sessions/s1", title: "Fix add() in calc.py", tooltip: "Fix add() in calc.py so test_add passes", meta: "demo · attempt 2 · completed" }], { heading: "Recent sessions" });
+  const session = recent.querySelector('a[href="#/sessions/s1"]');
+  assert.equal(session.getAttribute("title"), "Fix add() in calc.py so test_add passes");
+  assert.match(visibleText(session), /Fix add\(\) in calc\.py.*demo · attempt 2 · completed/s);
   shell.setRecent([], { heading: "Recent" });
   assert.equal(recent.hidden, true);
   shell.setHeader({ title: "Ask", pills: [{ text: "rcnl-app" }, { text: "llama3.2 · local", tone: "ok" }] });

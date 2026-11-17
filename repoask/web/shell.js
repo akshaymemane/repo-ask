@@ -25,6 +25,8 @@ export function createShell({ document }) {
         const link = make("a", undefined, "recent-item");
         link.setAttribute("href", item.href);
         if (location.hash === item.href) link.setAttribute("aria-current", "page");
+        // Long labels are truncated visually; the full text stays available on hover.
+        if (item.tooltip) link.setAttribute("title", item.tooltip);
         const title = make("span", item.title, "recent-title");
         if (item.attention) title.append(make("span", " ●", "attention"));
         link.append(title);

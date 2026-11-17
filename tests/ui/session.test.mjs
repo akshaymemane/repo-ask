@@ -9,6 +9,8 @@ const session = (id='s', changes={}) => ({id,plan_id:'p',plan_version_id:'v',con
 const profile = (id='e', changes={}) => ({id,name:'Coding',active_version_id:'ev',version:{id:'ev',version:1,adapter:'claude_code',auth_mode:'cli_login',config:{image:'python:3.12-slim',allow_external_source:true,runner_limits:{memory_mib:512},agent_limits:{max_turns:12}}},check:null,...changes});
 const button = (root, text) => [...root.querySelectorAll('button')].find(n=>n.textContent===text);
 const field = (root, text) => [...root.querySelectorAll('label')].find(n=>n.textContent.startsWith(text))?.querySelector('input, textarea, select');
+// The composer is found through its visible label, which names what a message will do.
+const composer = root => field(root,'Send guidance') || field(root,"Answer the agent's question");
 function requestFor(b) {return async (path, method='GET',body)=>{const r=await b.window.fetch(path,{method,...(body===undefined?{}:{body:JSON.stringify(body)})});const v=await r.json();if(!r.ok){const e=new Error(v.code||'request failed');e.status=r.status;e.code=v.code;throw e;}return v;};}
 function basic(m,u){if(u.includes('/events?'))return {items:[],next_seq:0,has_more:false};if(u.includes('/messages?'))return {items:[],next_cursor:null};if(u.endsWith('/diff'))return {available:false,reason:'no_checkpoint'};if(u.endsWith('/validations'))return {items:[],fully_validated:false};return session();}
 function setup(respond, hash='#/sessions/s') {const b=createBrowser(html,{hash,respond});install(b);b.document.getElementById('view-sessions').hidden=false;b.document.getElementById('view-settings').hidden=false;const data=new Map();b.window.sessionStorage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};b.window.confirm=()=>true;return b;}
@@ -21,7 +23,7 @@ test('session replay advances server cursor, deduplicates, preserves focused com
  });
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  assert.match(visibleText(ui.panel),/UsageunknownCostunknown/);assert.match(visibleText(ui.panel),/Follow-ups no proven delivery channel/);
- const compose=field(ui.panel,'Follow-up');input(compose,'Keep this draft');compose.focus();
+ const compose=composer(ui.panel);input(compose,'Keep this draft');compose.focus();
  button(ui.panel,'Load more activity').click();await settle();
  assert.equal(ui.panel.querySelectorAll('[data-seq="1"]').length,1);assert.equal(ui.panel.querySelectorAll('[data-seq="2"]').length,1);
  assert.equal(b.document.activeElement,compose);assert.equal(compose.value,'Keep this draft');assert.match(visibleText(ui.panel),/<unsafe>.py/);assert.equal(ui.panel.querySelector('unsafe'),null);
@@ -40,7 +42,7 @@ test('source loss clears old diff, questions, logs, messages and replays redacte
  const tab=name=>ui.panel.querySelectorAll('[role="tab"]').find(t=>t.textContent===name).click();
  tab('Diff');assert.match(visibleText(ui.panel),/PRIVATE_DIFF/);tab('Checks');assert.match(visibleText(ui.panel),/PRIVATE_LOG/);allowed=false;await ui.refresh();await settle();
  // Hidden tabs count too: revoked source must be gone from the DOM, not just out of view.
- assert.doesNotMatch(ui.panel.textContent,/PRIVATE_/);assert.match(visibleText(ui.panel),/redacted/);assert.equal(field(ui.panel,'Follow-up').disabled,true);assert.ok(b.requests.filter(r=>r.url.includes('events?after=0')).length>=2);ui.close();
+ assert.doesNotMatch(ui.panel.textContent,/PRIVATE_/);assert.match(visibleText(ui.panel),/redacted/);assert.equal(composer(ui.panel).disabled,true);assert.ok(b.requests.filter(r=>r.url.includes('events?after=0')).length>=2);ui.close();
 });
 
 test('late responses and detached actions cannot repaint or mutate another session',async()=>{
@@ -48,22 +50,23 @@ test('late responses and detached actions cannot repaint or mutate another sessi
  const b=setup((m,u)=>{if(u==='/api/sessions/old')return new Promise(r=>finish=r);if(m==='POST')sends++;return basic(m,u);},'#/sessions/old');
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  const oldStop=button(ui.panel,'Stop session');b.window.location.hash='#/sessions/new';await settle();finish(session('old'));await settle();
- assert.match(visibleText(ui.panel),/new/);assert.doesNotMatch(visibleText(ui.panel),/Attempt1 · old/);oldStop.click();assert.equal(sends,0);ui.close();
+ // The late answer for the old session never repaints the new page; its detached Stop sends nothing.
+ assert.doesNotMatch(ui.panel.textContent,/1 · old/);assert.equal(ui.panel.querySelector('.session-title').textContent,'Session');oldStop.click();assert.equal(sends,0);ui.close();
 });
 
 test('unknown message outcome preserves key and typed question target across refresh and terminal reconciliation',async()=>{
  let state='waiting_for_user', question={id:'q',prompt:'Choose an option'};const sends=[];
  const b=setup((m,u,o)=>{if(m==='POST'&&u.endsWith('/messages')){const body=JSON.parse(o.body);sends.push(body);if(sends.length===1){state='completed';question=null;throw new Error('lost');}return {id:'m',session_id:'s',...body,delivery:'acknowledged',created_at:1};}if(u==='/api/sessions/s')return session('s',{state,pending_question:question});return basic(m,u);});
- const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();const compose=field(ui.panel,'Follow-up');input(compose,'Use the bounded option');
- button(ui.panel,'Send message').click();await settle();assert.match(visibleText(ui.panel),/lost/);await ui.refresh();await settle();
- assert.equal(compose.value,'Use the bounded option');assert.equal(field(ui.panel,'Message target').value,'q');assert.equal(button(ui.panel,'Send message').disabled,false);
- button(ui.panel,'Send message').click();await settle();assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);assert.equal(sends[1].question_id,'q');assert.match(visibleText(ui.panel),/acknowledged/);ui.close();
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();const compose=composer(ui.panel);input(compose,'Use the bounded option');
+ button(ui.panel,'Send').click();await settle();assert.match(visibleText(ui.panel),/lost/);await ui.refresh();await settle();
+ assert.equal(compose.value,'Use the bounded option');assert.equal(field(ui.panel,'Message target').value,'q');assert.equal(button(ui.panel,'Send').disabled,false);
+ button(ui.panel,'Send').click();await settle();assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);assert.equal(sends[1].question_id,'q');assert.match(visibleText(ui.panel),/acknowledged/);ui.close();
 });
 
 test('definite message rejection permits corrected draft; delivery state never inferred from tool result',async()=>{
  let attempt=0;const sends=[];
  const b=setup((m,u,o)=>{if(m==='POST'){sends.push(JSON.parse(o.body));if(++attempt===1)return {status:409,body:{code:'plan_amendment_required'}};return {id:'m',...sends.at(-1),delivery:'queued',reason:'follow_up_unsupported',created_at:1};}return basic(m,u);});
- const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();const compose=field(ui.panel,'Follow-up');input(compose,'Grant access');button(ui.panel,'Send message').click();await settle();input(compose,'Please clarify the result');button(ui.panel,'Send message').click();await settle();
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();const compose=composer(ui.panel);input(compose,'Grant access');button(ui.panel,'Send').click();await settle();input(compose,'Please clarify the result');button(ui.panel,'Send').click();await settle();
  assert.notEqual(sends[0].client_request_id,sends[1].client_request_id);assert.match(visibleText(ui.panel),/queued/);assert.doesNotMatch(visibleText(ui.panel),/Clarification · acknowledged/);ui.close();
 });
 
@@ -126,7 +129,7 @@ test('message history pagination deduplicates and source revocation in a feed fe
   if(u.endsWith('/validations'))return {items:[{ordinal:1,status:'failed',command:['test'],output:'OLD_OUTPUT'}],fully_validated:false};
   return basic(m,u);
  });const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();button(ui.panel,'More messages').click();await settle();assert.equal(ui.panel.querySelectorAll('.session-message').length,1);
- deny=true;await ui.refresh();await settle();assert.doesNotMatch(ui.panel.textContent,/OLD_/);assert.equal(field(ui.panel,'Follow-up').disabled,true);ui.close();
+ deny=true;await ui.refresh();await settle();assert.doesNotMatch(ui.panel.textContent,/OLD_/);assert.equal(composer(ui.panel).disabled,true);ui.close();
 });
 
 test('terminal refresh preserves focused message draft as read-only and no duplicate send starts while pending',async()=>{
@@ -134,8 +137,8 @@ test('terminal refresh preserves focused message draft as read-only and no dupli
   if(m==='POST'&&u.endsWith('/messages')){sent.push(JSON.parse(o.body));return new Promise(resolve=>resolveSend=resolve);}
   if(u==='/api/sessions/s')return session('s',{state});return basic(m,u);
  });const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
- const compose=field(ui.panel,'Follow-up');input(compose,'Keep my draft');compose.focus();state='completed';await ui.refresh();assert.equal(b.document.activeElement,compose);assert.equal(compose.readOnly,true);assert.equal(compose.value,'Keep my draft');assert.equal(button(ui.panel,'Send message').disabled,true);
- state='running';await ui.refresh();button(ui.panel,'Send message').click();await settle();await ui.refresh();button(ui.panel,'Send message').click();await settle();assert.equal(sent.length,1);
+ const compose=composer(ui.panel);input(compose,'Keep my draft');compose.focus();state='completed';await ui.refresh();assert.equal(b.document.activeElement,compose);assert.equal(compose.readOnly,true);assert.equal(compose.value,'Keep my draft');assert.equal(button(ui.panel,'Send').disabled,true);
+ state='running';await ui.refresh();button(ui.panel,'Send').click();await settle();await ui.refresh();button(ui.panel,'Send').click();await settle();assert.equal(sent.length,1);
  resolveSend({id:'m',delivery:'queued',created_at:1});await settle();ui.close();
 });
 
@@ -166,26 +169,28 @@ test('session detail has a center thread and a page-owned pane with Progress, Di
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  const main=ui.panel.querySelector('.session-main'),pane=ui.panel.querySelector('.session-pane');
  assert.ok(main&&pane);assert.equal(main.querySelector('.session-pane'),null);
- assert.match(visibleText(main),/From plan v3 · Retry plan/);
- assert.equal(field(main,'Follow-up').getAttribute('placeholder'),'Guide the agent while it works…');
+ const header=ui.panel.querySelector('.session-header');assert.equal(header.querySelector('h2').textContent,'Retry plan');
+ const planLink=header.querySelector('a[href="#/plans/p/v"]');assert.equal(planLink.textContent,'Plan v3');assert.match(planLink.getAttribute('aria-label'),/Retry plan/);
+ assert.equal(composer(main).getAttribute('placeholder'),'Guide the agent while it works…');
  const tabs=pane.querySelectorAll('[role="tab"]');assert.deepEqual(tabs.map(t=>t.textContent),['Progress','Diff','Checks','PR']);
  assert.match(visibleText(pane),/Bound retries/);assert.doesNotMatch(visibleText(pane),/a\.py/);
  tabs[0].focus();keydown(tabs[0],'ArrowRight');await settle();
- assert.equal(b.document.activeElement.textContent,'Diff');assert.match(visibleText(pane),/\+6 −1 in 2 files/);assert.match(visibleText(pane),/a\.py/);
+ assert.equal(b.document.activeElement.textContent,'Diff');assert.match(visibleText(pane),/2 files · \+6 −1 · base main@bbbbbbb/);assert.match(visibleText(pane),/a\.py/);
  keydown(b.document.activeElement,'End');await settle();
  assert.match(visibleText(pane),/Publishing isn't available yet/);assert.match(visibleText(pane),/Saved publication policy: manual/);
  // The pane is part of the page: Escape and navigation within the session never dismiss it.
  keydown(b.document.activeElement,'Escape');assert.equal(pane.hidden,false);assert.ok(pane.isConnected);ui.close();
 });
 
-test('Stop sits beside the composer while active and is absent once terminal and contained',async()=>{
+test('Stop sits in the session header while active and is absent once terminal and contained',async()=>{
  let s=session('s',{state:'running'});const b=setup((m,u)=>u==='/api/sessions/s'?s:basic(m,u));
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  const stop=()=>button(ui.panel,'Stop session');
- assert.equal(stop().hidden,false);assert.ok(stop().closest('.session-composer'));
+ assert.equal(stop().hidden,false);assert.ok(stop().closest('.session-header'));
  s=session('s',{state:'waiting_for_user'});await ui.refresh();assert.equal(stop().hidden,false);
  s=session('s',{state:'completed',runner:{containment:'confirmed'}});await ui.refresh();assert.equal(stop().hidden,true);
- s=session('s',{state:'failed',runner:{containment:'failed'}});await ui.refresh();assert.equal(stop().hidden,false);ui.close();
+ // A failed containment keeps the stop control, worded as a repeat request, matching the result card's advice.
+ s=session('s',{state:'failed',runner:{containment:'failed'}});await ui.refresh();const again=ui.panel.querySelector('.session-header .session-stop');assert.equal(again.hidden,false);assert.equal(again.textContent,'Request stop again');assert.match(visibleText(ui.panel.querySelector('.session-result')),/use Request stop again/);ui.close();
 });
 
 test('a question card sends an offered choice to that question and Reply… targets the composer',async()=>{
@@ -198,21 +203,23 @@ test('a question card sends an offered choice to that question and Reply… targ
  const card=ui.panel.querySelector('.question-card');assert.match(visibleText(card),/Which retry limit\?/);
  button(card,'5 attempts').click();await settle();
  assert.equal(sends.length,1);assert.equal(sends[0].content,'5 attempts');assert.equal(sends[0].question_id,'q');
- button(ui.panel.querySelector('.question-card'),'Reply…').click();assert.equal(b.document.activeElement,field(ui.panel,'Follow-up'));assert.equal(field(ui.panel,'Message target').value,'q');ui.close();
+ button(ui.panel.querySelector('.question-card'),'Reply…').click();assert.equal(b.document.activeElement,composer(ui.panel));assert.equal(field(ui.panel,'Message target').value,'q');ui.close();
 });
 
 test('lost connectivity keeps the last confirmed state and says Reconnecting',async()=>{
  let down=false;const b=setup((m,u)=>{if(down)throw new Error('offline');return basic(m,u);});
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  down=true;await ui.refresh();await settle();
- assert.match(visibleText(ui.panel),/Reconnecting… Last update now/);assert.match(visibleText(ui.panel),/running · agent/);ui.close();
+ const indicator=ui.panel.querySelector('.session-live');assert.equal(indicator.getAttribute('role'),'status');assert.match(visibleText(indicator),/Reconnecting… · last update now/);
+ assert.equal(button(ui.panel,'Reconnect').hidden,false);assert.equal(ui.panel.querySelector('.session-phase').textContent,'running');ui.close();
 });
 
-test('the rail Recent list shows sessions with phase and elapsed time while in Sessions',async()=>{
+test('the rail Recent list shows sessions with repository, attempt and phase while in Sessions',async()=>{
  const recent=[];const shell={setHeader(){},setRecent(items,opts){recent.push({items,opts});}};
  const b=setup((m,u)=>u.includes('/api/sessions?')?{items:[session('s1',{state:'waiting_for_user'}),session('s2',{state:'completed'})],next_cursor:null}:basic(m,u),'#/sessions');
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),shell,pollMs:1e6});ui.open();await settle();
  const last=recent.at(-1);assert.equal(last.opts.heading,'Recent sessions');
  assert.deepEqual(last.items.map(i=>i.href),['#/sessions/s1','#/sessions/s2']);
- assert.match(last.items[0].meta,/needs your input · \d+ s/);assert.equal(last.items[0].attention,true);assert.match(last.items[1].meta,/completed/);ui.close();
+ // Without catalog names the repository id is the honest fallback; the plan title falls back to a neutral label.
+ assert.equal(last.items[0].meta,'gh:1 · attempt 1 · needs your input');assert.equal(last.items[0].attention,true);assert.equal(last.items[1].meta,'gh:1 · attempt 1 · completed');assert.equal(last.items[0].title,'Saved plan');ui.close();
 });

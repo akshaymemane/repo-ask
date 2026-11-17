@@ -1,5 +1,6 @@
 // Durable session views consume safe public projections. Source is always text.
 import { badge, relativeTime } from './ui.js';
+import { readRepositoryPages } from './repo-source.js';
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = String(text); if (cls) n.className = cls; return n; };
 const enc = encodeURIComponent;
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'blocked']);
@@ -25,18 +26,33 @@ function button(parent, text, fn) {
   const b = el('button', text, 'button'); b.type = 'button';
   b.addEventListener('click', () => { if (!b.disabled && b.isConnected) fn(b); }); parent.append(b); return b;
 }
-// One phase label per session, shared by the rail list and the session header.
-export function phaseBadge(s, checks = null) {
-  if (['open', 'pr_open', 'published'].includes(s.publication?.state)) return {label: 'PR open', tone: 'ok'};
+// One phase label per session, shared by the list, the rail and the session header.
+// `pub` is the session's verified publication record when the page has read it.
+export function phaseBadge(s, checks = null, pub = null) {
+  if (pub?.state === 'published' && pub.pull_request_state === 'merged') return {label: 'PR merged', tone: 'ok'};
+  if (['open', 'pr_open', 'published'].includes(s.publication?.state) || (pub?.state === 'published' && pub.pull_request_state !== 'closed')) return {label: 'PR open', tone: 'ok'};
   if (s.state === 'waiting_for_user') return {label: 'needs your input', tone: 'warn'};
   if (s.state === 'completed') return checks?.items?.some(c => c.status === 'failed') ? {label: 'completed · checks failing', tone: 'warn'} : {label: 'completed', tone: 'ok'};
   if (s.state === 'cancelled') return {label: 'cancelled', tone: 'off'};
   if (s.state === 'stopping' || s.stop_requested) return {label: 'stopping', tone: 'warn'};
   if (terminal.has(s.state)) return {label: human(s.state === 'interrupted' || s.state === 'blocked' ? s.state : 'failed'), tone: 'danger'};
+  if (s.state === 'queued' || s.state === 'provisioning') return {label: 'starting', tone: 'info'};
+  if (s.state === 'validating') return {label: 'running checks', tone: 'info'};
   return {label: 'running', tone: 'info'};
 }
 const elapsedSeconds = s => { const start = s.started_at || s.created_at; return start ? Math.max(0, Math.floor(((s.finished_at || Date.now()) - start) / 1000)) : null; };
-function region(parent, title) { const s = el('section', undefined, 'session-section'); s.append(el('h2', title)); parent.append(s); return s; }
+// "25 s", "4 min 10 s", "2 h 5 min": durations people read at a glance.
+export function duration(seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  if (seconds > 0 && seconds < 0.5) return 'under 1 s';
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s} s`;
+  if (s < 3600) { const m = Math.floor(s / 60), r = s % 60; return r ? `${m} min ${r} s` : `${m} min`; }
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return m ? `${h} h ${m} min` : `${h} h`;
+}
+// A visual separator only; screen readers get the parts without punctuation noise.
+const sep = () => { const n = el('span', '·', 'session-meta-sep'); n.setAttribute('aria-hidden', 'true'); return n; };
+const shortSha = sha => typeof sha === 'string' && /^[0-9a-f]{7,64}$/i.test(sha) ? sha.slice(0, 7) : null;
 function lines(parent, entries) { const dl = el('dl', undefined, 'session-facts'); for (const [label, value] of entries) dl.append(el('dt', label), el('dd', value)); parent.replaceChildren(dl); }
 export function limitsText(limits = {}) {
   const runner = limits.runner || limits.runner_limits || {}, agent = limits.agent || limits.agent_limits || {};
@@ -45,26 +61,92 @@ export function limitsText(limits = {}) {
   for (const [key, label, unit] of [['wall_seconds', 'Agent deadline', 's'], ['max_turns', 'Turns', ''], ['max_budget_usd', 'Spending cap', 'USD'], ['max_output_bytes', 'Agent output', 'bytes']]) if (agent[key] !== undefined) parts.push(`${label} ${agent[key]} ${unit}`.trim());
   return parts.join(' · ') || 'Limits unavailable';
 }
-function eventText(event, sourceAllowed) {
-  const p = event.payload || {};
-  if (p.redacted || !sourceAllowed) return `${human(event.type)} · details redacted by current source policy`;
-  // Only mapped summaries are displayed; arbitrary payloads/private reasoning never render.
-  switch (event.type) {
-    case 'session.state': return `State ${human(p.state)} · Phase ${human(p.phase)}${p.reason ? ` · ${human(p.reason)}` : ''}`;
-    case 'agent.summary': return [p.kind === 'ready' ? `Agent ready · Model ${p.model || 'unknown'}` : human(p.kind), p.text, p.status, p.code].filter(Boolean).join(' · ');
-    case 'tool.started': case 'tool.finished': case 'tool.denied': return [human(event.type), p.tool, p.path, p.ok === undefined ? null : p.ok ? 'succeeded' : 'failed', p.code, p.reason].filter(Boolean).map(scalar).join(' · ');
-    case 'question.asked': return `Question · ${p.prompt || human(p.state)}`;
-    case 'message.delivery': return `Message ${p.message_id || ''} · ${human(p.delivery)}${p.reason ? ` · ${human(p.reason)}` : ''}`;
-    case 'checkpoint': return p.ok ? `Checkpoint saved · ${p.added ?? 0} added · ${p.modified ?? 0} modified · ${p.deleted ?? 0} deleted` : `Checkpoint unavailable · ${human(p.code || p.reason)}`;
-    case 'validation.started': case 'validation.finished': return `${human(event.type)} · Check ${p.ordinal ?? ''} · ${human(p.status)}${p.exit_code !== undefined ? ` · Exit ${p.exit_code}` : ''}`;
-    case 'stop.requested': return `Stop requested · ${human(p.reason)}`;
-    case 'containment': return `Containment ${p.confirmed === true ? 'confirmed' : 'unconfirmed'} · ${human(p.code)}`;
-    case 'usage': return 'Usage updated (reported totals shown above)';
-    case 'error': return `Error · ${human(p.code || p.error_code)}`;
-    case 'publication.state': return `Publication · ${human(p.state)}`;
-    default: return human(event.type);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const TOOL_VERB = {read_file: 'Read', write_file: 'Edited', delete_file: 'Deleted', list_files: 'Listed files', run_command: 'Ran a command', ask_user: 'Asked a question'};
+function checkpointText(p) {
+  if (!p.ok) return `Checkpoint unavailable · ${human(p.code || p.reason)}`;
+  const files = Number.isFinite(p.files) ? p.files : ['added', 'modified', 'deleted'].reduce((n, k) => n + (Number.isFinite(p[k]) ? p[k] : 0), 0);
+  const left = Number.isFinite(p.rejected) && p.rejected > 0 ? ` · ${plural(p.rejected, 'path')} left out` : '';
+  if (!files) return `Checkpoint saved · no changes${left}`;
+  const counts = Number.isFinite(p.additions) && Number.isFinite(p.deletions) ? `+${p.additions} −${p.deletions} in ` : '';
+  return `Checkpoint saved · ${counts}${plural(files, 'file')}${left}`;
+}
+// Maps one saved event to a short label. Only mapped fields are read; arbitrary payloads and
+// private reasoning never render, and agent text is always set as text, never markup.
+// `setup` marks start-up steps; `work` marks agent tool work and checkpoints; `message` is agent prose.
+function describeEvent(event, sourceAllowed) {
+  const p = event.payload && typeof event.payload === 'object' ? event.payload : {};
+  const type = typeof event.type === 'string' ? event.type : 'event';
+  if (p.redacted || !sourceAllowed) return {label: `${human(type)} · details redacted by current source policy`};
+  const text = value => typeof value === 'string' && value.trim() ? value : null;
+  switch (type) {
+    case 'session.state': {
+      const st = p.state;
+      if (st === 'queued') return {label: Number.isSafeInteger(p.attempt) && p.attempt > 1 ? `Queued · attempt ${p.attempt}` : 'Queued', setup: true};
+      if (st === 'provisioning') return {label: p.phase === 'access_check' ? 'Checked repository access' : p.phase === 'source_acquired' ? `Copied the repository${Number.isSafeInteger(p.counts?.files) ? ` · ${plural(p.counts.files, 'file')}` : ''}` : 'Preparing the container', setup: true};
+      if (st === 'running') return p.previous === 'provisioning' || p.previous === 'queued' ? {label: 'Agent started', setup: true} : {label: 'Agent running'};
+      if (st === 'waiting_for_user') return {label: 'Waiting for your answer', tone: 'warn'};
+      if (st === 'validating') return {label: 'Running checks'};
+      if (st === 'stopping') return {label: 'Stopping', tone: 'warn'};
+      if (st === 'completed') return {label: 'Session completed', tone: 'ok'};
+      if (st === 'cancelled') return {label: p.stop_reason === 'user_requested' ? 'Cancelled · stopped by you' : `Cancelled${p.stop_reason ? ` · ${human(p.stop_reason)}` : ''}`, tone: 'off'};
+      const why = p.error_code || p.reason || p.stop_reason;
+      const name = human(st);
+      return {label: `${name.charAt(0).toUpperCase()}${name.slice(1)}${why ? ` · ${human(why)}` : ''}`, tone: ['failed', 'interrupted', 'blocked'].includes(st) ? 'danger' : undefined};
+    }
+    case 'agent.summary':
+      if (p.kind === 'ready') return {label: `Agent ready · ${typeof p.model === 'string' && p.model ? p.model : 'model unknown'}`, setup: true, model: typeof p.model === 'string' ? p.model : null};
+      if (p.kind === 'inventory') return {label: 'Agent tools connected', setup: true};
+      if (p.kind === 'assistant') return {label: 'Agent', message: text(p.text), agent: true};
+      if (p.kind === 'result') return {label: `Agent finished · ${human(p.status || p.code || 'unknown')}`, message: text(p.text), result: true, tone: p.status === 'completed' ? undefined : 'warn'};
+      return {label: [human(p.kind), p.status, p.code].filter(Boolean).map(scalar).join(' · '), message: text(p.text)};
+    case 'tool.started': {
+      const tool = scalar(p.tool), target = typeof p.path === 'string' ? p.path : typeof p.program === 'string' ? p.program : null;
+      return {label: `${TOOL_VERB[tool] || human(tool)}${target ? ` · ${target}` : ''}`, work: true, path: typeof p.path === 'string' ? p.path : null};
+    }
+    case 'tool.finished': case 'tool.denied': {
+      const tool = human(scalar(p.tool)), denied = type === 'tool.denied', failed = p.ok === false;
+      const parts = [`${tool.charAt(0).toUpperCase()}${tool.slice(1)} ${denied ? 'denied' : failed ? 'failed' : 'finished'}`, typeof p.path === 'string' ? p.path : null, Number.isSafeInteger(p.exit_code) ? `exit ${p.exit_code}` : null, p.code ? human(p.code) : null, p.reason ? human(p.reason) : null];
+      return {label: parts.filter(Boolean).map(scalar).join(' · '), work: true, tone: denied ? 'warn' : failed ? 'danger' : undefined, path: typeof p.path === 'string' ? p.path : null};
+    }
+    case 'question.asked': return {label: 'The agent asked', message: text(p.prompt) || human(p.state), tone: 'warn'};
+    case 'message.delivery': return {label: `Your message · ${human(p.delivery)}${p.reason ? ` · ${human(p.reason)}` : ''}`};
+    case 'checkpoint': return {label: checkpointText(p), checkpoint: true, tone: p.ok ? undefined : 'warn'};
+    case 'validation.started': return {label: `Check ${scalar(p.ordinal ?? '')} started`};
+    case 'validation.finished': return {label: `Check ${scalar(p.ordinal ?? '')} ${human(p.status)}${Number.isSafeInteger(p.exit_code) ? ` · exit ${p.exit_code}` : ''}${p.reason ? ` · ${human(p.reason)}` : ''}`, tone: p.status === 'passed' ? 'ok' : p.status === 'not_run' ? 'off' : 'danger'};
+    case 'stop.requested': return {label: p.reason === 'user_requested' ? 'You asked the session to stop' : `Stop requested · ${human(p.reason)}`, tone: 'warn'};
+    case 'containment': return p.confirmed === true ? {label: 'Container removed', tone: 'ok'} : {label: `Container removal not confirmed · ${human(p.code || p.container_code)}`, tone: 'danger'};
+    case 'usage': return {label: 'Usage recorded (totals in Run details)'};
+    case 'error': return {label: `Error · ${human(p.code || p.error_code)}`, tone: 'danger'};
+    case 'publication.state': return {label: `Draft pull request · ${human(p.state)}`};
+    default: return {label: human(type)};
   }
 }
+// Plain-language session outcomes; the raw code is always shown beside them in small print.
+const SESSION_TEXT = {
+  runtime_interrupted: 'OpenDevin stopped while this session ran.',
+  containment_failed: "OpenDevin couldn't confirm the container stopped. Request a stop again and check Docker.",
+  harness_containment_failed: "OpenDevin couldn't confirm the agent process stopped.",
+  budget_exhausted: 'The agent reached its spending or turn limit before finishing.',
+  repository_unavailable: "The repository isn't available to OpenDevin any more.",
+  policy_denied: 'A workspace or repository policy blocked this session.',
+  source_access_denied: "OpenDevin's GitHub access can't read this repository.",
+  source_acquisition_failed: "OpenDevin couldn't copy the repository source into the container.",
+  source_unavailable: 'Source is unavailable under the current repository access or retention policy.',
+  execution_profile_unavailable: 'The execution profile pinned by the plan is no longer available.',
+  execution_test_required: "The execution profile hasn't passed its synthetic coding test.",
+  cli_unavailable: "The coding agent CLI isn't installed or couldn't start.",
+  authentication_required: 'The coding agent CLI is not signed in on this machine.',
+  docker_unavailable: "Docker isn't running or isn't reachable.",
+  preflight_failed: 'The container image failed its pre-flight check.',
+  image_unsupported: "The pinned container image isn't supported.",
+  checkpoint_unavailable: "The session's changes couldn't be saved as a checkpoint.",
+  runtime_identity_unverified: "OpenDevin couldn't verify the container it started.",
+  lease_expired: 'OpenDevin restarted while this session ran.',
+  plan_unavailable: 'The saved plan version is no longer available.',
+  external_source_denied: 'Sending repository source to the external coding model is not permitted.',
+  repository_purged: 'The repository was removed from OpenDevin, so the session stopped.',
+};
 
 // ---- Draft pull request (F06) --------------------------------------------------------------
 // Renders only mapped fields of the safe public preview/publication projections: never tokens,
@@ -116,7 +198,7 @@ function explainCode(parent, code, fallback) {
 const newPublicationKey = () => `pub-${globalThis.crypto.randomUUID()}`;
 const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
+function createPublicationArea({section, sessionID, request, pollMs, isLive, onChange = () => {}}) {
   let mode = 'waiting', session = null, preview = null, key = null, unknown = false, draft = null, pub = null, notice = null;
   let busy = false, dead = false, timer, retryKey = null, recovering = false, recheckTimer = null, rechecks = 0, seenUpdate;
   // Publication reads are cancelled when the page is left; late answers are fenced by alive() as well.
@@ -135,6 +217,7 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive}) {
   function render(focusKey = null, take = inside(section, document.activeElement)) {
     const previous = inside(section, document.activeElement) ? document.activeElement?.dataset?.focus : null;
     body.replaceChildren(); ({waiting, loading: () => body.append(el('p', 'Checking for an existing draft pull request…')), unavailable, idle, review, follow, recoverError})[mode]();
+    onChange({mode, pub});
     if (!take) return;
     const wanted = focusKey || (document.activeElement === document.body || !document.activeElement?.isConnected ? previous : null);
     if (!wanted && document.activeElement !== document.body && document.activeElement?.isConnected) return;
@@ -414,13 +497,52 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   const panel = el('div', undefined, 'sessions-panel'); host.append(panel);
   let epoch = 0, timer, active = false, currentID = null, refreshBusy = false, current, cursor = 0, sourceAllowed = true, messageCursor = null;
   const events = new Map(), history = new Map(); let messageSending = false, targetEdited = false, pendingMessage, retryKey, listCursor, listItems = new Map(), listFilters;
-  let diffSignature, checksSignature, lastChecks = null, lastConfirmed = null, plan = null, publicationArea = null;
-  let status, summary, origin, phase, activity, patches, checks, progress, publication, messageRows, questionArea, compose, send, responseTo, stop, retry, moreEvents, moreMessages;
-  function publishRecent(items) {
-    shell?.setRecent(items.map(s => { const b = phaseBadge(s), seconds = elapsedSeconds(s);
-      return {href: `#/sessions/${enc(s.id)}`, title: `${(s.repositories || []).map(r => r.repository_id).join(', ') || s.id} · attempt ${s.attempt ?? '?'}`, meta: `${b.label}${seconds === null ? '' : ` · ${seconds} s`}`, attention: s.state === 'waiting_for_user'}; }), {heading: 'Recent sessions'});
+  let diffSignature, checksSignature, lastChecks = null, lastDiff = null, lastConfirmed = null, plan = null, publicationArea = null, pubInfo = {mode: 'waiting', pub: null};
+  let status, statusEphemeral = false, conn, reconnect, summary, header, titleNode, meta, phase, result, activity, patches, checks, progress, publication, messageRows, questionArea;
+  let form, compose, composeLabel, targetLabel, ended, send, responseTo, stop, retry, prAction, moreEvents, moreMessages, listEmpty, selectTab = () => {};
+  // Display names: plan titles and repository names replace raw identifiers wherever people scan.
+  const planTitles = new Map(), repoNames = {map: new Map(), at: 0, pending: null};
+  const planTitle = s => planTitles.get(s.plan_id) || null;
+  const repoName = (id, full = false) => { const r = repoNames.map.get(id); return (full ? r?.full || r?.name : r?.name || r?.full) || id || 'unknown repository'; };
+  const repos = s => Array.isArray(s.repositories) ? s.repositories : [];
+  const primaryRepo = s => repos(s).find(r => r.role === 'write') || repos(s)[0] || null;
+  function loadRepositoryNames() {
+    if (repoNames.pending) return repoNames.pending;
+    if (repoNames.at && Date.now() - repoNames.at < 300000) return Promise.resolve(false);
+    repoNames.pending = readRepositoryPages(request, '/api/repositories?limit=100').then(({items}) => {
+      const map = new Map();
+      for (const r of items) if (typeof r?.id === 'string') map.set(r.id, {name: typeof r.name === 'string' && r.name ? r.name : null, full: typeof r.full_name === 'string' && r.full_name ? r.full_name : null});
+      repoNames.map = map; repoNames.at = Date.now(); return true;
+    }, () => { repoNames.at = Date.now(); return false; }).finally(() => { repoNames.pending = null; });
+    return repoNames.pending;
   }
-  const say = text => { if (status && status.textContent !== text) status.textContent = text; };
+  function loadPlanTitles(items) {
+    const wanted = [...new Set(items.map(s => s.plan_id).filter(id => typeof id === 'string' && !planTitles.has(id)))];
+    for (const id of wanted) planTitles.set(id, null);
+    return Promise.allSettled(wanted.map(id => request(`/api/plans/${enc(id)}`).then(p => { if (p?.id === id && typeof p.title === 'string' && p.title.trim()) planTitles.set(id, p.title.trim()); })));
+  }
+  // Names arrive after the first paint; the list and rail repaint once when they do.
+  function resolveNames(items, token, paint) {
+    Promise.allSettled([loadRepositoryNames(), loadPlanTitles(items)]).then(() => { if (live(token)) paint(); });
+  }
+  function publishRecent(items) {
+    shell?.setRecent(items.map(s => { const b = phaseBadge(s), title = planTitle(s) || 'Saved plan', repo = primaryRepo(s);
+      return {href: `#/sessions/${enc(s.id)}`, title, tooltip: title, meta: `${repo ? repoName(repo.repository_id) : 'no repository'} · attempt ${s.attempt ?? '?'} · ${b.label}`, attention: s.state === 'waiting_for_user'}; }), {heading: 'Recent sessions'});
+  }
+  // Ephemeral messages describe connection or state; a successful refresh clears them. Action outcomes stay.
+  const say = (text, ephemeral = false) => { if (!status) return; statusEphemeral = ephemeral; if (status.textContent !== text) status.textContent = text; };
+  function setConnection(state, detail = '', tip = '') {
+    if (!conn) return;
+    const label = {live: 'Live', connecting: 'Connecting…', reconnecting: 'Reconnecting…', offline: 'Offline'}[state];
+    if (conn.dataset.state !== state || conn.dataset.detail !== detail) {
+      conn.dataset.state = state; conn.dataset.detail = detail;
+      conn.replaceChildren(el('span', undefined, 'session-live-dot'), el('span', label, 'session-live-label'));
+      if (detail) conn.append(el('small', ` · ${detail}`, 'session-live-detail'));
+      conn.firstChild.setAttribute('aria-hidden', 'true');
+    }
+    if (tip) conn.setAttribute('title', tip); else conn.removeAttribute('title');
+    if (reconnect) reconnect.hidden = state === 'live' || state === 'connecting';
+  }
   const live = token => active && epoch === token && /^#\/sessions(?:\/[^/]+)?$/.test(location.hash);
   const schedule = token => { clearTimeout(timer); if (live(token)) { timer = setTimeout(() => refresh(token), pollMs); timer?.unref?.(); } };
   function focusReplacement(root, render) {
@@ -431,98 +553,237 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (target) target.focus(); else { const heading = root.querySelector('h2'); heading?.setAttribute('tabindex', '-1'); heading?.focus(); }
     }
   }
+  // <details> keep the open/closed state the reader chose across repaints; new ones use their default.
+  function keepOpen(root, render) {
+    const state = new Map([...root.querySelectorAll('details')].map(n => [n.querySelector('summary')?.dataset.focus, n.open]));
+    render();
+    for (const n of root.querySelectorAll('details')) { const key = n.querySelector('summary')?.dataset.focus; if (state.has(key)) { if (state.get(key)) n.setAttribute('open', ''); else n.removeAttribute('open'); } }
+  }
+  const stopLocked = () => Boolean(!current || (terminal.has(current.state) && current.runner?.containment !== 'failed'));
+  const retryLocked = () => Boolean(!current || !terminal.has(current.state) || current.successor_id);
+  const sendLocked = () => Boolean(!sourceAllowed || messageSending || (current && !pendingMessage && (terminal.has(current.state) || current.stop_requested)));
   function clearSource(revoke = true) {
-    events.clear(); history.clear(); cursor = 0; messageCursor = null; diffSignature = null; checksSignature = null;
+    events.clear(); history.clear(); cursor = 0; messageCursor = null; diffSignature = null; checksSignature = null; lastDiff = null;
     if (revoke) { pendingMessage = null; storage.set(`session-message-${currentID}`, null); }
-    activity.replaceChildren(el('p', 'Activity details cleared under current source policy.'));
-    messageRows.replaceChildren(el('p', 'Message content redacted.'));
+    activity.replaceChildren(el('h2', 'Activity'), el('p', 'Activity details cleared under current source policy.', 'detail-muted'));
+    messageRows.hidden = false; messageRows.replaceChildren(el('h2', 'Your messages'), el('p', 'Message content redacted.', 'detail-muted'));
     patches.replaceChildren(el('h2', 'Diff'), el('p', 'Source unavailable under current repository access or retention policy.'));
-    checks.replaceChildren(el('h2', 'Validation checks'), el('p', 'Source-bearing check output cleared.'));
+    checks.replaceChildren(el('h2', 'Checks'), el('p', 'Source-bearing check output cleared.'));
     progress.replaceChildren(el('h2', 'Progress'), el('p', 'Plan steps unavailable or redacted under current source policy.'));
     questionArea.replaceChildren(); if (revoke) { compose.value = ''; responseTo.value = ''; } send.disabled = true; compose.disabled = true; responseTo.disabled = true;
+    if (current) renderResult();
     if (revoke) publicationArea?.sourceLost();
   }
   function renderSummary() {
     const s = current, x = s.execution || {}, u = s.usage || {}, outcome = s.outcome || {};
-    const started = s.started_at || s.created_at; const end = s.finished_at || Date.now();
-    const elapsed = started ? `${Math.max(0, Math.floor((end - started) / 1000))} seconds${s.finished_at ? '' : ' elapsed'}` : 'unknown';
+    const seconds = elapsedSeconds(s), elapsed = seconds === null ? 'unknown' : `${duration(seconds)}${s.finished_at ? '' : ' so far'}`;
     focusReplacement(summary, () => {
-      summary.replaceChildren(el('h2', `${human(s.state)} · ${human(s.phase)}`));
-      const details = el('details', undefined, 'session-run-details'); details.append(el('summary', 'Run details'));
-      const facts = el('div'); details.append(facts); summary.append(details);
+      const details = el('details', undefined, 'session-run-details'); const label = el('summary', 'Run details'); label.dataset.focus = 'run-details'; details.append(label);
+      const facts = el('div'); details.append(facts);
+      const open = summary.querySelector('details')?.open; if (open) details.setAttribute('open', '');
+      summary.replaceChildren(details);
       const reportedTokens = u.tokens || u;
       const tokens = ['input_tokens', 'output_tokens', 'total_tokens'].filter(k => Number.isFinite(reportedTokens[k])).map(k => `${human(k)} ${reportedTokens[k]}`).join(' · ') || 'unknown';
       const cost = Number.isFinite(u.reported_cost_usd) ? `${u.reported_cost_usd} USD (reported)` : Number.isFinite(u.estimated_cost) ? `${u.estimated_cost} USD (${u.cost_status || 'estimated'})` : 'unknown';
       lines(facts, [['Attempt', `${s.attempt ?? 'unknown'} · ${s.id}`], ['Plan version', `${s.plan_version_id} · SHA256 ${s.content_hash}`], ['Elapsed time', elapsed], ['Execution profile', `${x.profile_id || 'unknown'} · Version ${x.version ?? 'unknown'} (${x.profile_version_id || 'unknown'})`], ['Agent', `${x.adapter || 'unknown'} · CLI ${x.cli_version || 'unknown'} · Model ${u.observed_model || u.model || [...events.values()].find(e => e.type === 'agent.summary' && e.payload?.kind === 'ready')?.payload.model || outcome.model || 'unknown'}`], ['Destination', x.destination ? `${x.destination.kind || 'unknown'} · ${x.destination.host || x.destination.disclosure || 'destination details unknown'}` : 'unknown'], ['Pinned image', x.image_id || 'unknown'], ['Resource limits', limitsText(s.limits)], ['Usage', tokens], ['Cost', cost], ['Containment', human(s.runner?.containment)], ['Outcome', human(outcome.result || outcome.status || outcome.code || outcome.reason || s.error_code || 'not yet recorded')], ['Stop reason', human(s.stop_reason || 'none')]]);
-      for (const r of s.repositories || []) details.append(el('p', `${r.repository_id} · ${r.role} · Base ${r.base_sha || 'unknown'} (${r.base_branch || 'unknown branch'}) · Session branch ${r.session_branch || 'not assigned'}`));
-      link(summary, 'Saved plan version', `#/plans/${enc(s.plan_id)}/${enc(s.plan_version_id)}`);
-      if (s.predecessor_id) link(summary, 'Previous attempt', `#/sessions/${enc(s.predecessor_id)}`);
-      if (s.successor_id) link(summary, 'Successor attempt', `#/sessions/${enc(s.successor_id)}`);
+      for (const r of repos(s)) details.append(el('p', `${repoName(r.repository_id, true)} (${r.repository_id}) · ${r.role} · Base ${r.base_sha || 'unknown'} (${r.base_branch || 'unknown branch'}) · Session branch ${r.session_branch || 'not assigned'}`));
       details.append(el('p', `Capabilities: user questions ${s.capabilities?.ask_user ? 'available' : 'unavailable'} · Follow-ups ${s.capabilities?.follow_up ? 'available' : 'no proven delivery channel; messages may remain queued'} · Resume ${s.capabilities?.resume ? 'available' : 'unavailable'}`));
       details.append(el('p', `External source sharing at launch: ${x.allow_external_source === true ? 'explicitly permitted by the pinned profile; live workspace and repository policy still apply' : x.allow_external_source === false ? 'disabled' : 'unknown'}.`));
     });
-    const b = phaseBadge(s, lastChecks);
+    const b = phaseBadge(s, lastChecks, pubInfo.pub);
     phase.replaceChildren(badge(b.tone, b.label));
-    renderOrigin(); renderProgress(); renderPublication();
+    renderHeader(); renderProgress(); renderPublication(); renderResult();
     shell?.setHeader({title: plan?.title || 'Session', pills: [{text: b.label}]});
-    // Stop stays beside the composer while work may still be running, including after a failed containment.
-    stop.hidden = stop.disabled = terminal.has(s.state) && s.runner?.containment !== 'failed';
-    stop.textContent = s.state === 'stopping' || s.stop_requested ? 'Request stop again' : 'Stop session';
-    retry.disabled = !terminal.has(s.state) || Boolean(s.successor_id);
-    if (s.state === 'stopping' || s.stop_requested) say(`Stop requested. Containment ${human(s.runner?.containment)}; work is not confirmed stopped until the server verifies termination.`);
+    // Stop stays available while work may still be running, including after a failed containment.
+    stop.hidden = stop.disabled = stopLocked();
+    const stopping = !terminal.has(s.state) && (s.state === 'stopping' || s.stop_requested);
+    stop.textContent = stopping || s.runner?.containment === 'failed' ? 'Request stop again' : 'Stop session';
+    retry.disabled = retryLocked(); retry.hidden = !terminal.has(s.state) || Boolean(s.successor_id);
+    // A finished session keeps stop_requested; only unfinished work is described as still stopping.
+    if (stopping) say(`Stop requested. Containment ${human(s.runner?.containment)}; work is not confirmed stopped until the server verifies termination.`, true);
   }
-  function renderOrigin() {
-    const version = plan?.version?.version;
-    origin.replaceChildren();
-    link(origin, `From plan ${version ? `v${version}` : 'version'}${plan?.title ? ` · ${plan.title}` : ''}`, `#/plans/${enc(current.plan_id)}/${enc(current.plan_version_id)}`);
-    if (plan?.conversation_id) { origin.append(' · '); link(origin, 'back to conversation', `#/ask/${enc(plan.conversation_id)}`); }
+  // Header: what this is, where it runs, which attempt, how long; the state's primary actions sit beside it.
+  function renderHeader() {
+    const s = current, version = plan?.version?.version;
+    if (titleNode.textContent !== (plan?.title || 'Session')) titleNode.textContent = plan?.title || 'Session';
+    focusReplacement(meta, () => {
+      meta.replaceChildren();
+      const part = node => { if (meta.childNodes.length) meta.append(sep()); meta.append(node); return node; };
+      for (const r of repos(s)) {
+        const where = el('span', undefined, 'session-meta-repo'); where.append(el('strong', repoName(r.repository_id, true)));
+        const sha = shortSha(r.base_sha); if (r.base_branch || sha) { const base = el('code', ` ${r.base_branch || 'base'}${sha ? `@${sha}` : ''}`); if (r.base_sha) base.setAttribute('title', `Base ${r.base_sha}`); where.append(base); }
+        where.setAttribute('title', r.repository_id); part(where);
+      }
+      const attempt = part(el('span', `Attempt ${s.attempt ?? '?'}`));
+      if (s.predecessor_id) { attempt.append(' ('); link(attempt, 'previous', `#/sessions/${enc(s.predecessor_id)}`).setAttribute('aria-label', 'Previous attempt'); attempt.append(')'); }
+      if (s.successor_id) { attempt.append(' · '); link(attempt, 'next attempt', `#/sessions/${enc(s.successor_id)}`).setAttribute('aria-label', 'Next attempt'); }
+      const seconds = elapsedSeconds(s);
+      if (seconds !== null) { const t = part(el('span', s.finished_at ? `Ran ${duration(seconds)}` : `Running ${duration(seconds)}`)); if (s.created_at) t.setAttribute('title', `Started ${time(s.started_at || s.created_at)}${s.finished_at ? ` · finished ${time(s.finished_at)}` : ''}`); }
+      const origin = part(el('span', undefined, 'session-origin'));
+      link(origin, `Plan ${version ? `v${version}` : 'version'}`, `#/plans/${enc(s.plan_id)}/${enc(s.plan_version_id)}`).setAttribute('aria-label', `Saved plan ${version ? `version ${version}` : 'version'}${plan?.title ? `: ${plan.title}` : ''}`);
+      if (plan?.conversation_id) { origin.append(' · '); link(origin, 'conversation', `#/ask/${enc(plan.conversation_id)}`).setAttribute('aria-label', 'Back to the conversation'); }
+    });
+    renderPrAction();
   }
+  function renderPrAction() {
+    if (!prAction || !current) return;
+    const done = terminal.has(current.state), pub = pubInfo.pub;
+    // Only a completed session offers to start a draft PR from the header; an existing one is always reachable.
+    prAction.hidden = !done || (!pub && (current.state !== 'completed' || !['idle', 'review'].includes(pubInfo.mode)));
+    prAction.textContent = pub ? (pub.state === 'published' ? 'View draft PR' : 'Draft PR status') : 'Create draft PR…';
+    prAction.classList.toggle('btn-primary', !pub && current.state === 'completed');
+  }
+  // Overall state for the plan steps; the agent never reports per-step completion, so steps are not ticked.
   function renderProgress() {
     const steps = sourceAllowed ? plan?.version?.content?.steps : null;
     progress.replaceChildren(el('h2', 'Progress'));
-    if (current) progress.append(el('p', `Phase: ${phaseBadge(current, lastChecks).label} · ${human(current.phase)}`));
+    if (current) {
+      const s = current.state, overall = !terminal.has(s) ? (s === 'waiting_for_user' ? ['needs your input', 'warn'] : current.stop_requested || s === 'stopping' ? ['stopping', 'warn'] : ['running', 'info']) : s === 'completed' ? ['done', 'ok'] : s === 'cancelled' ? ['stopped', 'off'] : [human(s), 'danger'];
+      const line = el('p', undefined, 'progress-overall'); line.append(badge(overall[1], overall[0]), el('span', `${Array.isArray(steps) ? plural(steps.length, 'step') : 'Plan steps'}${terminal.has(s) ? '' : ` · phase ${human(current.phase)}`}`)); progress.append(line);
+    }
     if (!Array.isArray(steps)) { progress.append(el('p', plan === null || plan.loading ? 'Loading the saved plan…' : 'Plan steps unavailable or redacted under current source policy.')); return; }
-    const list = el('ol', undefined, 'session-steps');
+    const list = el('ol', undefined, `session-steps${current && terminal.has(current.state) ? ' is-ended' : ''}`);
     for (const step of steps) list.append(el('li', step.title || 'Untitled step'));
-    progress.append(list, el('p', 'The agent does not report per-step completion. Follow the activity and checks for confirmed progress.', 'detail-muted'));
+    progress.append(list, el('p', 'The agent does not report per-step completion. Follow the activity and checks for confirmed progress.', 'detail-muted progress-note'));
   }
   function renderPublication() { if (current) publicationArea?.update(current); }
-  function renderEvents() {
-    activity.replaceChildren(el('h2', 'Activity timeline'));
-    const list = el('ol'); let group = null;
-    // Consecutive tool steps collapse into one "Worked for …" group; everything else stays a single line.
-    const close = () => {
-      if (!group) return;
-      const {items, first, last, paths} = group, seconds = Math.max(0, Math.round(((last.created_at || 0) - (first.created_at || 0)) / 1000));
-      const details = el('details', undefined, 'activity-group'), title = el('summary', `Worked for ${seconds} s · ${items.length} ${items.length === 1 ? 'step' : 'steps'}${sourceAllowed && paths.size ? ` in ${paths.size} ${paths.size === 1 ? 'file' : 'files'}` : ''}`);
-      title.dataset.focus = `group-${first.seq}`; const inner = el('ol'); inner.append(...items); details.append(title, inner);
-      const li = el('li'); li.append(details); list.append(li); group = null;
-    };
-    for (const e of [...events.values()].sort((a,b) => a.seq - b.seq)) {
-      const item = el('li', `#${e.seq} · ${time(e.created_at)} · ${eventText(e, sourceAllowed)}`); item.dataset.seq = e.seq;
-      if (!e.type?.startsWith('tool.')) { close(); list.append(item); continue; }
-      group ||= {items: [], first: e, last: e, paths: new Set()};
-      group.items.push(item); group.last = e; if (typeof e.payload?.path === 'string') group.paths.add(e.payload.path);
+  // The result card: what happened in plain words, what to do next, and the agent's last message as text.
+  function finalAgentMessage() {
+    if (!sourceAllowed) return null;
+    let found = null;
+    for (const e of [...events.values()].sort((a, b) => a.seq - b.seq)) {
+      const p = e.payload || {};
+      if (e.type === 'agent.summary' && !p.redacted && (p.kind === 'result' || p.kind === 'assistant') && typeof p.text === 'string' && p.text.trim()) found = p.text;
     }
-    close(); activity.append(list); if (!events.size) activity.append(el('p', 'No saved activity yet.'));
+    return found;
+  }
+  function diffCounts() {
+    if (lastDiff?.available && Array.isArray(lastDiff.files)) {
+      const files = lastDiff.files, known = files.every(f => Number.isFinite(f.additions) && Number.isFinite(f.deletions));
+      return {files: files.length, additions: known ? files.reduce((n, f) => n + f.additions, 0) : null, deletions: known ? files.reduce((n, f) => n + f.deletions, 0) : null};
+    }
+    const n = current?.outcome?.changed_files; return Number.isSafeInteger(n) ? {files: n, additions: null, deletions: null} : null;
+  }
+  function checksPhrase() {
+    const c = lastChecks; if (!c) return {text: 'checks not loaded', tone: 'info'};
+    const items = Array.isArray(c.items) ? c.items : [];
+    if (c.fully_validated === true) return {text: items.length ? 'checks passed' : 'all recorded checks passed', tone: 'ok'};
+    const failed = items.filter(i => ['failed', 'timeout', 'error'].includes(i.status)).length;
+    if (failed) return {text: `${plural(failed, 'check')} failed`, tone: 'warn'};
+    if (!items.length) return {text: 'no checks recorded', tone: 'warn'};
+    return {text: 'checks not fully validated', tone: 'warn'};
+  }
+  function renderResult() {
+    if (!current || !terminal.has(current.state)) { if (!result.hidden || result.childNodes.length) { result.hidden = true; result.replaceChildren(); } return; }
+    const s = current, o = s.outcome || {}, contained = s.runner?.containment === 'confirmed' || o.containment?.confirmed === true, lost = o.edits_since_last_checkpoint_may_be_lost === true;
+    let headline, detail = [], next = null, code = null, tone = 'ok', offerRetry = false;
+    if (s.state === 'completed') {
+      const d = diffCounts(), c = checksPhrase(), pub = pubInfo.pub;
+      if (d && d.files === 0) { headline = `Finished with no file changes; ${c.text}.`; next = 'Nothing to publish. Retry as a new attempt or amend the plan in Ask.'; tone = 'off'; }
+      else {
+        const stats = d ? `${plural(d.files, 'file')}${d.additions !== null ? `, +${d.additions} −${d.deletions}` : ''}` : 'see the Diff tab';
+        headline = `Changes ready for review: ${stats}, ${c.text}.`; tone = c.tone === 'ok' ? 'ok' : 'warn';
+        next = pub?.state === 'published' ? `Draft PR #${pub.pull_request_number ?? '?'} is on GitHub. Review it there; OpenDevin never merges.` : pub ? 'A draft pull request is in progress; see the PR tab.' : 'Review the diff and checks, then create a draft pull request.';
+      }
+    } else if (s.state === 'cancelled') {
+      headline = `${s.stop_reason && s.stop_reason !== 'user_requested' ? `Stopped: ${SESSION_TEXT[s.stop_reason] || human(s.stop_reason)}` : 'Stopped by you'}; ${contained ? 'the container was removed.' : 'container removal is not confirmed yet.'}`;
+      if (s.stop_reason && s.stop_reason !== 'user_requested') code = s.stop_reason;
+      next = 'Retry as a new attempt to run the same saved plan again.'; tone = contained ? 'off' : 'danger';
+    } else if (s.state === 'interrupted') {
+      headline = SESSION_TEXT[s.error_code] && s.error_code !== 'runtime_interrupted' ? SESSION_TEXT[s.error_code] : 'OpenDevin stopped while this session ran.';
+      detail.push(contained ? 'The container was cleaned up.' : 'Container cleanup is not confirmed.');
+      if (lost) detail.push('Edits after the last checkpoint may be lost.');
+      code = s.error_code || s.stop_reason || null; next = 'Retry as a new attempt to run the same saved plan again.'; tone = 'danger'; offerRetry = true;
+    } else {
+      const known = /^[a-z_]{1,80}$/.test(s.error_code || '') ? s.error_code : null;
+      headline = `${s.state === 'blocked' ? 'This session was blocked' : 'This session failed'}: ${(known && SESSION_TEXT[known]) || (known ? `${human(known)}.` : 'no reason was recorded.')}`;
+      if (!contained) detail.push(s.runner?.containment === 'failed' ? 'The container is not confirmed stopped; use Request stop again.' : 'Container cleanup is not confirmed.');
+      if (lost) detail.push('Edits after the last checkpoint may be lost.');
+      code = known; next = 'Fix the cause, then retry as a new attempt.'; tone = 'danger'; offerRetry = true;
+    }
+    // Once a newer attempt exists, pointing to it replaces the advice to retry.
+    if (s.successor_id && s.state !== 'completed') next = null;
+    const message = finalAgentMessage();
+    focusReplacement(result, () => {
+      result.hidden = false; result.className = `session-section session-result is-${tone}`;
+      const h = el('h2', 'Result'); h.className = 'sr-only'; result.replaceChildren(h);
+      result.append(el('p', [headline, ...detail].join(' '), 'session-result-headline'));
+      if (next) result.append(el('p', next, 'session-result-next'));
+      if (code) result.append(el('small', `Code: ${code}`, 'session-result-code'));
+      if (offerRetry && !s.successor_id) { const b = button(result, 'Retry', retryAction); b.classList.add('btn', 'btn-primary'); b.dataset.focus = 'result-retry'; b.dataset.retry = '1'; b.disabled = retryLocked(); b.setAttribute('aria-label', 'Retry as a new attempt'); }
+      if (s.successor_id) { const p = el('p', 'A newer attempt exists: ', 'session-result-next'); link(p, 'open the next attempt', `#/sessions/${enc(s.successor_id)}`); result.append(p); }
+      if (message) {
+        const box = el('figure', undefined, 'agent-message agent-final'); const cap = el('figcaption', "Agent's final message"); const body = el('p', message);
+        box.append(cap, body); result.append(box);
+      }
+    });
+  }
+  function renderEvents() {
+    focusReplacement(activity, () => keepOpen(activity, () => {
+      activity.replaceChildren(el('h2', 'Activity'));
+      const list = el('ol', undefined, 'timeline'); let group = null, setup = null, setupDone = false, lastAgentText = null;
+      // The result card shows the final message in full; here it is clamped to a short preview.
+      const finalText = current && terminal.has(current.state) ? finalAgentMessage() : null;
+      const entry = (e, d) => {
+        const li = el('li', undefined, `timeline-entry${d.tone ? ` is-${d.tone}` : ''}${d.message ? ' has-message' : ''}`); li.dataset.seq = e.seq;
+        const mark = el('span', undefined, 'timeline-mark'); mark.setAttribute('aria-hidden', 'true');
+        const when = el('time', Number.isFinite(e.created_at) ? relativeTime(e.created_at) : '', 'timeline-time');
+        when.setAttribute('title', `${time(e.created_at)} · #${e.seq}`); if (Number.isFinite(e.created_at)) when.setAttribute('datetime', new Date(e.created_at).toISOString());
+        li.append(mark, el('span', d.label, 'timeline-label'), when);
+        if (d.message) { const box = el('div', undefined, `agent-message${d.agent ? '' : ' is-note'}${d.message === finalText ? ' is-clamped' : ''}`); box.append(el('p', d.message)); li.append(box); }
+        return li;
+      };
+      const folded = (key, label, items, openByDefault = false) => {
+        const details = el('details', undefined, 'activity-group'), title = el('summary', label); title.dataset.focus = key; if (openByDefault) details.setAttribute('open', '');
+        const inner = el('ol', undefined, 'timeline'); inner.append(...items); details.append(title, inner);
+        const li = el('li', undefined, 'timeline-group'); li.append(details); list.append(li);
+      };
+      const span = (first, last) => duration(Math.max(0, Math.round(((last.created_at || 0) - (first.created_at || 0)) / 1000)));
+      // Start-up steps fold into one "Set up" group; consecutive tool steps and checkpoints into "Worked for …".
+      const closeSetup = () => { if (!setup) return; folded('setup', `Set up · ${span(setup.first, setup.last)}${setup.model ? ` · ${setup.model}` : ''}`, setup.items, !setupDone && ['queued', 'provisioning'].includes(current?.state)); setup = null; };
+      const close = () => {
+        if (!group) return;
+        const {items, first, last, paths, steps} = group;
+        folded(`group-${first.seq}`, `Worked for ${span(first, last)} · ${steps} ${steps === 1 ? 'step' : 'steps'}${sourceAllowed && paths.size ? ` in ${paths.size} ${paths.size === 1 ? 'file' : 'files'}` : ''}`, items); group = null;
+      };
+      for (const e of [...events.values()].sort((a, b) => a.seq - b.seq)) {
+        const d = describeEvent(e, sourceAllowed);
+        if (!setupDone && (d.setup || d.checkpoint)) { setup ||= {items: [], first: e, last: e, model: null}; setup.items.push(entry(e, d)); setup.last = e; if (d.model) setup.model = d.model; continue; }
+        if (!setupDone) { setupDone = true; closeSetup(); }
+        if (d.work || (d.checkpoint && group)) {
+          group ||= {items: [], first: e, last: e, paths: new Set(), steps: 0, started: false};
+          group.items.push(entry(e, d)); group.last = e;
+          // A started/finished pair is one step; a finished event without its start still counts once.
+          if (e.type === 'tool.started' || e.type === 'tool.denied') { group.steps += 1; group.started = e.type === 'tool.started'; } else if (e.type === 'tool.finished') { if (!group.started) group.steps += 1; group.started = false; }
+          if (d.path) group.paths.add(d.path); continue;
+        }
+        close();
+        // The final result usually repeats the agent's last message; show that text once.
+        if (d.result && d.message && d.message === lastAgentText) d.message = null;
+        if (d.agent) lastAgentText = d.message;
+        list.append(entry(e, d));
+      }
+      closeSetup(); close(); activity.append(list); if (!events.size) activity.append(el('p', 'No saved activity yet.', 'detail-muted'));
+    }));
   }
   function renderMessages() {
-    messageRows.replaceChildren(el('h2', 'Messages and delivery'));
+    messageRows.replaceChildren(el('h2', 'Your messages'));
     for (const m of [...history.values()].sort((a,b) => a.created_at - b.created_at || a.id.localeCompare(b.id))) {
       const item = el('section', undefined, 'session-message');
-      item.append(el('h3', `${m.question_id ? 'Question reply' : 'Clarification'} · ${human(m.delivery)}`), el('p', sourceAllowed && typeof m.content === 'string' ? m.content : 'Content redacted'), el('p', `${time(m.created_at)}${m.reason ? ` · ${human(m.reason)}` : ''}`)); messageRows.append(item);
+      item.append(el('h3', `${m.question_id ? 'Answer to the agent' : 'Guidance'} · ${human(m.delivery)}`), el('p', sourceAllowed && typeof m.content === 'string' ? m.content : 'Content redacted'), el('p', `${time(m.created_at)}${m.reason ? ` · ${human(m.reason)}` : ''}`, 'detail-muted')); messageRows.append(item);
     }
-    if (!history.size) messageRows.append(el('p', 'No saved messages. Queued, delivered and acknowledged are distinct server states.'));
-    if (pendingMessage) messageRows.append(el('p', 'A send outcome is unknown. Retry the same content and target to reconcile; the client request key is preserved.'));
+    if (pendingMessage) messageRows.append(el('p', 'A send outcome is unknown. Retry the same content and target to reconcile; the client request key is preserved.', 'session-warning'));
+    if (history.size) messageRows.append(el('p', 'Queued, delivered and acknowledged are distinct server states; queued does not mean the agent has read it.', 'detail-muted'));
+    messageRows.hidden = !history.size && !pendingMessage;
   }
   function renderQuestion() {
     const q = current.pending_question;
     const selected = responseTo.value;
     responseTo.replaceChildren();
-    const general = el('option', current.capabilities?.follow_up ? 'General clarification (inspect saved delivery and acknowledgement)' : 'General clarification (delivery may be unsupported)'); general.value = ''; responseTo.append(general);
+    const general = el('option', current.capabilities?.follow_up ? 'Guidance for the agent' : 'Guidance (delivery may be unsupported)'); general.value = ''; responseTo.append(general);
     const asking = q && sourceAllowed && !q.redacted;
     if (asking) {
-      const option = el('option', 'Reply to the current agent question'); option.value = q.id; responseTo.append(option);
+      const option = el('option', "Answer to the agent's question"); option.value = q.id; responseTo.append(option);
       if (selected === q.id || (!targetEdited && !compose.value.trim())) responseTo.value = q.id;
       else responseTo.value = selected;
     } else responseTo.value = '';
@@ -530,10 +791,15 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (pendingMessage.question_id && ![...responseTo.querySelectorAll('option')].some(o => o.value === pendingMessage.question_id)) { const option = el('option', 'Reconcile reply to the original question'); option.value = pendingMessage.question_id; responseTo.append(option); }
       responseTo.value = pendingMessage.question_id || '';
     }
-    const ended = !pendingMessage && (terminal.has(current.state) || current.stop_requested);
-    compose.disabled = messageSending || !sourceAllowed; compose.readOnly = Boolean(ended);
+    const over = !pendingMessage && (terminal.has(current.state) || current.stop_requested);
+    compose.disabled = messageSending || !sourceAllowed; compose.readOnly = Boolean(over);
     responseTo.disabled = compose.disabled || Boolean(pendingMessage);
-    send.disabled = compose.disabled || Boolean(ended);
+    send.disabled = compose.disabled || Boolean(over);
+    // The composer shows only while the session can take input; an unsent draft stays visible, read-only.
+    form.hidden = Boolean(over) && !compose.value.trim();
+    targetLabel.hidden = responseTo.querySelectorAll('option').length < 2;
+    labelComposer();
+    renderEnded(over);
     focusReplacement(questionArea, () => {
       questionArea.replaceChildren();
       if (!asking) return;
@@ -545,8 +811,24 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
         const b = button(choices, choice, b => sendMessage(b, choice, q.id, false)); b.dataset.focus = `choice-${choice}`;
         b.disabled = send.disabled || Boolean(pendingMessage);
       }
-      const reply = button(choices, 'Reply…', () => { if (compose.disabled) return; responseTo.value = q.id; targetEdited = true; compose.focus(); }); reply.dataset.focus = 'reply';
+      const reply = button(choices, 'Reply…', () => { if (compose.disabled) return; responseTo.value = q.id; targetEdited = true; labelComposer(); compose.focus(); }); reply.dataset.focus = 'reply';
       reply.disabled = send.disabled;
+    });
+  }
+  function labelComposer() {
+    const answering = Boolean(responseTo.value);
+    const text = answering ? "Answer the agent's question" : 'Send guidance';
+    if (composeLabel.textContent !== text) composeLabel.textContent = text;
+    compose.setAttribute('placeholder', answering ? 'Type your answer…' : 'Guide the agent while it works…');
+  }
+  function renderEnded(over) {
+    focusReplacement(ended, () => {
+      ended.replaceChildren(); ended.hidden = !over;
+      if (!over) return;
+      const s = current, text = terminal.has(s.state) ? 'This session has ended.' : 'Stop requested; the agent no longer takes messages.';
+      ended.append(el('span', `${text}${!form.hidden ? ' Your unsent text is kept below, read-only.' : ''}`));
+      const cardRetry = ['interrupted', 'failed', 'blocked'].includes(s.state);
+      if (terminal.has(s.state) && !s.successor_id && !cardRetry) { const b = button(ended, 'Retry', retryAction); b.dataset.focus = 'ended-retry'; b.dataset.retry = '1'; b.disabled = retryLocked(); b.setAttribute('aria-label', 'Retry as a new attempt'); }
     });
   }
   function sendMessage(b, content, question_id, fromComposer) {
@@ -561,35 +843,73 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       finally { if (live(t)) { messageSending = false; renderQuestion(); } }
     });
   }
+  // One unified diff as lines: +/− stay in the text, so colour is never the only signal.
+  function diffBlock(text) {
+    const pre = el('pre', undefined, 'diff-lines'), code = el('code');
+    for (const line of String(text).replace(/\n$/, '').split('\n')) {
+      const kind = /^(\+\+\+|---) /.test(line) ? 'meta' : line.startsWith('@@') ? 'hunk' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('\\') ? 'meta' : 'ctx';
+      code.append(el('span', `${line}\n`, `diff-line diff-${kind}`));
+    }
+    pre.append(code); return pre;
+  }
+  const REJECT_TEXT = {excluded_generated: 'generated file, left out', excluded_binary: 'binary file, left out', too_large: 'too large to keep', excluded_path: 'excluded by path policy', symlink: 'symbolic link, left out', outside_scope: 'outside the plan’s writable scope'};
   function renderDiff(data) {
     const signature = JSON.stringify([sourceAllowed, data]); if (signature === diffSignature) return; diffSignature = signature;
-    const expanded = new Set([...patches.querySelectorAll('details')].filter(n => n.open).map(n => n.querySelector('summary')?.dataset.focus));
-    focusReplacement(patches, () => {
+    lastDiff = sourceAllowed && data?.available ? data : null;
+    focusReplacement(patches, () => keepOpen(patches, () => {
       patches.replaceChildren(el('h2', 'Diff'));
       if (!sourceAllowed || !data.available) { patches.append(el('p', `Diff unavailable: ${human(!sourceAllowed ? 'source_unavailable' : data.reason || 'not_captured')}.`)); return; }
-      const files = data.files || [], known = files.every(f => Number.isFinite(f.additions) && Number.isFinite(f.deletions));
-      if (files.length && known) patches.append(el('p', `+${files.reduce((n, f) => n + f.additions, 0)} −${files.reduce((n, f) => n + f.deletions, 0)} in ${files.length} ${files.length === 1 ? 'file' : 'files'}`, 'diff-totals'));
-      patches.append(el('p', `Base ${data.base_sha || 'unknown'} · Checkpoint ${time(data.captured_at)} · Hash ${data.diff_hash || 'unknown'} · ${data.files?.length || 0} visible files`));
+      const files = Array.isArray(data.files) ? data.files : [], known = files.every(f => Number.isFinite(f.additions) && Number.isFinite(f.deletions));
+      const repo = repos(current || {}).find(r => r.repository_id === data.repository_id) || primaryRepo(current || {}), sha = shortSha(data.base_sha || repo?.base_sha);
+      const totals = [plural(files.length, 'file'), files.length && known ? `+${files.reduce((n, f) => n + f.additions, 0)} −${files.reduce((n, f) => n + f.deletions, 0)}` : null, sha ? `base ${repo?.base_branch || 'branch'}@${sha}` : null].filter(Boolean).join(' · ');
+      const total = el('p', totals, 'diff-totals'); if (data.base_sha) total.setAttribute('title', `Base ${data.base_sha}`); patches.append(total);
       if (data.edits_since_last_checkpoint_may_be_lost) patches.append(el('p', 'Edits since the last verified checkpoint may be lost.', 'session-warning'));
-      if (data.hidden_by_current_exclusions) patches.append(el('p', `${data.hidden_by_current_exclusions} files hidden by current exclusions.`));
-      if (data.rejected?.length) patches.append(el('p', `${data.rejected.length} paths rejected by artifact policy.`));
-      if (!data.files?.length) patches.append(el('p', 'The available checkpoint contains no visible file changes.'));
-      for (const file of data.files || []) { const details = el('details'); const title = el('summary', `${human(file.status)} · ${file.path}`); title.dataset.focus = file.path; if (expanded.has(file.path)) details.setAttribute('open', ''); details.append(title, el('p', `Mode ${file.mode || file.new_mode || 'unknown'} · Size ${file.bytes ?? file.size ?? 'unknown'} bytes · +${file.additions ?? '?'} / −${file.deletions ?? '?'}`), el('pre', file.binary ? 'Binary change; text diff unavailable' : file.diff || 'Text diff unavailable')); patches.append(details); }
-    });
+      if (data.hidden_by_current_exclusions) patches.append(el('p', `${plural(data.hidden_by_current_exclusions, 'file')} hidden by current exclusions.`, 'detail-muted'));
+      if (!files.length) patches.append(el('p', 'The available checkpoint contains no visible file changes.'));
+      // Small diffs open by default; large ones start folded so the tab stays scannable.
+      const lineCount = files.reduce((n, f) => n + (typeof f.diff === 'string' ? f.diff.split('\n').length : 0), 0), small = files.length <= 5 && lineCount <= 400;
+      for (const file of files) {
+        const details = el('details', undefined, 'diff-file'), title = el('summary'); title.dataset.focus = file.path;
+        title.append(el('span', human(file.status), `diff-status is-${/^[a-z]+$/.test(file.status || '') ? file.status : 'unknown'}`), el('code', file.path, 'diff-path'));
+        if (Number.isFinite(file.additions) && Number.isFinite(file.deletions)) title.append(el('span', `+${file.additions} −${file.deletions}`, 'diff-count'));
+        if (small) details.setAttribute('open', '');
+        details.append(title, file.binary ? el('p', 'Binary change; text diff unavailable', 'detail-muted') : typeof file.diff === 'string' && file.diff ? diffBlock(file.diff) : el('p', 'Text diff unavailable', 'detail-muted'));
+        details.append(el('p', `Mode ${file.mode || file.new_mode || 'unknown'}${file.mode_changed ? ` (was ${file.old_mode || 'unknown'})` : ''} · ${file.bytes ?? file.size ?? 'unknown'} bytes`, 'detail-muted diff-file-meta'));
+        patches.append(details);
+      }
+      const rejected = Array.isArray(data.rejected) ? data.rejected : [];
+      if (rejected.length) {
+        const box = el('section', undefined, 'diff-rejected'); box.setAttribute('aria-label', 'Left out of the diff');
+        box.append(el('h3', `${plural(rejected.length, 'path')} left out`)); const list = el('ul');
+        for (const r of rejected) { const li = el('li'); li.append(el('code', typeof r?.path === 'string' ? r.path : 'unknown path'), el('span', ` — ${REJECT_TEXT[r?.reason] || human(r?.reason || 'rejected by artifact policy')}`)); list.append(li); }
+        box.append(list); patches.append(box);
+      }
+      const more = el('details', undefined, 'diff-details'), label = el('summary', 'Checkpoint details'); label.dataset.focus = 'diff-meta'; more.append(label);
+      const metaBox = el('div'); more.append(metaBox); lines(metaBox, [['Base commit', data.base_sha || 'unknown'], ['Captured', time(data.captured_at)], ['Diff hash', data.diff_hash || 'unknown'], ['Artifact', data.artifact_id || 'unknown'], ['Visible files', String(files.length)]]);
+      patches.append(more);
+    }));
+    renderResult();
   }
   function renderChecks(data) {
     const signature = JSON.stringify([sourceAllowed, data]); if (signature === checksSignature) return; checksSignature = signature;
-    focusReplacement(checks, () => {
-      checks.replaceChildren(el('h2', 'Validation checks'), el('p', data.fully_validated === true ? 'All recorded checks passed.' : 'Not fully validated. Review failed, unavailable and not-run checks.'));
-      if (!data.items?.length) checks.append(el('p', 'No validation runs recorded.'));
-      for (const c of data.items || []) {
-        const box = el('section', undefined, 'setting-box');
-        const command = sourceAllowed ? Array.isArray(c.command) ? c.command.join(' ') : c.command?.argv?.join(' ') || c.command?.command || c.command?.shell || 'Command unavailable' : 'Command redacted';
-        box.append(el('h3', `Check ${c.ordinal} · ${human(c.status)}`), el('pre', command), el('p', `${c.required ? 'Required' : 'Optional'} · Source ${human(c.source)} · Exit ${c.exit_code ?? 'not recorded'} · ${time(c.started_at)} → ${time(c.finished_at)}`));
-        const env = c.environment || {}; box.append(el('p', `Environment: image ${env.image_id || env.image || 'unknown'} · Network ${env.network || 'unknown'} · Working directory ${env.cwd || env.working_directory || 'unknown'}`));
-        box.append(el('pre', !sourceAllowed || c.output_redacted ? 'Output redacted' : c.output ?? 'Output unavailable')); checks.append(box);
+    focusReplacement(checks, () => keepOpen(checks, () => {
+      const items = Array.isArray(data.items) ? data.items : [];
+      checks.replaceChildren(el('h2', 'Checks'), el('p', data.fully_validated === true ? `All recorded checks passed${items.length ? ` (${items.length} of ${items.length})` : ''}.` : 'Not fully validated. Review failed, unavailable and not-run checks.', data.fully_validated === true ? 'checks-summary is-ok' : 'checks-summary session-warning'));
+      if (!items.length) checks.append(el('p', 'No validation runs recorded.'));
+      for (const c of items) {
+        const box = el('section', undefined, 'check-item');
+        const command = sourceAllowed ? Array.isArray(c.command) ? c.command.join(' ') : c.command?.command || c.command?.argv?.join(' ') || c.command?.shell || 'Command unavailable' : 'Command redacted';
+        const ran = Number.isFinite(c.started_at) && Number.isFinite(c.finished_at) ? duration((c.finished_at - c.started_at) / 1000) : null;
+        const head = el('h3', undefined, 'check-head'); head.append(badge(c.status === 'passed' ? 'ok' : c.status === 'not_run' ? 'off' : c.status === 'unavailable' ? 'warn' : 'danger', human(c.status)), el('span', ` Check ${scalar(c.ordinal)}`), el('small', ` · ${c.required ? 'required' : 'optional'}${ran ? ` · ${ran}` : ''}${Number.isSafeInteger(c.exit_code) ? ` · exit ${c.exit_code}` : ''}`, 'detail-muted'));
+        const cmd = el('pre', undefined, 'check-command'); cmd.append(el('code', command));
+        box.append(head, cmd);
+        if (sourceAllowed && typeof c.command?.expected === 'string' && c.command.expected) box.append(el('p', `Expected: ${c.command.expected}`, 'detail-muted'));
+        box.append(el('h4', 'Output'), el('pre', !sourceAllowed || c.output_redacted ? 'Output redacted' : c.output ?? 'Output unavailable', 'check-output'));
+        const env = c.environment || {}, more = el('details', undefined, 'check-env'), label = el('summary', 'Environment'); label.dataset.focus = `env-${scalar(c.ordinal)}`; more.append(label);
+        more.append(el('p', `Image ${env.image_id || env.image || 'unknown'} · Network ${env.network || 'unknown'} · Working directory ${env.cwd || env.working_directory || 'unknown'} · Source ${human(c.source)} · Exit ${c.exit_code ?? 'not recorded'} · ${time(c.started_at)} → ${time(c.finished_at)}`));
+        box.append(more); checks.append(box);
       }
-    });
+    }));
   }
   async function loadEvents(token) {
     const page = await request(`/api/sessions/${enc(currentID)}/events?after=${cursor}&limit=200`);
@@ -597,7 +917,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     if (!Array.isArray(page.items) || !Number.isSafeInteger(page.next_seq) || page.next_seq < cursor) throw new Error('Unsupported event replay response.');
     if (page.source_available === false) { if (sourceAllowed) clearSource(); sourceAllowed = false; }
     for (const e of page.items) if (e.session_id === currentID && Number.isSafeInteger(e.seq) && e.seq > 0) events.set(e.seq, e);
-    cursor = page.next_seq; renderEvents(); moreEvents.hidden = !page.has_more;
+    cursor = page.next_seq; renderEvents(); moreEvents.hidden = !page.has_more; renderResult();
   }
   async function loadMessages(token, append = false) {
     const page = await request(`/api/sessions/${enc(currentID)}/messages?limit=50${append && messageCursor ? `&cursor=${enc(messageCursor)}` : ''}`);
@@ -618,23 +938,28 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (!live(token)) return;
       if (data.id !== currentID || typeof data.state !== 'string') throw new Error('Unsupported session response.');
       onAvailable(); current = data; lastConfirmed = Date.now();
-      if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token)) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }
+      if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token)) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; if (typeof plan.title === 'string' && plan.title.trim()) planTitles.set(plan.id, plan.title.trim()); renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }
       if (data.source_available === false) { if (sourceAllowed) clearSource(); sourceAllowed = false; }
       else if (!sourceAllowed) { sourceAllowed = true; events.clear(); history.clear(); cursor = 0; messageCursor = null; }
       renderSummary(); renderQuestion();
       const results = await Promise.allSettled([loadEvents(token), loadMessages(token), request(`/api/sessions/${enc(currentID)}/diff`), request(`/api/sessions/${enc(currentID)}/validations`)]);
       if (!live(token)) return;
       if (results.some(r => r.status === 'fulfilled' && r.value?.source_available === false)) { if (sourceAllowed) clearSource(); sourceAllowed = false; renderQuestion(); }
+      if (results[3].status === 'fulfilled') { lastChecks = results[3].value; renderChecks(results[3].value); } else checks.replaceChildren(el('h2', 'Checks'), el('p', `Checks unavailable: ${results[3].reason.message}`));
       if (results[2].status === 'fulfilled') renderDiff(results[2].value); else renderDiff({available:false,reason:results[2].reason.code || 'request_failed'});
-      if (results[3].status === 'fulfilled') { lastChecks = results[3].value; renderChecks(results[3].value); renderSummary(); } else checks.replaceChildren(el('h2', 'Validation checks'), el('p', `Checks unavailable: ${results[3].reason.message}`));
+      renderSummary();
       const failure = results.find(r => r.status === 'rejected');
-      if (failure) say(`Some saved state is unavailable: ${failure.reason.message}. Reconnect retries from event #${cursor}.`);
-      else if (!current.stop_requested) say(sourceAllowed ? `Connected · Saved activity through #${cursor}. Browser disconnects do not stop background work.` : 'Source unavailable. Previously displayed source has been cleared.');
+      const tip = `Saved activity through #${cursor}. Closing this page does not stop background work.`;
+      setConnection('live', '', tip);
+      if (failure) say(`Some saved state is unavailable: ${failure.reason.message}. Reconnect retries from event #${cursor}.`, true);
+      else if (!sourceAllowed) say('Source unavailable. Previously displayed source has been cleared.', true);
+      else if (statusEphemeral && (terminal.has(current.state) || !current.stop_requested)) say('');
     } catch (e) {
       if (!live(token)) return;
       // Source cannot be shown without a live policy check; the last confirmed state and phase stay visible.
       clearSource(false); renderProgress();
-      say(e.status === undefined && lastConfirmed ? `Reconnecting… Last update ${relativeTime(lastConfirmed)}. Source details stay hidden until the connection is confirmed.` : `Session unavailable: ${e.message}. Reconnect to inspect current saved state.`);
+      if (e.status === undefined && lastConfirmed) { setConnection('reconnecting', `last update ${relativeTime(lastConfirmed)}`); say('Source details stay hidden until the connection is confirmed.', true); }
+      else { setConnection('offline'); say(`Session unavailable: ${e.message}. Reconnect to inspect current saved state.`, true); }
     }
     finally { if (epoch === token) { refreshBusy = false; schedule(token); } }
   }
@@ -643,102 +968,154 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     const token = epoch, focused = document.activeElement === b;
     b.disabled = true;
     try { await fn(token); } catch (e) { if (live(token)) say(e.message); }
-    finally { if (live(token)) { b.disabled = b === stop ? Boolean(current && terminal.has(current.state) && current.runner?.containment !== 'failed') : b === retry ? Boolean(current && (!terminal.has(current.state) || current.successor_id)) : b === send ? Boolean(!sourceAllowed || messageSending || (current && !pendingMessage && (terminal.has(current.state) || current.stop_requested))) : false; if (focused && (document.activeElement === document.body || !document.activeElement?.isConnected)) b.focus(); } }
+    finally { if (live(token)) { b.disabled = b === stop ? stopLocked() : b.dataset?.retry || b === retry ? retryLocked() : b === send ? sendLocked() : false; if (focused && (document.activeElement === document.body || !document.activeElement?.isConnected)) b.focus(); } }
+  }
+  // Retry reuses one idempotency key until the server gives a definite answer; every retry control shares it.
+  const retryAction = b => mutate(b, async t => {
+    const openedID = currentID; retryKey ||= globalThis.crypto.randomUUID(); storage.set(`session-retry-${currentID}`, retryKey);
+    try { const answer = await request(`/api/sessions/${enc(currentID)}/retry`, 'POST', {idempotency_key:retryKey}); if (!live(t)) return; if (!answer.session_id) throw new Error('Retry outcome unknown; retry the same request.'); location.hash = `#/sessions/${enc(answer.session_id)}`; }
+    catch(e) { if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); } throw e; }
+  });
+  function filtersActive() { return Boolean(listFilters && (listFilters.query.value.trim() || listFilters.state.value || listFilters.repository.value || listFilters.date.value)); }
+  function renderRepositoryFilter() {
+    const select = listFilters?.repository; if (!select) return;
+    const ids = [...new Set([...listItems.values()].flatMap(s => repos(s).map(r => r.repository_id)).filter(Boolean))].sort((a, b) => repoName(a).localeCompare(repoName(b)));
+    const chosen = select.value; select.replaceChildren();
+    const all = el('option', 'All repositories'); all.value = ''; select.append(all);
+    for (const id of ids) { const option = el('option', repoName(id, true)); option.value = id; select.append(option); }
+    select.value = ids.includes(chosen) ? chosen : '';
   }
   function renderList() {
-    activity.replaceChildren();
-    const query = (listFilters?.query.value || '').trim().toLowerCase(), state = listFilters?.state.value || '', repo = (listFilters?.repository.value || '').trim().toLowerCase(), date = listFilters?.date.value ? new Date(listFilters.date.value).getTime() : null;
+    const query = (listFilters?.query.value || '').trim().toLowerCase(), state = listFilters?.state.value || '', repo = listFilters?.repository.value || '', date = listFilters?.date.value ? new Date(listFilters.date.value).getTime() : null;
     let visible = 0;
-    for (const s of listItems.values()) {
-      const repos = (s.repositories || []).map(r => r.repository_id).join(' ');
-      if ((query && !`${s.id} ${s.plan_version_id} ${s.phase} ${repos}`.toLowerCase().includes(query)) || (repo && !repos.toLowerCase().includes(repo)) || (state === 'active' && terminal.has(s.state)) || (state === 'terminal' && !terminal.has(s.state)) || (date !== null && s.created_at < date)) continue;
-      ++visible;
-      const row = el('article', undefined, 'setting-box');
-      link(row, `${human(s.state)} · Attempt ${s.attempt ?? '?'} · ${s.id}`, `#/sessions/${enc(s.id)}`);
-      const duration = s.created_at ? `${Math.max(0,Math.floor(((s.finished_at || Date.now()) - (s.started_at || s.created_at))/1000))} seconds` : 'unknown';
-      row.append(el('p', `Phase ${human(s.phase)} · Elapsed ${duration} · Created ${time(s.created_at)} · Last activity ${time(s.updated_at)} (#${s.latest_seq ?? '?'}) · Plan ${s.plan_version_id}`));
-      for (const r of s.repositories || []) row.append(el('p', `${r.repository_id} · ${r.role} @ ${r.base_sha || 'unknown'}`));
-      activity.append(row);
-    }
-    say(listItems.size ? `${visible} visible of ${listItems.size} loaded sessions. Filters apply to loaded pages; load more history to search further.` : 'No saved sessions. Start from a ready, saved plan in Ask.');
-    if (listItems.size && !visible) activity.append(el('p','No loaded sessions match these filters.'));
+    focusReplacement(activity, () => {
+      activity.replaceChildren();
+      for (const s of listItems.values()) {
+        const ids = repos(s).map(r => r.repository_id), title = planTitle(s) || 'Saved plan';
+        const haystack = `${title} ${s.id} ${s.plan_version_id} ${s.phase} ${s.state} ${ids.join(' ')} ${ids.map(id => `${repoName(id)} ${repoName(id, true)}`).join(' ')}`.toLowerCase();
+        if ((query && !haystack.includes(query)) || (repo && !ids.includes(repo)) || (state === 'active' && terminal.has(s.state)) || (state === 'terminal' && !terminal.has(s.state)) || (date !== null && s.created_at < date)) continue;
+        ++visible;
+        const b = phaseBadge(s), row = el('li', undefined, `session-row${s.state === 'waiting_for_user' ? ' needs-input' : ''}`);
+        const top = el('div', undefined, 'session-row-top'); top.append(badge(b.tone, b.label));
+        const a = link(top, title, `#/sessions/${enc(s.id)}`); a.className = 'session-row-title'; a.setAttribute('title', `${title} · ${s.id}`); a.dataset.focus = `row-${s.id}`;
+        const facts = el('p', undefined, 'session-row-meta'), part = node => { if (facts.childNodes.length) facts.append(sep()); facts.append(node); return node; };
+        const main = primaryRepo(s);
+        if (main) part(el('span', repoName(main.repository_id), 'session-row-repo')).setAttribute('title', `${repoName(main.repository_id, true)} (${main.repository_id})`);
+        part(el('span', `attempt ${s.attempt ?? '?'}`));
+        if (Number.isFinite(s.created_at)) part(el('span', relativeTime(s.created_at))).setAttribute('title', `Created ${time(s.created_at)}`);
+        const seconds = elapsedSeconds(s); if (seconds !== null) part(el('span', terminal.has(s.state) ? `ran ${duration(seconds)}` : `running ${duration(seconds)}`));
+        const sha = shortSha(main?.base_sha); if (sha) part(el('code', `${main.base_branch || 'base'}@${sha}`)).setAttribute('title', `Base ${main.base_sha}`);
+        row.append(top, facts); activity.append(row);
+      }
+    });
+    listEmpty.replaceChildren(); listEmpty.hidden = true;
+    if (!listItems.size) { listEmpty.hidden = false; listEmpty.append(el('p', 'No sessions yet. A session starts from a ready, saved plan.'), el('p', 'Ask a question about a repository, turn the answer into a plan, then start a session from it.', 'detail-muted')); }
+    else if (!visible) { listEmpty.hidden = false; listEmpty.append(el('p', 'No loaded sessions match these filters.')); }
+    say(filtersActive() && listItems.size ? `${visible} of ${plural(listItems.size, 'loaded session')} match.${listCursor ? ' Load more to search older sessions.' : ''}` : '');
   }
   async function list(token, append = false) {
-    say('Loading saved sessions…');
+    say('Loading sessions…');
     try {
       const page = await request(`/api/sessions?limit=25${append && listCursor ? `&cursor=${enc(listCursor)}` : ''}`);
       if (!live(token)) return;
       if (!Array.isArray(page.items)) throw new Error('Unsupported sessions response.'); onAvailable();
       if (!append) listItems = new Map();
       for (const s of page.items) listItems.set(s.id, s);
-      publishRecent([...listItems.values()]);
-      listCursor = page.next_cursor; moreEvents.hidden = !listCursor; renderList();
+      const all = [...listItems.values()];
+      publishRecent(all);
+      listCursor = page.next_cursor; moreEvents.hidden = !listCursor; renderRepositoryFilter(); renderList();
+      resolveNames(all, token, () => { publishRecent([...listItems.values()]); renderRepositoryFilter(); renderList(); });
     } catch (e) {
       if (!live(token)) return;
       if (e.status === 404) {
         // Nothing here can work without the session service; leave only the explanation and the way back.
         for (const control of listControls) control.remove();
-        moreEvents.hidden = true;
+        moreEvents.hidden = true; listEmpty.hidden = true;
         say("Sessions aren't available in this build. Plans you make in Ask are saved and can start a session once it is.");
       } else say(`Sessions unavailable: ${e.message}`);
     }
   }
+  function toolbarField(parent, label, type, cls) {
+    const wrap = el('label', undefined, `session-filter ${cls || ''}`.trim()); wrap.append(el('span', label, 'sr-only'));
+    const input = el(type === 'select' ? 'select' : 'input'); if (type !== 'select') input.type = type; wrap.append(input); parent.append(wrap); return input;
+  }
   function open() {
-    clearTimeout(timer); ++epoch; refreshBusy = false; publicationArea?.dispose(); publicationArea = null; active = /^#\/sessions(?:\/[^/]+)?$/.test(location.hash); if (!active) return;
+    clearTimeout(timer); ++epoch; refreshBusy = false; publicationArea?.dispose(); publicationArea = null; pubInfo = {mode: 'waiting', pub: null}; active = /^#\/sessions(?:\/[^/]+)?$/.test(location.hash); if (!active) return;
     const token = epoch; try { currentID = location.hash.startsWith('#/sessions/') ? decodeURIComponent(location.hash.slice(11)) : null; } catch { currentID = null; }
     const openedID = currentID;
-    panel.replaceChildren(); panel.classList.toggle('session-detail', location.hash.startsWith('#/sessions/')); status = el('p'); status.setAttribute('role', 'status'); panel.append(status);
-    events.clear(); history.clear(); cursor = 0; messageCursor = null; sourceAllowed = true; current = null; messageSending = false; targetEdited = false; diffSignature = null; checksSignature = null;
+    panel.replaceChildren(); panel.classList.toggle('session-detail', location.hash.startsWith('#/sessions/')); panel.classList.toggle('session-index', !location.hash.startsWith('#/sessions/'));
+    status = el('p', '', 'session-status'); status.setAttribute('role', 'status'); statusEphemeral = false; conn = null; reconnect = null;
+    events.clear(); history.clear(); cursor = 0; messageCursor = null; sourceAllowed = true; current = null; messageSending = false; targetEdited = false; diffSignature = null; checksSignature = null; lastDiff = null;
     if (!currentID) {
-      link(panel, 'Create a plan in Ask', '#/ask'); const reload = button(panel, 'Reload sessions', () => list(token));
-      const filters = el('form', undefined, 'settings-form catalog-filters'); panel.append(filters); listControls = [reload, filters];
-      const query = field(filters, 'Search loaded sessions', '', 'search');
-      const stateLabel = el('label', 'Session state'); const state = el('select'); for (const [value,text] of [['','All states'],['active','Active'],['terminal','Terminal']]) { const option=el('option',text);option.value=value;state.append(option); } stateLabel.append(state);filters.append(stateLabel);
-      const repository = field(filters, 'Repository in loaded sessions', '', 'search'); const date = field(filters, 'Created on or after', '', 'date');
-      listFilters = {query,state,repository,date}; filters.addEventListener('input',renderList);filters.addEventListener('change',renderList);filters.addEventListener('submit',e=>e.preventDefault());
-      activity = el('div'); panel.append(activity); moreEvents = button(panel, 'More sessions', () => list(token, true)); moreEvents.hidden = true; list(token); return;
+      const bar = el('form', undefined, 'session-toolbar'); bar.setAttribute('role', 'search'); bar.setAttribute('aria-label', 'Filter sessions');
+      const query = toolbarField(bar, 'Search sessions', 'search', 'is-search'); query.setAttribute('placeholder', 'Search plans, repositories, ids…');
+      const state = toolbarField(bar, 'Session state', 'select'); for (const [value, text] of [['', 'All states'], ['active', 'Active'], ['terminal', 'Finished']]) { const option = el('option', text); option.value = value; state.append(option); }
+      const repository = toolbarField(bar, 'Repository', 'select');
+      const more = el('details', undefined, 'session-filter-more'); const moreLabel = el('summary', 'Date'); moreLabel.setAttribute('aria-label', 'Date filter'); more.append(moreLabel); bar.append(more);
+      const dateWrap = el('label', 'Created on or after', 'session-filter is-date'); const date = el('input'); date.type = 'date'; dateWrap.append(date); more.append(dateWrap);
+      const reload = button(bar, 'Reload', () => list(token)); reload.classList.add('btn', 'btn-ghost', 'session-reload'); reload.setAttribute('aria-label', 'Reload sessions');
+      const top = el('div', undefined, 'session-index-top'); top.append(bar); const ask = link(top, 'Create a plan in Ask', '#/ask'); ask.className = 'session-ask-link';
+      panel.append(top, status); listControls = [bar];
+      listFilters = {query, state, repository, date}; bar.addEventListener('input', renderList); bar.addEventListener('change', renderList); bar.addEventListener('submit', e => e.preventDefault());
+      activity = el('ul', undefined, 'session-list'); activity.setAttribute('aria-label', 'Sessions'); listEmpty = el('div', undefined, 'session-empty'); listEmpty.hidden = true;
+      panel.append(activity, listEmpty); moreEvents = button(panel, 'More sessions', () => list(token, true)); moreEvents.classList.add('btn'); moreEvents.hidden = true; list(token); return;
     }
     plan = null; lastChecks = null; lastConfirmed = null;
-    // Three panes: the rail (shell), the center thread, and a details pane the page owns so it cannot be dismissed.
-    const main = el('div', undefined, 'session-main'), pane = el('aside', undefined, 'session-pane'); pane.setAttribute('aria-label', 'Session details');
-    panel.append(main, pane);
-    const top = el('div', undefined, 'session-top'); main.append(top);
-    origin = el('p', undefined, 'session-origin'); phase = el('span', undefined, 'session-phase'); top.append(origin, phase);
-    main.append(status);
-    const nav = el('div', undefined, 'session-actions'); main.append(nav);
-    link(nav, 'All sessions', '#/sessions'); button(nav, 'Reconnect / refresh session', () => refresh(token));
+    // Header spans the page; below it the thread (main) and a details pane the page owns so it cannot be dismissed.
+    header = el('header', undefined, 'session-header');
+    const crumb = el('p', undefined, 'session-crumb'); link(crumb, '← All sessions', '#/sessions'); header.append(crumb);
+    const titleRow = el('div', undefined, 'session-title-row'); titleNode = el('h2', 'Session', 'session-title'); titleNode.setAttribute('tabindex', '-1');
+    phase = el('span', undefined, 'session-phase'); conn = el('span', undefined, 'session-live'); conn.setAttribute('role', 'status');
+    titleRow.append(titleNode, phase, conn); meta = el('p', undefined, 'session-meta'); header.append(titleRow, meta);
+    const nav = el('div', undefined, 'session-actions'); header.append(nav);
+    stop = button(nav, 'Stop session', b => mutate(b, async t => { const answer = await request(`/api/sessions/${enc(currentID)}/stop`, 'POST', {}); if (!live(t)) return; say(`Stop ${human(answer.state || 'requested')}. Waiting for verified process and container termination.`); await refresh(t); })); stop.disabled = true; stop.classList.add('btn', 'btn-danger', 'session-stop');
+    stop.setAttribute('title', 'Stopping ends the agent and its container; saved checkpoints stay.');
     retryKey = storage.get(`session-retry-${currentID}`);
-    retry = button(nav, 'Retry as a new attempt', b => mutate(b, async t => { retryKey ||= globalThis.crypto.randomUUID(); storage.set(`session-retry-${currentID}`, retryKey); try { const result = await request(`/api/sessions/${enc(currentID)}/retry`, 'POST', {idempotency_key:retryKey}); if (!live(t)) return; if (!result.session_id) throw new Error('Retry outcome unknown; retry the same request.'); location.hash = `#/sessions/${enc(result.session_id)}`; } catch(e) { if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); } throw e; } })); retry.disabled = true;
-    summary = region(main, 'Loading session');
-    activity = region(main, 'Activity'); moreEvents = button(main, 'Load more activity', b => mutate(b, () => loadEvents(token))); moreEvents.hidden = true;
-    messageRows = region(main, 'Messages and delivery'); moreMessages = button(main, 'More messages', b => mutate(b, () => loadMessages(token, true))); moreMessages.hidden = true;
+    retry = button(nav, 'Retry as a new attempt', retryAction); retry.disabled = true; retry.hidden = true; retry.classList.add('btn');
+    prAction = button(nav, 'Create draft PR…', () => { selectTab(3); const area = publication; const target = area.querySelector('[data-focus="create"]') || area.querySelector('[data-focus="pr-link"]') || area.querySelector('h2'); target?.focus(); }); prAction.hidden = true; prAction.classList.add('btn'); prAction.setAttribute('aria-controls', 'session-tabpanel-3');
+    reconnect = button(nav, 'Reconnect', () => refresh(token)); reconnect.classList.add('btn', 'btn-ghost'); reconnect.hidden = true;
+    header.append(status);
+    const main = el('div', undefined, 'session-main'), pane = el('aside', undefined, 'session-pane'); pane.setAttribute('aria-label', 'Session details');
+    panel.append(header, main, pane); setConnection('connecting');
+    result = el('section', undefined, 'session-section session-result'); result.hidden = true; result.setAttribute('aria-label', 'Result'); main.append(result);
+    activity = el('section', undefined, 'session-section session-activity'); activity.append(el('h2', 'Activity'), el('p', 'Loading saved activity…', 'detail-muted')); main.append(activity);
+    moreEvents = button(main, 'Load more activity', b => mutate(b, () => loadEvents(token))); moreEvents.hidden = true; moreEvents.classList.add('btn');
+    messageRows = el('section', undefined, 'session-section session-messages'); messageRows.hidden = true; main.append(messageRows);
+    moreMessages = button(main, 'More messages', b => mutate(b, () => loadMessages(token, true))); moreMessages.hidden = true; moreMessages.classList.add('btn');
     questionArea = el('div', undefined, 'session-question'); main.append(questionArea);
-    const form = el('form', undefined, 'session-composer'); main.append(form);
-    const targetLabel = el('label', 'Message target'); responseTo = el('select'); targetLabel.append(responseTo); form.append(targetLabel); responseTo.addEventListener('change', () => { targetEdited = true; });
-    const label = el('label', 'Follow-up or question reply'); compose = el('textarea'); compose.maxLength = 8000; compose.rows = 3; compose.setAttribute('placeholder', 'Guide the agent while it works…'); label.append(compose); form.append(label);
-    form.append(el('p', 'Clarifications stay within the saved plan. Goal, writable scope or grant changes require an amended plan. Queued does not mean the agent has read your message.', 'detail-muted'));
+    ended = el('p', undefined, 'session-ended'); ended.hidden = true; main.append(ended);
+    form = el('form', undefined, 'session-composer'); main.append(form);
+    const label = el('label', undefined, 'session-composer-field'); composeLabel = el('span', 'Send guidance', 'session-composer-label'); compose = el('textarea'); compose.maxLength = 8000; compose.rows = 3; compose.setAttribute('placeholder', 'Guide the agent while it works…'); label.append(composeLabel, compose);
+    targetLabel = el('label', undefined, 'session-composer-target'); targetLabel.append(el('span', 'Message target', 'detail-muted')); responseTo = el('select'); targetLabel.append(responseTo); targetLabel.hidden = true;
+    responseTo.addEventListener('change', () => { targetEdited = true; labelComposer(); });
+    form.append(label, targetLabel);
     const row = el('div', undefined, 'session-composer-actions'); form.append(row);
-    send = el('button', 'Send message', 'button'); send.type = 'submit'; row.append(send); send.disabled = true;
-    stop = button(row, 'Stop session', b => mutate(b, async t => { const result = await request(`/api/sessions/${enc(currentID)}/stop`, 'POST', {}); if (!live(t)) return; say(`Stop ${human(result.state || 'requested')}. Waiting for verified process and container termination.`); await refresh(t); })); stop.disabled = true; stop.classList.add('session-stop');
-    row.append(el('span', 'Stopping ends the agent and its container; saved checkpoints stay.', 'detail-muted'));
+    row.append(el('p', 'Guidance stays within the saved plan; changing the goal, writable scope or grants needs an amended plan.', 'detail-muted'));
+    send = el('button', 'Send', 'button btn btn-primary'); send.type = 'submit'; row.append(send); send.disabled = true;
     pendingMessage = storage.get(`session-message-${currentID}`); if (pendingMessage) compose.value = pendingMessage.content || '';
     form.addEventListener('submit', e => { e.preventDefault(); if (send.disabled || !form.isConnected || !live(token)) return; sendMessage(send, compose.value.trim(), responseTo.value || null, true); });
+    summary = el('div', undefined, 'session-run'); main.append(summary);
     const tabList = el('div', undefined, 'session-tabs'); tabList.setAttribute('role', 'tablist'); tabList.setAttribute('aria-label', 'Session details'); pane.append(tabList);
     progress = el('section', undefined, 'session-section'); patches = el('section', undefined, 'session-section session-side'); checks = el('section', undefined, 'session-section session-side'); publication = el('section', undefined, 'session-section');
-    patches.append(el('h2', 'Diff')); checks.append(el('h2', 'Validation checks'));
+    patches.append(el('h2', 'Diff')); checks.append(el('h2', 'Checks'));
     const tabs = [['Progress', progress], ['Diff', patches], ['Checks', checks], ['PR', publication]].map(([name, body], i) => {
       const tab = el('button', name, 'session-tab'); tab.type = 'button'; tab.id = `session-tab-${i}`; body.id = `session-tabpanel-${i}`;
       tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', body.id); body.setAttribute('role', 'tabpanel'); body.setAttribute('aria-labelledby', tab.id);
       tabList.append(tab); pane.append(body); return [tab, body];
     });
     const select = i => tabs.forEach(([tab, body], j) => { tab.setAttribute('aria-selected', String(i === j)); tab.setAttribute('tabindex', i === j ? '0' : '-1'); body.hidden = i !== j; });
+    selectTab = select;
     tabs.forEach(([tab], i) => {
       tab.addEventListener('click', () => select(i));
       tab.addEventListener('keydown', event => { const next = {ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1}[event.key]; if (next === undefined) return; event.preventDefault(); select(next); tabs[next][0].focus(); });
     });
-    publicationArea = createPublicationArea({section: publication, sessionID: currentID, request, pollMs, isLive: () => live(token)});
+    publicationArea = createPublicationArea({section: publication, sessionID: currentID, request, pollMs, isLive: () => live(token), onChange: info => {
+      const before = pubInfo; pubInfo = info;
+      if (!current || (before.mode === info.mode && before.pub?.state === info.pub?.state && before.pub?.pull_request_state === info.pub?.pull_request_state && before.pub?.pull_request_number === info.pub?.pull_request_number)) return;
+      const b = phaseBadge(current, lastChecks, info.pub); phase.replaceChildren(badge(b.tone, b.label)); renderPrAction(); renderResult();
+    }});
     select(0); renderProgress();
-    request('/api/sessions?limit=25').then(page => { if (live(token) && Array.isArray(page?.items)) publishRecent(page.items); }, () => {});
+    request('/api/sessions?limit=25').then(page => { if (!live(token) || !Array.isArray(page?.items)) return; publishRecent(page.items); resolveNames(page.items, token, () => { publishRecent(page.items); if (current) renderHeader(); }); }, () => {});
     refresh(token);
   }
   window.addEventListener('hashchange', open);

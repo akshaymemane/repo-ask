@@ -16,6 +16,7 @@ function bridge(){
 }
 const button=(root,text)=>[...root.querySelectorAll('button')].find(n=>n.textContent===text);
 const field=(root,text)=>[...root.querySelectorAll('label')].find(n=>n.textContent.startsWith(text))?.querySelector('input, textarea, select');
+const composer=root=>field(root,'Send guidance');
 const wait=async predicate=>{for(let i=0;i<300;i++){if(predicate())return;await settle(2);}assert.ok(predicate(),'UI did not settle');};
 
 test('real FeatureAPI/profile/plan/session services: immutable launch, durable message replay, diff/checks, retry and access redaction',async()=>{
@@ -33,8 +34,8 @@ test('real FeatureAPI/profile/plan/session services: immutable launch, durable m
   const saved=(await api.call(`/api/plans/${plan.id}`)).body;assert.equal(saved.version.version,2);assert.equal(saved.version.content.publication.policy,'on_success_draft');assert.equal((await api.call(`/api/plans/${plan.id}?version_id=${plan.version.id}`)).body.version.content.publication.policy,'manual_draft');
   button(ask.panel,'Start session').click();await wait(()=>b.window.location.hash.startsWith('#/sessions/'));const sid=b.window.location.hash.slice(11);
   const request=async(path,method='GET',body)=>{const result=await api.call(path,method,body);if(result.status>=400){const e=new Error(result.body.code);e.status=result.status;e.code=result.body.code;throw e;}return result.body;};
-  sessionsUI=createSessionPanel({host:b.document.getElementById('sessions-content'),request,pollMs:1e6});sessionsUI.open();await wait(()=>!button(sessionsUI.panel,'Send message').disabled);
-  input(field(sessionsUI.panel,'Follow-up'),'Please preserve the public function signature');button(sessionsUI.panel,'Send message').click();await wait(()=>visibleText(sessionsUI.panel).includes('Clarification · queued'));
+  sessionsUI=createSessionPanel({host:b.document.getElementById('sessions-content'),request,pollMs:1e6});sessionsUI.open();await wait(()=>!button(sessionsUI.panel,'Send').disabled);
+  input(composer(sessionsUI.panel),'Please preserve the public function signature');button(sessionsUI.panel,'Send').click();await wait(()=>visibleText(sessionsUI.panel).includes('Guidance · queued'));
   const messages=await api.call(`/api/sessions/${sid}/messages?limit=50`);assert.equal(messages.body.items.length,1);assert.equal(messages.body.items[0].content,'Please preserve the public function signature');
   await api.call('/test/run','POST');await sessionsUI.refresh();await settle();
   assert.match(visibleText(sessionsUI.panel),/completed/);assert.match(visibleText(sessionsUI.panel),/0.01 USD \(reported\)/);assert.match(visibleText(sessionsUI.panel),/scripted-fixture/);
