@@ -3,7 +3,7 @@
 ## Identity / submission history
 
 - Author: Codex retrieval-engineer; branch `task/m1-index`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-m1-index`.
+- Worktree: `../opendevin-m1-index`.
 - Original assignment base: `db85564688f25ab7345cdcd689fe18fd160c6d7a`.
 - Coordinator schema5 prerequisite: `e7c4a5e328b69207804cbbbbf3fdcae7deb0f4bd`.
 - Original submission / R1 reviewed code: `d8f1005eeb13f544c3fc465ff2fc66acaa2c4a7d`.
@@ -64,7 +64,7 @@ local GitHub Git fetch/cache or live semantic-model quality is made.
 
 ## Actual verification
 
-Dependency interpreter: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+Dependency interpreter: `./.venv/bin/python`.
 
 | Command / check | Result |
 | --- | --- |

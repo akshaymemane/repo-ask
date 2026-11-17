@@ -3,7 +3,7 @@
 ## Identity
 
 - Author: Claude (Claude Code, Opus 5.5), session-runtime persona. No nested agents and no model invocations.
-- Branch/worktree: `task/m2-sessions`, `/Users/apple/workspace/vibe-coding/opendevin-m2-sessions`. Base: `28343c3`.
+- Branch/worktree: `task/m2-sessions`, `../opendevin-m2-sessions`. Base: `28343c3`.
 - Dependency cherry-picks (explicit dependencies, NOT root-integrated):
   - adapter `6789421`→`595d6b7`, `9de6eeb`→`952a1b4`, `73a682f`→`3c71442`, `ea7de6d`→`870ec9d`
   - profiles `b5ca0c4`→`ccc1469`, `551e988`→`8a0b712`

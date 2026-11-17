@@ -23,8 +23,8 @@
 
 ## Checks run
 
-- `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs` — 285/285 passed.
-- `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest tests.test_web_assets` — 2/2 passed.
+- `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/*.test.mjs` — 285/285 passed.
+- `./.venv/bin/python -m unittest tests.test_web_assets` — 2/2 passed.
 - `git diff --check` — passed.
 - Coordinator browser preflight: desktop coherent; compact overflow isolated to `.persistent-ask` and corrected. Final two-viewport artifacts and evidence checker remain an integration/review prerequisite.
 

@@ -3,7 +3,7 @@
 ## Identity
 
 - Author: native Codex `/root/adapter_spike`, integration/runtime personas; no nested agents.
-- Worktree/branch: `/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-spike`, `task/m2-adapter-spike`.
+- Worktree/branch: `../opendevin-m2-adapter-spike`, `task/m2-adapter-spike`.
 - Original base4f068baa1677579718f2d9c22acffc75cee88137. Runtime-only dependencies dae233d/e610f9e and d7d420e/c731a18; coordinator integrated/reviewed runtime separately.
 - Prior adapter commits6789421/9de6eeb received CHANGES REQUESTED. R1 implementation/probe source commit **73a682f8a4a1b9139972005ac86992ea218c18f4**. Final evidence commit follows; its exact SHA is sent to coordinator for re-review.
 - Task requirements: F07 AI-10/AI-11; F05 SE-04/SE-05/SE-08/SE-09/SE-11; callback proof also supports SE-07.

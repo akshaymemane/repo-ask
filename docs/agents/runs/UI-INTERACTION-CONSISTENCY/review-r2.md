@@ -19,6 +19,6 @@ No unresolved major or blocking findings remain. The existing tab relationships,
 
 ## Checks run
 
-`REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/shell.test.mjs tests/ui/mentions.test.mjs tests/ui/picker.test.mjs`
+`REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/shell.test.mjs tests/ui/mentions.test.mjs tests/ui/picker.test.mjs`
 
 Result: 26 passed, 0 failed.

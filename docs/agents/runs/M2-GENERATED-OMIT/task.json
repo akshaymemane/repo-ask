@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "62f33cd",
   "branch": "task/m2-generated-omit",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-generated-omit",
+  "worktree": "../opendevin-m2-generated-omit",
   "owner": "Codex runtime builder",
   "origin": "M2-PILOT live run: validation created __pycache__/*.pyc (excluded_generated, added); publication_snapshot and the publisher refused with rejected_paths, so no Python session that runs tests could publish.",
   "contract": "docs/contracts/m2-publication.md, 'Generated artifacts' paragraph (coordinator decision)",

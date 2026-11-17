@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "51f5839",
   "branch": "task/m2-session-ux",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-session-ux",
+  "worktree": "../opendevin-m2-session-ux",
   "owner": "Claude experience agent",
   "brief": "docs/agents/runs/M2-SESSION-UX/brief.md",
   "write_scope": ["repoask/web/sessions.js (session list, detail, publication panel presentation)", "repoask/web/shell.js and repoask/web/app.js (recent-session labels only)", "repoask/web/styles.css (session rules)", "repoask/web/ui.js (small shared helpers only)", "tests/ui/session*.test.mjs", "tests/ui/shell.test.mjs (recent labels only)", "docs/agents/runs/M2-SESSION-UX/**"],

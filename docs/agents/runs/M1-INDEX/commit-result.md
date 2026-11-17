@@ -12,7 +12,7 @@ R2 staging attempt failed with exit128:
 
 ```
 git add repoask/indexing/service.py tests/test_indexing_retry_limits.py docs/agents/runs/M1-INDEX
-fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-index/index.lock': Operation not permitted
+fatal: Unable to create './.git/worktrees/opendevin-m1-index/index.lock': Operation not permitted
 ```
 
 No R2 commit was created. HEAD remains the reviewed469954f. The linked worktree Git

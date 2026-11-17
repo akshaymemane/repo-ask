@@ -3,7 +3,7 @@
 ## Identity
 
 - Author: Codex runtime builder, original author; no delegated agents or independent approval claimed.
-- Branch/worktree: `task/m2-prs-r2`, `/Users/apple/workspace/vibe-coding/opendevin-m2-prs-r2`.
+- Branch/worktree: `task/m2-prs-r2`, `../opendevin-m2-prs-r2`.
 - Integration base: `97f8c30`; round-1 reviewed commit/start: `a273ab2`.
 - Submitted implementation SHA: `1631858` (followed by documentation-only evidence commit).
 - Contract: `docs/contracts/m2-publication.md`; task: `docs/agents/runs/M2-PRS/task.json`.
@@ -53,7 +53,7 @@ filter exact head/base/number and ref reads filter branch names.
 
 ## Commands actually run
 
-Interpreter for all commands: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+Interpreter for all commands: `./.venv/bin/python`.
 
 - `-m unittest discover -s tests -p 'test_publication*.py'`: final focused run, 32 tests, OK, exit 0.
 - `-m unittest discover -s tests -p 'test_github_*.py'`: 69 tests, OK, exit 0.

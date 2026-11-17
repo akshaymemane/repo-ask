@@ -1,6 +1,6 @@
 # Retrieval evaluation — synthetic, local and repeatable
 
-Run: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p 'test_indexing_*.py'`.
+Run: `./.venv/bin/python -m unittest discover -s tests -p 'test_indexing_*.py'`.
 The labeled fixture is `tests/fixtures/indexing/retrieval.json`; the behavior check
 `test_labeled_retrieval_evaluation` asserts the measured counts below. Uses real
 SQLite FTS5 and APSW/sqlite-vec cosine KNN, with an explicitly synthetic injected

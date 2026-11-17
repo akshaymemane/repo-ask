@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Claude (Claude Code, architect delegate); task card owner_session `6cf6a390-9b08-4792-aa22-fcda0f9faa11`
-- Persona, branch and worktree: architect · `task/contract-01` · `/Users/apple/workspace/vibe-coding/opendevin-contract-01`
+- Persona, branch and worktree: architect · `task/contract-01` · `../opendevin-contract-01`
 - Base SHA and submitted commit SHA(s): base `37e635abd527c53b7bdd77648e6c87ae17a3c970`; initial `91a80b6fdfa92aeccc6890a09e6eba459c83cdfe`; review-fix commit = its child on `task/contract-01` (SHA reported in session result; `git log -1 task/contract-01`)
 - Task card and requirement IDs: `docs/agents/runs/CONTRACT-01/task.json`; OP-01, OP-02, OP-04, OP-09, UX-02, UX-08, UX-10 (F12, F07 summary, F11)
 - Status: review

@@ -13,7 +13,7 @@ Docker/Claude acceptance remain coordinator gates.
 
 - Reviewer: fresh native Codex quality-review session `/root/review_profiles_r3`;
   not the author session.
-- Worktree/branch: `/Users/apple/workspace/vibe-coding/opendevin-m2-profiles`;
+- Worktree/branch: `../opendevin-m2-profiles`;
   `task/m2-profiles`.
 - Assigned base: `28343c3a6a5223bb6195678d2d55203692cdbc14`.
 - Prior submitted candidate: `551e98823f59b468432c69e158eab96612c747cf`.
@@ -50,7 +50,7 @@ Docker/Claude acceptance remain coordinator gates.
 From the exact candidate worktree, using the integration worktree interpreter:
 
 ```text
-/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python \
+./.venv/bin/python \
   -m unittest discover -s tests -p 'test_execution_profiles.py' -v
 ```
 

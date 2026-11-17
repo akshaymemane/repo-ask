@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "1653d74",
   "branch": "task/m2-adapter-followups",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-followups",
+  "worktree": "../opendevin-m2-adapter-followups",
   "owner": "Claude integration agent",
   "depends_on": ["M2-ADAPTER-SPIKE"],
   "source": "docs/agents/runs/M2-ADAPTER-SPIKE/review-r2.md minor findings 2 and 3; review-r3.md 'two round-two minor findings'",

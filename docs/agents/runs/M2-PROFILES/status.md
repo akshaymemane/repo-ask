@@ -2,7 +2,7 @@
 
 - State: review; R1 source fixes frozen at 4f8f698aa77a7d1f5beed0acb04e5ca37db6df2f, independent re-review pending.
 - Owner: native Codex `/root/transport_cancel`, temporary platform assignment.
-- Worktree/branch: /Users/apple/workspace/vibe-coding/opendevin-m2-profiles; task/m2-profiles.
+- Worktree/branch: ../opendevin-m2-profiles; task/m2-profiles.
 - Base: 28343c3a6a5223bb6195678d2d55203692cdbc14.
 - Explicit candidate dependency picks: 7d2f363 (original 6789421), 392ee23 (original 9de6eeb).
 - Exclusive writes: repoask/execution/profiles.py, tests/test_execution_profiles.py, this task's docs.

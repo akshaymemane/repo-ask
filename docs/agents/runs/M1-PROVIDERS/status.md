@@ -16,7 +16,7 @@
 - Durable handoff: handoff.md. Independent review and coordinator unrestricted
   HTTP/live synthetic Ollama checks remain; no self-approval/integration claim.
 - Local commit blocked: git add of only assigned paths exited 128:
-  fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-providers/index.lock': Operation not permitted.
+  fatal: Unable to create './.git/worktrees/opendevin-m1-providers/index.lock': Operation not permitted.
   No bypass attempted; no submitted commit exists. Coordinator must stage/commit
   these preserved files from an authorized environment before exact-commit review.
   Review patch snapshot: /private/tmp/m1-providers.patch (generated after handoff).

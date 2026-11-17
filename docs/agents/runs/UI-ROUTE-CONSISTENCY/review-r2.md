@@ -18,7 +18,7 @@ The corrective diff remains presentation-only. Ask/plan safety, repository mutat
 
 ## Checks run
 
-- `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/repositories.test.mjs tests/ui/settings.test.mjs tests/ui/session.test.mjs tests/ui/ask.test.mjs` — 57 passed, 0 failed.
-- `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest tests.test_web_assets` — 2 passed.
+- `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/repositories.test.mjs tests/ui/settings.test.mjs tests/ui/session.test.mjs tests/ui/ask.test.mjs` — 57 passed, 0 failed.
+- `./.venv/bin/python -m unittest tests.test_web_assets` — 2 passed.
 
 Approval is bound to exact commit `94acb61e6645d05a886d45ced0443a27d4988e7d`.

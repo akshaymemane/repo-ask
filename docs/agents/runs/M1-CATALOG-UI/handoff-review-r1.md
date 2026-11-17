@@ -2,7 +2,7 @@
 
 ## Identity and scope
 
-Author: Codex experience engineer; no spawned agents. Branch task/m1-catalog-ui; worktree /Users/apple/workspace/vibe-coding/opendevin-m1-catalog-ui. Review input: task-local review-r1.md, independent review of 6542bb0f00dd572ce3631babd51674e3d54e51c5. Follow-up base: f7f75fe (committed textarea fix preserved). No amendments or backend/manifest changes.
+Author: Codex experience engineer; no spawned agents. Branch task/m1-catalog-ui; worktree ../opendevin-m1-catalog-ui. Review input: task-local review-r1.md, independent review of 6542bb0f00dd572ce3631babd51674e3d54e51c5. Follow-up base: f7f75fe (committed textarea fix preserved). No amendments or backend/manifest changes.
 
 Changed implementation/test files: repoask/web/app.js, tests/ui/catalog.test.mjs, tests/ui/dom.mjs. Updated task-local status and this handoff. Existing reviewer input preserved without edits. F02 HTTP extension intentionally untouched.
 

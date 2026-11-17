@@ -2,7 +2,7 @@
 
 Command actually run (root virtual environment):
 
-`PYTHONPATH=. /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python tests/test_ask_routing_evaluation.py`
+`PYTHONPATH=. ./.venv/bin/python tests/test_ask_routing_evaluation.py`
 
 The checked-in fixture contains 250 repositories: 25 feature services and 225 realistic tooling/catalog distractors. Fifty user tasks describe customer outcomes and feature terminology using plurals, tense changes and paraphrases. Five extra tasks require two repositories. All IDs/metadata/source are synthetic. Actual GitHubService discovery (injected HTTP transport), actual IndexService catalog/search/source and real SQLite/jobs are used. Twenty-five repositories have indexed snapshots. No embeddings or model calls run; semantic degradation is disclosed by routing. A test-only temporary synthetic credential vault and generated test signing key are inherited from the existing GitHub test fixture; no configured credentials are read.
 

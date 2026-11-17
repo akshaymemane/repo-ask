@@ -2,7 +2,7 @@
 
 - State: review; independent exact-commit Claude boundary review pending.
 - Owner: Codex provider integration engineer, native Codex subagent `/root/transport_cancel`.
-- Branch/worktree: task/m1-transport-cancel; /Users/apple/workspace/vibe-coding/opendevin-m1-transport-cancel.
+- Branch/worktree: task/m1-transport-cancel; ../opendevin-m1-transport-cancel.
 - Base: 797009ba899740e477db3b88eacdb90fb80cb3e7.
 - Source/test commit: 43e0fdf0e0cee55127478d21b17c1a1a861032e0. Final evidence commit SHA is sent directly to coordinator.
 - Exclusive scope: repoask/providers/transport.py, tests/test_provider_transport_cancel.py, this task's docs.

@@ -26,7 +26,7 @@ model, Docker or remote operation ran. Independent re-review is pending.
 ## Identity
 
 - Author/harness/session: native Codex `/root/transport_cancel`, temporarily assigned platform/execution-profile producer.
-- Branch/worktree: `task/m2-profiles`; `/Users/apple/workspace/vibe-coding/opendevin-m2-profiles`.
+- Branch/worktree: `task/m2-profiles`; `../opendevin-m2-profiles`.
 - Assigned base: `28343c3a6a5223bb6195678d2d55203692cdbc14`.
 - Explicit dependency picks: `7d2f363` (original adapter `6789421`), `392ee23` (original adapter evidence `9de6eeb`). These are separate producer candidates, not this task's implementation or approval.
 - Initial source/test commit: `b5ca0c490e70889a40755042187c8b9c072a7237`; latest follow-up is listed above.
@@ -83,7 +83,7 @@ Session, broker or adapter source was changed by this task.
 ## Verification evidence
 
 Commands ran from this worktree using
-`/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python` (`PY` below).
+`./.venv/bin/python` (`PY` below).
 No actual model inference, Docker call, remote account operation or installation
 ran. Tests use real migrated SQLite, the real local Unix broker protocol, and
 injected runner/adapter fixtures. The fake runner executes only the fixed synthetic

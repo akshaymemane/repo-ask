@@ -22,7 +22,7 @@
   ],
   "base_sha": "cb2dcad262050eed989cb64df05511db08974780",
   "branch": "task/m1-providers",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m1-providers",
+  "worktree": "../opendevin-m1-providers",
   "write_scope": [
     "repoask/providers/",
     "tests/test_providers_*.py",

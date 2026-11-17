@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "97f8c30",
   "branch": "task/m2-pub-snapshot",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-pub-snapshot",
+  "worktree": "../opendevin-m2-pub-snapshot",
   "owner": "Codex runtime builder (codex exec, workspace-write)",
   "depends_on": ["M2-SESSIONS"],
   "contract": "docs/contracts/m2-publication.md (Session handoff section)",

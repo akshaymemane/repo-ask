@@ -20,7 +20,7 @@
   ],
   "base_sha": "bd8c3afd18a6fe23dd984455c194743595935577",
   "branch": "task/m0-experience",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m0-experience",
+  "worktree": "../opendevin-m0-experience",
   "write_scope": [
     "repoask/web/",
     "tests/ui/",

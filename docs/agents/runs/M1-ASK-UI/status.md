@@ -1,6 +1,6 @@
 # M1-ASK-UI — R1 correction candidate
 
-Author: Codex experience engineer; branch task/m1-ask-ui; worktree /Users/apple/workspace/vibe-coding/opendevin-m1-ask-ui.
+Author: Codex experience engineer; branch task/m1-ask-ui; worktree ../opendevin-m1-ask-ui.
 Reviewed base: c2482553b7ff85b767ac7e3a2980107d48eaac28 (root recorded initial commit).
 State: R1 fixes implemented; independent exact-commit re-review pending. Not approved/integrated.
 

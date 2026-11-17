@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness: native Codex experience builder `/root/session_ui`; never Claude.
-- Branch/worktree: `task/m2-session-ui`, `/Users/apple/workspace/vibe-coding/opendevin-m2-session-ui`.
+- Branch/worktree: `task/m2-session-ui`, `../opendevin-m2-session-ui`.
 - Assigned base:94ccc6e9cb53e859b662efba7f8a802bfe6591ea.
 - Submitted UI commit:74cac0e4a8c6ed12bfe8878bc363150586eb9169.
 - Review diff base:7fef9f1 (candidate dependencies described below); integrator must

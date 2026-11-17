@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Claude (Claude Code subagent), integration engineer persona. No nested agents.
-- Persona, branch and worktree: integration; `task/m2-adapter-followups`; `/Users/apple/workspace/vibe-coding/opendevin-m2-adapter-followups`.
+- Persona, branch and worktree: integration; `task/m2-adapter-followups`; `../opendevin-m2-adapter-followups`.
 - Base SHA and submitted commit SHA(s): base `1653d74` (card commit `4c061b4`); source fix `5450030`; this handoff is the commit after it.
 - Task card and requirement IDs: `docs/agents/runs/M2-ADAPTER-FOLLOWUPS/task.json`. Source: `M2-ADAPTER-SPIKE/review-r2.md` minor findings 2 and 3, also listed as the open follow-ups in `review-r3.md`.
 - Status: review.
@@ -48,7 +48,7 @@ Changed files, all within the card's write scope:
 
 ## Verification evidence
 
-Checks were run with `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`. Everything uses fixture fake-CLI scripts and real subprocesses; there was no model, network, Docker or account access.
+Checks were run with `./.venv/bin/python`. Everything uses fixture fake-CLI scripts and real subprocesses; there was no model, network, Docker or account access.
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |

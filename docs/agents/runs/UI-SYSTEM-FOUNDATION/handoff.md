@@ -20,9 +20,9 @@ Changed files, all within assigned scope: `repoask/web/index.html`, `repoask/web
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
-| F11 shell/nav/title invariants | `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/shell.test.mjs` | 12/12 passed |
-| F11 UI regression | `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs` | 281/281 passed |
-| Static asset serving | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest tests.test_web_assets` | 2/2 passed |
+| F11 shell/nav/title invariants | `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/shell.test.mjs` | 12/12 passed |
+| F11 UI regression | `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/*.test.mjs` | 281/281 passed |
+| Static asset serving | `./.venv/bin/python -m unittest tests.test_web_assets` | 2/2 passed |
 | Patch hygiene | `git diff --check` | passed |
 
 ## Risks and next action

@@ -4,7 +4,7 @@
 
 - Author/harness: Codex provider integration engineer; native Codex subagent `/root/transport_cancel`.
 - Branch: `task/m1-transport-cancel`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-m1-transport-cancel`.
+- Worktree: `../opendevin-m1-transport-cancel`.
 - Base SHA: `797009ba899740e477db3b88eacdb90fb80cb3e7`.
 - Submitted source/test commit: `43e0fdf0e0cee55127478d21b17c1a1a861032e0`; the following task-evidence commit is identified by exact SHA in the coordinator handoff message.
 - Task card: `docs/agents/runs/M1-TRANSPORT-CANCEL/task.json`.
@@ -39,7 +39,7 @@ No public contract deviations.
 
 ## Verification evidence
 
-Use `PY=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python` from this worktree.
+Use `PY=./.venv/bin/python` from this worktree.
 Tests use local synthetic peers, temporary test certificates and fixture providers;
 no model inference, GitHub calls, Docker, external service or package installation.
 

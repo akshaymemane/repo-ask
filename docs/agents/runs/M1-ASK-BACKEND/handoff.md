@@ -1,12 +1,12 @@
 # Latest handoff — R2 owned followups
 
 - Base: dd2931fff0ec4fba334cfe14ba7b5c3cd20b5dcd. Submitted source/test commit: **92f84de16d4bd85d1c3daf2247f365277837fd8b**. A following docs-only commit records this handoff.
-- Read root artifact `/Users/apple/workspace/vibe-coding/repo-ask/docs/agents/runs/M1-ASK-BACKEND/review-claude-r2.md`. Its conditional approval binds to the previous commit; no approval is claimed for these followup changes. Root must run socket-enabled full regressions, including the new tests, before integration.
+- Read root artifact `./docs/agents/runs/M1-ASK-BACKEND/review-claude-r2.md`. Its conditional approval binds to the previous commit; no approval is claimed for these followup changes. Root must run socket-enabled full regressions, including the new tests, before integration.
 - Unknown owner-qualified tokens whose last component matches an accessible repository now yield needs_selection / explicit_repository_unavailable and a clarification instead of falling back to another owner's short name. Candidate alternatives remain visible. Confirmed pins/conversation scope still win; common source paths, file suffixes and read/write/client-server/I-O expressions retain their path treatment. Known owner-qualified names continue to resolve.
 - Lease renewal retries StorageBusy once after a short interruptible delay (at most 100ms). Both attempts fence expiry, owner/token, cancellation and scope under the same lock before heartbeat. Exhaustion cancels the provider and reports storage_busy; a provider cancellation exception cannot mask the actual renewal error. Lost/expired leases are never renewed. No shared queue/platform helper was changed.
 - Literal markup export regression now asserts `<script>`, quotes, underscores, Markdown and backticks survive verbatim in both plan and conversation exports. This relies on the accepted UI textContent/plain-text presentation; no UI change was made.
 
-Checks actually run with `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`:
+Checks actually run with `./.venv/bin/python`:
 
 | Command/scenario | Result |
 | --- | --- |
@@ -26,7 +26,7 @@ The prior R1 handoff below is retained for historical context; current submissio
 ## Identity and scope
 
 - Author/harness: Codex retrieval/backend engineer; no subagents or other harness launched.
-- Branch/worktree: task/m1-ask, /Users/apple/workspace/vibe-coding/opendevin-m1-ask.
+- Branch/worktree: task/m1-ask, ../opendevin-m1-ask.
 - Reviewed base: 3918ebddfaaff7745a0ef495176eaba04a8088e4. Original implementation base c0e15ea59620346a912d986441aa644b77e4bcdb.
 - Review addressed: review-claude-r1.md, independent Claude changes-requested review. Author makes no approval claim.
 - Submitted code/evidence commit: **78f488e0b20a2fe8107f400bf32024dca6b47eb6**. Scoped git add/commit succeeded without bypass. A following docs-only commit records the outcome; final branch HEAD carries identical tested product code. Review final HEAD against base 3918ebddfaaff7745a0ef495176eaba04a8088e4.
@@ -59,7 +59,7 @@ No shared queue helper was needed. Source/permission failures remain fail-closed
 
 ## Checks actually run
 
-Interpreter: /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python (APSW available). Actual SQLite, IndexService, ProviderService and JobQueue/Worker run with synthetic source and model/discovery transports. No live model/account/credential access, downloads or installs.
+Interpreter: ./.venv/bin/python (APSW available). Actual SQLite, IndexService, ProviderService and JobQueue/Worker run with synthetic source and model/discovery transports. No live model/account/credential access, downloads or installs.
 
 - Focused service discovery: **27 passed** in 3.297s; durable summary verification-r1-focused.json records zero remaining Ask renewal threads.
 - Expanded routing evaluate: original 50 tasks **100%** top-three recall versus **98%** metadata lexical baseline; five multi tasks **100%** label/complete coverage; 12 new path tasks **100%** exact selected scope/top-three coverage; original ambiguous/absent, path-only/absent, collision/qualified/missing/revoked cases behaved as labeled. Raw final result routing-results-r1.json. Original metrics unchanged. Initial R1 failures/corrected labels/tuning disclosed in evaluation-r1.md and retained initial result file.

@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Claude (Claude Agent SDK subagent, experience persona); no CLI session ID recorded
-- Persona, branch and worktree: experience and accessibility engineer; `task/m2-publication-ui`; `/Users/apple/workspace/vibe-coding/opendevin-m2-publication-ui`
+- Persona, branch and worktree: experience and accessibility engineer; `task/m2-publication-ui`; `../opendevin-m2-publication-ui`
 - Base SHA and submitted commit SHA(s): base `0695f0c` (card commit `81a52f1`); round 1 `c18641b` + handoff `1d5f4c1`; round 2 (review fixes) is the next commit on the same branch
 - Task card and requirement IDs: `docs/agents/runs/M2-PUBLICATION-UI/task.json`; PR-01, PR-04, PR-07, PR-08, PR-10, OP-12
 - Status: review

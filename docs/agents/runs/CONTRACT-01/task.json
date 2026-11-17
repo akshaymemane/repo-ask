@@ -22,7 +22,7 @@
   "depends_on": [],
   "base_sha": "37e635abd527c53b7bdd77648e6c87ae17a3c970",
   "branch": "task/contract-01",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-contract-01",
+  "worktree": "../opendevin-contract-01",
   "write_scope": [
     "docs/contracts/",
     "docs/architecture/",

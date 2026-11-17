@@ -11,7 +11,7 @@
 ## Verification
 
 - Focused UI: 26/26 passed.
-- Full UI: 282/282 passed with `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+- Full UI: 282/282 passed with `REPOASK_TEST_PYTHON=./.venv/bin/python`.
 - Web assets: 2/2 passed.
 
 ## Review focus

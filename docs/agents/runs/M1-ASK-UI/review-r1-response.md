@@ -20,6 +20,6 @@ Status: correction candidate; independent Claude re-review required. No self-app
 
 Validation: `node --test tests/ui/` = 56 passed, 0 failed (all original 43 preserved); `node --check repoask/web/ask.js` and `git diff --check` pass. Original real-service restart bridge remains in the full passing suite. Actual Chrome against the root synthetic server 8880 remains root-owned. No Python changes or new Python-suite claim.
 
-Commit attempt: `git add` of only ask.js, app.js, ask-recovery.test.mjs, status.md and handoff.md failed creating `/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-ask-ui/index.lock`: Operation not permitted. No new commit was created and no permission bypass attempted. Root must commit these files plus this response, then request exact-commit re-review. Read-only review input and coordinator browser note remain untouched.
+Commit attempt: `git add` of only ask.js, app.js, ask-recovery.test.mjs, status.md and handoff.md failed creating `./.git/worktrees/opendevin-m1-ask-ui/index.lock`: Operation not permitted. No new commit was created and no permission bypass attempted. Root must commit these files plus this response, then request exact-commit re-review. Read-only review input and coordinator browser note remain untouched.
 
 No agents spawned, packages installed, account operations, context.js/shared Python edits, or owned background processes.

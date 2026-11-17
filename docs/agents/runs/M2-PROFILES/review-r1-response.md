@@ -17,12 +17,12 @@ multiple check rows, so a rename during a running check still yields one trusted
 leader recovery entry. It does not change pinned immutable version IDs/configs.
 No migration or public projection change is required.
 
-Command run: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p 'test_execution_profiles.py' -v`.
+Command run: `./.venv/bin/python -m unittest discover -s tests -p 'test_execution_profiles.py' -v`.
 Result: **39 passed in 15.590 seconds**.
 
 No Docker, model inference, credential access, remote accounts or nested agents.
 
-Final full command: `OPENDEVIN_DOCKER_TESTS=0 /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests`.
+Final full command: `OPENDEVIN_DOCKER_TESTS=0 ./.venv/bin/python -m unittest discover -s tests`.
 Result: **358 tests in 151.314 seconds; OK, five expected Docker-gated skips**.
 Inherited broker AF_UNIX ResourceWarnings remained visible; this task neither
 modified that dependency nor suppressed its warnings. `git diff --check` and

@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "0695f0c",
   "branch": "task/m2-publication-ui",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication-ui",
+  "worktree": "../opendevin-m2-publication-ui",
   "owner": "Claude experience agent",
   "depends_on": ["M2-SESSION-UI", "UI-REDESIGN"],
   "completion_depends_on": ["M2-PRS", "M2-PUB-SNAPSHOT", "M2-INTEGRATE"],

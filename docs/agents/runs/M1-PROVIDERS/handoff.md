@@ -15,7 +15,7 @@
 ## Identity
 
 - Author: Claude partial implementation (session cac5ebc2-b1ea-4ccb-b6ae-cb3da0fe4446), then Codex takeover (task owner session 01a1d5c9-e390-74d3-9164-e641623c0216). Claude exited on session quota; Codex preserved and inspected its files, completed fixes and authored the behavior tests. No subagents used.
-- Persona: integration; branch task/m1-providers; worktree /Users/apple/workspace/vibe-coding/opendevin-m1-providers.
+- Persona: integration; branch task/m1-providers; worktree ../opendevin-m1-providers.
 - Base: cb2dcad262050eed989cb64df05511db08974780; approved shared foundation: 0bdeb33.
 - Submitted SHA: none. Staging exited 128 because the sandbox denied creating the shared Git worktree index.lock; see status.md. No permission bypass attempted. Coordinator must commit the preserved assigned paths before exact-commit review. Patch snapshot: /private/tmp/m1-providers.patch.
 - Task: task.json; requirements AI-01, AI-02, AI-03, AI-06, AI-08, AI-09, AI-12. Also exercises usage/cancellation behavior required by the accepted packet.

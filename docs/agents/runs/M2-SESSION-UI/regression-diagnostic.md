@@ -1,7 +1,7 @@
 # Interrupted broad regression attempt
 
 Candidate HEAD: 7fef9f1 (allowed candidate dependencies atop base94ccc6e), with UI
-working changes. Worktree /Users/apple/workspace/vibe-coding/opendevin-m2-session-ui.
+working changes. Worktree ../opendevin-m2-session-ui.
 Command: `python3 -m unittest discover -s tests`, default Python3.12, no PYTHONPATH
 override supplied. No production model invocation was requested.
 

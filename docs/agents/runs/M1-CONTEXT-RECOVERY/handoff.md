@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness: native Codex `/root/context_recovery`, explicitly assigned platform and experience recovery slice.
-- Branch/worktree: `task/m1-context-recovery`, `/Users/apple/workspace/vibe-coding/opendevin-m1-context-recovery`.
+- Branch/worktree: `task/m1-context-recovery`, `../opendevin-m1-context-recovery`.
 - Base: `95b8f1e6c9db58365941fa7ea5486b1dfbbe81ab`. Submitted SHA: coordinator can resolve task branch HEAD after commit.
 - Task/requirements: `task.json`; F02 IX-03/IX-10/purge restart acceptance; F11 UX-08/UX-10/UX-11.
 - Status: candidate for independent exact-commit review. No integration or approval claim.

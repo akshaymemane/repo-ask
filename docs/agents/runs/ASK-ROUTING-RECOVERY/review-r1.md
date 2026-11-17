@@ -2,7 +2,7 @@
 
 - Reviewer/harness/session and persona: Codex (`codex-cli`, independent session, quality-reviewer persona).
 - Author and exact reviewed commit: Claude; `1eaee632fe4e41bd4ad8bbd58922293f6457557e`.
-- Branch/worktree: `task/ask-routing-recovery`; detached checkout at `/Users/apple/workspace/vibe-coding/opendevin-review-ask-routing-recovery`.
+- Branch/worktree: `task/ask-routing-recovery`; detached checkout at `../opendevin-review-ask-routing-recovery`.
 - Base: `9f143e7`.
 - Commit-bound packet path and manifest identity: Not supplied; reviewed Git objects directly and verified HEAD.
 - Requirement IDs, contracts and handoff read: AGENTS.md, workflow, reviewer persona, review template, author handoff, Master PRD, F03/F04 specifications and `docs/contracts/m1-ask-plans.md`. Relevant requirements: RT-05/06/07, ASK-01/02/05/09.

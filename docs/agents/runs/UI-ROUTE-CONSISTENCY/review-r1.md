@@ -22,7 +22,7 @@ Verdict: **CHANGES_REQUESTED**
 
 ## Checks run
 
-- `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/repositories.test.mjs tests/ui/settings.test.mjs tests/ui/session.test.mjs tests/ui/ask.test.mjs` — 57 passed, 0 failed.
-- `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest tests.test_web_assets` — 2 passed.
+- `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/repositories.test.mjs tests/ui/settings.test.mjs tests/ui/session.test.mjs tests/ui/ask.test.mjs` — 57 passed, 0 failed.
+- `./.venv/bin/python -m unittest tests.test_web_assets` — 2 passed.
 
 The Ask title suppression, plan disclosure rename, repository filter predicates/empty-state link, callback-status scoping, legacy fallback preservation, and unchanged plan/session mutation logic otherwise match the submitted scope. The structural tests do not exercise CSS layout, so their passing result does not cover findings 1 and 2.

@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Claude experience agent (Claude Code subagent, model claude-opus-5-5); launched by the coordinator for this card.
-- Persona, branch and worktree: experience and accessibility engineer; `task/m2-session-ux`; `/Users/apple/workspace/vibe-coding/opendevin-m2-session-ux`.
+- Persona, branch and worktree: experience and accessibility engineer; `task/m2-session-ux`; `../opendevin-m2-session-ux`.
 - Base SHA and submitted commit SHA(s): card base `51f5839`, branch base `9312a10` (brief commit); implementation `bf90958`; this handoff is in the commit that follows it.
 - Task card and requirement IDs: `docs/agents/runs/M2-SESSION-UX/task.json` and `brief.md` (F05 session UI follow-up).
 - Status: review (round 1 findings addressed; see "Review round 1").
@@ -68,7 +68,7 @@ Also fixed while here: a finished session with `stop_requested: true` used to ke
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
 | UI suite | `node --test tests/ui/*.test.mjs` | exit 0; 245 tests, 245 pass (baseline before changes: 228/228) |
-| Python suite | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests` | exit 0; `Ran 611 tests`, `OK (skipped=9)` (run on the implementation tree and re-run on `bf90958`) |
+| Python suite | `./.venv/bin/python -m unittest discover -s tests` | exit 0; `Ran 611 tests`, `OK (skipped=9)` (run on the implementation tree and re-run on `bf90958`) |
 | Real-data rendering, 1440 and 390 | Read-only preview proxy (worktree web assets plus GET-only forwarding of `/api/*` to `127.0.0.1:8765`; non-GET answered 405 by the proxy). Playwright driving system Chrome over the list and the four pilot sessions; only tabs and disclosures were clicked. | Screenshots reviewed (light and dark). `horizontal overflow 0px` at both widths. `non-GET requests attempted: none`. |
 | Keyboard and visible focus | Same harness: 40 Tab presses on the interrupted session at 1440 | Order: rail → crumb → previous attempt → plan → conversation → header actions → result Retry → Set up → Run details → tabs. Every stop had a `solid/2px` outline. Row focus ring visible on the list in dark mode. |
 | Labels, live regions, headings | DOM assertions in `session-ux` | Live indicator `role=status`; separators `aria-hidden`; timeline markers `aria-hidden`; composer and toolbar controls labelled (sr-only labels for the compact toolbar); h2 title then h2 sections (an sr-only "Result" heading on the card), no skipped levels |

@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Claude (Claude Code, Opus 5.5), session `82ea8cad-ecaa-40a4-8e7d-342e90429085`
-- Persona, branch and worktree: experience; `task/m0-experience`; `/Users/apple/workspace/vibe-coding/opendevin-m0-experience`
+- Persona, branch and worktree: experience; `task/m0-experience`; `../opendevin-m0-experience`
 - Base SHA and submitted commit SHA(s): base `bd8c3afd18a6fe23dd984455c194743595935577`; implementation `9e95d162c5ba7f091589d2227b0e564ca6e11eed`; handoff `f1fc0b4a954c0012f527970415b2a15dd650927e`; review-r1 fix = the commit that contains this revision of the handoff (child of `f1fc0b4`, SHA reported to the coordinator)
 - Task card and requirement IDs: `docs/agents/runs/M0-EXPERIENCE/task.json` (coordinator-owned, left untracked/unmodified); F11 UX-02, UX-03 (hash routes only), UX-07, UX-08, UX-10
 - Status: review

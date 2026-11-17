@@ -4,7 +4,7 @@
 
 - Author/harness: Codex runtime builder; no delegated agents or Claude session.
 - Persona: runtime. Branch: `task/m2-pub-snapshot`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-m2-pub-snapshot`.
+- Worktree: `../opendevin-m2-pub-snapshot`.
 - Base SHA: `97f8c30ea852e878a9d64b7244ebf533a5e6ff11`.
 - Implementation/test commits: `07305ec6b6e8508387d61647508c868863218e27` and
   `dd650426aa6ce692164e9626bd1dca2bdd3305b5` (final code).
@@ -54,9 +54,9 @@ package, migration, shared entrypoint or forbidden path was edited.
 | PR-03 | Read-only probe of unchanged consumer `_snapshot` and `_entries` | Pass; executable blob mode `100755`, deletion `100644` with null SHA; no actual GitHub writes |
 | PR-09 | Base SHA agreement across repository, manifest and artifacts; recorded diff hash verification | Pass; mismatches fail with `stale_artifacts`; remote divergence handling remains publisher-owned |
 | OP-06 | Repeated snapshot export and mutation of returned copy | Pass; stable artifact IDs/hashes and fresh independent return values; publication reconciliation remains publisher-owned |
-| Contract | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p 'test_sessions_publication_snapshot.py'` | Exit 0; 18 tests in 11.440s |
-| Regression | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p 'test_sessions*.py'` | Exit 1; 70 tests in 248.233s; 31 failures, 5 errors, 3 skips; socket and process-inspection restrictions |
-| Full suite | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests` | Exit 1; 537 tests in 375.667s; 69 failures, 89 errors, 9 skips; 82 errors explicitly report sandbox PermissionError |
+| Contract | `./.venv/bin/python -m unittest discover -s tests -p 'test_sessions_publication_snapshot.py'` | Exit 0; 18 tests in 11.440s |
+| Regression | `./.venv/bin/python -m unittest discover -s tests -p 'test_sessions*.py'` | Exit 1; 70 tests in 248.233s; 31 failures, 5 errors, 3 skips; socket and process-inspection restrictions |
+| Full suite | `./.venv/bin/python -m unittest discover -s tests` | Exit 1; 537 tests in 375.667s; 69 failures, 89 errors, 9 skips; 82 errors explicitly report sandbox PermissionError |
 | Consumer integration | Python stdin probe loads `git show task/m2-prs-r2:repoask/publication/service.py`, passes a real service snapshot to `_snapshot`, `_entries` (synthetic blob sink), `_automatic_ok` | Exit 0; PASS; no network or external effects |
 | Hygiene | `git diff --check` | Exit 0 |
 

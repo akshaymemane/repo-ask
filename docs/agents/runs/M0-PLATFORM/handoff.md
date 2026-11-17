@@ -1,7 +1,7 @@
 # Revised builder handoff — M0-PLATFORM
 
 - Author: Codex, platform builder; branch task/m0-platform.
-- Worktree: /Users/apple/workspace/vibe-coding/opendevin-m0-platform.
+- Worktree: ../opendevin-m0-platform.
 - Original base: bd8c3afd18a6fe23dd984455c194743595935577.
 - Coordinator-finalized original submission: 5f17042b91898398c85760e6549913027b7802bf.
 - Revision: working-tree fixes on that commit; coordinator must finalize a new exact commit if Git metadata remains blocked. Status: awaiting exact-commit re-review, not approved/integrated.

@@ -3,7 +3,7 @@
 State: review candidate; focused suites pass, full suite is not green.
 Author: Codex runtime builder (original author); no delegation or independent approval.
 Branch: `task/m2-prs-r2`.
-Worktree: `/Users/apple/workspace/vibe-coding/opendevin-m2-prs-r2`.
+Worktree: `../opendevin-m2-prs-r2`.
 Integration base: `97f8c30`; round-1 reviewed commit: `a273ab2`.
 Round-3 start: `722e56790c1ca2a3b785b748b2364073cc7da065`.
 Implementation commit: `8d8ecb33bcd967f46dcce01a566d437897ea3db4`.
@@ -13,7 +13,7 @@ N1–N8 to changes and concrete tests, including revised persisted check-summary
 semantics for finding 13. All changes stay within the assigned write scope.
 Public signatures and purge hook remain compatible; recover() remains public.
 
-Actual results using `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`:
+Actual results using `./.venv/bin/python`:
 
 - Publication discovery: 40 tests, OK, exit 0.
 - GitHub discovery: 70 tests, OK, exit 0.

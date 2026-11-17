@@ -3,9 +3,9 @@
 ## Identity
 
 - Author/harness: Codex runtime builder, this task session (no delegated workers).
-- Persona: runtime; branch `task/m2-generated-omit`; worktree `/Users/apple/workspace/vibe-coding/opendevin-m2-generated-omit`.
+- Persona: runtime; branch `task/m2-generated-omit`; worktree `../opendevin-m2-generated-omit`.
 - Task-card base: `62f33cd`; actual starting HEAD: `e74bb3b14e649a88223b0c9e24c5776326bfa74d` (coordinator's generated-artifact contract commit).
-- Submitted commit: unavailable. `git add` and `git commit` were attempted but both failed because the sandbox denies creation of `/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m2-generated-omit/index.lock`. HEAD remains `e74bb3b14e649a88223b0c9e24c5776326bfa74d`; implementation and handoff are uncommitted. Intended commit message: `fix(publication): omit newly added generated artifacts`, ending with `Co-Authored-By: Codex <noreply@openai.com>`.
+- Submitted commit: unavailable. `git add` and `git commit` were attempted but both failed because the sandbox denies creation of `./.git/worktrees/opendevin-m2-generated-omit/index.lock`. HEAD remains `e74bb3b14e649a88223b0c9e24c5776326bfa74d`; implementation and handoff are uncommitted. Intended commit message: `fix(publication): omit newly added generated artifacts`, ending with `Co-Authored-By: Codex <noreply@openai.com>`.
 - Task card: `docs/agents/runs/M2-GENERATED-OMIT/task.json`; requirements: acceptance 1–6, F06 PR-02/04/07.
 - Status: blocked on Git metadata write permission; implementation ready for review. Independent approval and integration remain coordinator-owned.
 
@@ -26,7 +26,7 @@ Contract consumed: accepted `docs/contracts/m2-publication.md`, Generated artifa
 
 ## Verification evidence
 
-Interpreter for every unittest command: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+Interpreter for every unittest command: `./.venv/bin/python`.
 
 | Acceptance item | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |

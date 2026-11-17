@@ -4,7 +4,7 @@
 
 - Author/harness: Codex; session `01a1d5c0-a956-77a0-882f-6acf69420e60`.
 - Persona: platform. Branch: `task/m1-github`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-m1-github`.
+- Worktree: `../opendevin-m1-github`.
 - Base/HEAD before submission: `cb2dcad262050eed989cb64df05511db08974780`.
 - Submitted source: local commit attempt result recorded below; the source hash manifest
   binds the six package/test files independently of Git metadata access.
@@ -113,7 +113,7 @@ The scoped staging command was attempted exactly once:
 
 It exited128 with:
 
-`fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-github/index.lock': Operation not permitted`
+`fatal: Unable to create './.git/worktrees/opendevin-m1-github/index.lock': Operation not permitted`
 
 No commit was created and no permission bypass was attempted. HEAD remains
 `cb2dcad262050eed989cb64df05511db08974780`; all deliverables remain untracked in this
@@ -193,7 +193,7 @@ re-review. It is not approved or integrated by this handoff.
 R1 scoped staging was attempted once with only the two changed Python files and the
 three R1 task artifacts named above. It exited128:
 
-`fatal: Unable to create '/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-m1-github/index.lock': Operation not permitted`
+`fatal: Unable to create './.git/worktrees/opendevin-m1-github/index.lock': Operation not permitted`
 
 No R1 commit was created, no permission bypass was attempted and HEAD remains
 `64231ae16456fbd2c05aba26821ec27bf59c76fd`. The two code/test modifications and task

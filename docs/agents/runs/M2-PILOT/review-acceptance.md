@@ -2,7 +2,7 @@
 
 - Reviewer/harness/personas: independent Codex session; quality-reviewer + security-reviewer; opposite harness to the Claude pilot coordinator.
 - Author and exact reviewed commit: integrated team implementation, Claude coordinator; `8e97370d65f32de5f963400f03a400cb4f6709ab`, `work/opendevin-integration`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-review-m2-pilot`; read-only, no edits.
+- Worktree: `../opendevin-review-m2-pilot`; read-only, no edits.
 - Commit-bound packet: Git checkout at the exact SHA above; pilot `evidence.md` and `evidence.json`. No separate content-hash manifest supplied.
 - Requirements/contracts read: Master PRD M2 exit/completion rules; F05 SE-01–12; F06 PR-01–11; publication contract; requested personas, workflow, board, review records and README instructions.
 - Decision: **approve exact commit**. No release blockers identified.

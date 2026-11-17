@@ -3,7 +3,7 @@
 ## Identity
 
 - Author: Codex, experience persona; no spawned agents.
-- Branch/worktree: task/m1-catalog-ui, /Users/apple/workspace/vibe-coding/opendevin-m1-catalog-ui.
+- Branch/worktree: task/m1-catalog-ui, ../opendevin-m1-catalog-ui.
 - Exact reviewed/base commit: 6542bb0f00dd572ce3631babd51674e3d54e51c5.
 - Input: review-browser-r1.md, coordinator actual Chrome evidence. No live App credentials were entered.
 - Requirements: F01 App configuration, F11 UX-01/08/10.

@@ -23,8 +23,8 @@ Changed files: `repoask/web/{ask,repositories,sessions,settings}.js`, `repoask/w
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
 | Route-focused behavior | `node --test tests/ui/repositories.test.mjs tests/ui/settings.test.mjs tests/ui/session.test.mjs tests/ui/ask.test.mjs` | 57/57 passed |
-| Full UI regression | `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs` | 284/284 passed |
-| Asset registration | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest tests.test_web_assets` | 2/2 passed |
+| Full UI regression | `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/*.test.mjs` | 284/284 passed |
+| Asset registration | `./.venv/bin/python -m unittest tests.test_web_assets` | 2/2 passed |
 
 ## Risks and next action
 

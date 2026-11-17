@@ -4,7 +4,7 @@
   "state": "backlog",
   "base_sha": "103882e297d95f9cae7ee587fdef2c0b3e4fe54a",
   "branch": "task/m2-publication",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-publication",
+  "worktree": "../opendevin-m2-publication",
   "owner": null,
   "depends_on": ["M2-SESSIONS", "M1-GITHUB"],
   "contract": "docs/contracts/m2-publication.md",

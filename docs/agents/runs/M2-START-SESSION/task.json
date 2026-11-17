@@ -4,7 +4,7 @@
   "state": "running",
   "base_sha": "baf068a",
   "branch": "task/m2-start-session",
-  "worktree": "/Users/apple/workspace/vibe-coding/opendevin-m2-start-session",
+  "worktree": "../opendevin-m2-start-session",
   "owner": "Codex builder (Claude quota exhausted; user asked to use Codex)",
   "origin": "User report: Ask -> Generate plan -> 'Start session' disabled. Plan readiness needs_input [execution_not_configured]; plans are generated with execution_profile_id null (repoask/ask/conversations.py:398) even though one execution profile passed its test. The only fix path is Edit plan -> Execution and publication -> choose profile -> Save immutable version; the conversation card's Start session only navigates to the plan (thread.js:112, ask.js onStartSession) and shows the reason only as a title attribute.",
   "decisions": [

@@ -23,7 +23,7 @@
   ],
   "base_sha": "e4ff292017be36702b32d1856a9b343a0f612ecc",
   "branch": "work/opendevin-integration",
-  "worktree": "/Users/apple/workspace/vibe-coding/repo-ask",
+  "worktree": "./",
   "write_scope": [
     "repoask/__main__.py",
     "tests/test_http_foundation.py",

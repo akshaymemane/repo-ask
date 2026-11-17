@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness: Codex builder, runtime persona; no delegated agents.
-- Branch: `task/m2-start-session`; worktree: `/Users/apple/workspace/vibe-coding/opendevin-m2-start-session`.
+- Branch: `task/m2-start-session`; worktree: `../opendevin-m2-start-session`.
 - Base SHA: `baf068a`; submitted SHA: `uncommitted`: final staging and commit attempt failed creating the worktree Git `index.lock` (`Operation not permitted`); earlier code staging succeeded, final task-artifact updates remain unstaged.
 - Task card: `docs/agents/runs/M2-START-SESSION/task.json`; requirements: ASK-05, ASK-07, ASK-08; SE-01 and task acceptance below.
 - Status: review requested; independent review and integration remain coordinator work.
@@ -26,11 +26,11 @@ Contracts: existing POST `/api/sessions` fields `plan_version_id`, `content_hash
 | Ready card launches and navigates; double click sends once; network retry reuses key; errors visible | `node --test tests/ui/ask-chat.test.mjs tests/ui/thread.test.mjs tests/ui/ask-start-fix.test.mjs` | 28 tests passed |
 | Not-ready card explains reason and opens editor section without changing saved plan | Same UI command; fix test uses real AskAPI bridge with side-panel rendering | Passed; saved version ID unchanged |
 | Existing editor and surrounding UI regressions | `node --test tests/ui/*.test.mjs` | 270/272 passed; two existing session-services synthetic profile bootstrap checks failed with `execution_test_failed` |
-| Full Python regression | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests` | 614 tests in 355.817s; 69 failures, 99 errors, 9 skipped. Explicit denied loopback/Unix socket binds occur in Ask composition, adapter, broker and transport tests; profile/session checks also fail downstream. No failures name the new default-profile test module. Not a green regression gate. |
-| Supplemental Ask regression | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p 'test_ask*.py'` | 43 tests, one error: existing CLI model composition test cannot bind loopback socket (`PermissionError: [Errno 1] Operation not permitted`); remaining 42 passed |
+| Full Python regression | `./.venv/bin/python -m unittest discover -s tests` | 614 tests in 355.817s; 69 failures, 99 errors, 9 skipped. Explicit denied loopback/Unix socket binds occur in Ask composition, adapter, broker and transport tests; profile/session checks also fail downstream. No failures name the new default-profile test module. Not a green regression gate. |
+| Supplemental Ask regression | `./.venv/bin/python -m unittest discover -s tests -p 'test_ask*.py'` | 43 tests, one error: existing CLI model composition test cannot bind loopback socket (`PermissionError: [Errno 1] Operation not permitted`); remaining 42 passed |
 | Whitespace | `git diff --check` | Passed |
 
-Python focused command above abbreviates the interpreter as `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+Python focused command above abbreviates the interpreter as `./.venv/bin/python`.
 
 ## Risks and next action
 
