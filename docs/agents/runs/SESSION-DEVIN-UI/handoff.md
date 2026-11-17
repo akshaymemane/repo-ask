@@ -11,8 +11,8 @@ The session detail is now a cohesive agent workspace: compact command header, fo
 
 ## Verification
 
-- Session-focused UI tests: 82/82.
-- Full UI suite: 275/275.
+- Session-focused UI tests: 87/87.
+- Full UI suite: 280/280.
 - Web asset tests: 2/2.
 - Frontend evidence checker: complete.
 - Rendered with isolated headless Chrome at 1440×900 and 768×900 against a SQLite backup on scratch port 8898. The live app on 8765 was read-only and never restarted.
