@@ -145,43 +145,62 @@ const isSpace = (ch) => ch === undefined || /\s/.test(ch);
 // One left-to-right pass. A code span closes at the next backtick; a bold run at the first later "**"
 // preceded by a non-space character. When a search for a closer fails, no later opener of that kind
 // can succeed either, so that kind is switched off for the rest of the text: no position is rescanned.
+// Every node the renderer emits (element or text node, including line breaks) is paid for from one
+// budget. take(n) refuses once the budget cannot cover n more nodes, and stops all further rendering.
+function take(budget, n) {
+  if (budget.stopped || budget.nodes < n) { budget.stopped = budget.truncated = true; return false; }
+  budget.nodes -= n; return true;
+}
+
 function inline(parent, text, budget, allowBold = true) {
   let plain = 0, i = 0, codeOpen = true, boldOpen = allowBold;
-  const flush = (end) => { if (end > plain) { budget.nodes -= 1; parent.append(document.createTextNode(text.slice(plain, end))); } };
-  while (i < text.length) {
-    if (budget.nodes <= 2) { budget.truncated = budget.stopped = true; break; }
+  const flush = (end) => { if (end > plain && take(budget, 1)) parent.append(document.createTextNode(text.slice(plain, end))); plain = end; return !budget.stopped; };
+  while (i < text.length && !budget.stopped) {
     const ch = text[i];
     if (ch === "`" && codeOpen) {
       const end = text.indexOf("`", i + 1);
       if (end === -1) codeOpen = false;
-      else if (end > i + 1) { flush(i); budget.nodes -= 1; parent.append(el("code", text.slice(i + 1, end))); i = end + 1; plain = i; continue; }
+      else if (end > i + 1) {
+        // A code span is two nodes: the element and its text.
+        if (flush(i) && take(budget, 2)) parent.append(el("code", text.slice(i + 1, end)));
+        i = end + 1; plain = i; continue;
+      }
     } else if (ch === "*" && boldOpen && text[i + 1] === "*" && !isSpace(text[i + 2])) {
       let from = i + 3, end = -1;
       while ((end = text.indexOf("**", from)) !== -1 && isSpace(text[end - 1])) from = end + 1;
       if (end === -1) boldOpen = false;
-      else { flush(i); budget.nodes -= 1; const strong = el("strong"); inline(strong, text.slice(i + 2, end), budget, false); parent.append(strong); i = end + 2; plain = i; continue; }
+      else {
+        if (flush(i) && take(budget, 1)) { const strong = el("strong"); parent.append(strong); inline(strong, text.slice(i + 2, end), budget, false); }
+        i = end + 2; plain = i; continue;
+      }
     }
     i += 1;
   }
-  flush(text.length);
+  if (!budget.stopped) flush(text.length);
 }
+
+// Nodes the truncation marker needs: p + text, details + summary + text + pre + text.
+const MARKER_NODES = 7;
 
 export function renderMarkdown(text, className = "md") {
   const root = el("div", undefined, className);
   const source = String(text ?? "").replace(/\r\n?/g, "\n");
-  const budget = { nodes: MARKDOWN_LIMITS.nodes, truncated: source.length > MARKDOWN_LIMITS.chars, stopped: false };
+  // The marker's nodes are reserved up front, so a truncated message still stays within the limit.
+  const budget = { nodes: Math.max(0, MARKDOWN_LIMITS.nodes - MARKER_NODES), truncated: source.length > MARKDOWN_LIMITS.chars, stopped: false };
   const shown = budget.truncated ? source.slice(0, MARKDOWN_LIMITS.chars) : source;
   const lines = shown.split("\n");
   let paragraph = [];
-  const block = (node) => { budget.nodes -= 1; root.append(node); return node; };
+  const block = (node, n = 1) => { if (!take(budget, n)) return null; root.append(node); return node; };
   const flush = () => {
-    if (!paragraph.length) return;
-    const p = block(el("p"));
-    paragraph.forEach((line, i) => { if (i) p.append(document.createTextNode("\n")); inline(p, line, budget); });
-    paragraph = [];
+    const pending = paragraph; paragraph = [];
+    if (!pending.length) return;
+    const p = block(el("p")); if (!p) return;
+    for (let i = 0; i < pending.length && !budget.stopped; i += 1) {
+      if (i && take(budget, 1)) p.append(document.createTextNode("\n"));
+      if (!budget.stopped) inline(p, pending[i], budget);
+    }
   };
-  for (let i = 0; i < lines.length; i += 1) {
-    if (budget.stopped || budget.nodes <= 0) { budget.truncated = true; break; }
+  for (let i = 0; i < lines.length && !budget.stopped; i += 1) {
     const line = lines[i];
     const fence = FENCE.exec(line);
     if (fence) {
@@ -190,17 +209,18 @@ export function renderMarkdown(text, className = "md") {
       const close = new RegExp(`^\\s{0,3}${fence[1][0]}{${fence[1].length},}\\s*$`);
       const body = [];
       for (i += 1; i < lines.length && !close.test(lines[i]); i += 1) body.push(lines[i]);
-      const pre = block(el("pre")); pre.append(el("code", body.join("\n"))); budget.nodes -= 1;
+      // pre + code + text: three nodes, however long the block.
+      const pre = el("pre"); pre.append(el("code", body.join("\n"))); block(pre, 3);
       continue;
     }
     const bullet = BULLET.exec(line), numbered = NUMBERED.exec(line);
     if (bullet || numbered) {
       flush();
-      const ordered = Boolean(numbered && !bullet), list = block(el(ordered ? "ol" : "ul")), pattern = ordered ? NUMBERED : BULLET;
+      const ordered = Boolean(numbered && !bullet), pattern = ordered ? NUMBERED : BULLET;
+      const list = block(el(ordered ? "ol" : "ul")); if (!list) break;
       if (ordered && numbered[1] !== "1") list.setAttribute("start", String(Number(numbered[1])));
-      for (; i < lines.length && pattern.test(lines[i]); i += 1) {
-        if (budget.nodes <= 2) { budget.truncated = budget.stopped = true; break; }
-        const item = pattern.exec(lines[i]); const li = el("li"); budget.nodes -= 1; inline(li, ordered ? item[2] : item[1], budget); list.append(li);
+      for (; i < lines.length && pattern.test(lines[i]) && take(budget, 1); i += 1) {
+        const item = pattern.exec(lines[i]); const li = el("li"); list.append(li); inline(li, ordered ? item[2] : item[1], budget);
       }
       i -= 1;
       continue;
@@ -210,7 +230,6 @@ export function renderMarkdown(text, className = "md") {
   }
   flush();
   if (budget.truncated) {
-    // The marker and the full plain text sit outside the budget: one paragraph and one text node.
     root.append(el("p", "… message truncated", "md-truncated"));
     const full = el("details", undefined, "md-full"), label = el("summary", "Show the full message as plain text");
     full.append(label, el("pre", source)); root.append(full);

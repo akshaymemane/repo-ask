@@ -119,6 +119,21 @@ Codex reviewed `78815ee` and requested changes (3 × P2, reproduced). All three 
 
 Round 3 checks run: `node --test tests/ui/*.test.mjs` exit 0, 263 tests, 263 pass. No Python files changed in this round.
 
+## Round 4
+
+Codex reviewed `4853bb1`. Round 3 findings 1 (history) and 2 (linear parser) were resolved. One P2 remained, and it is fixed on `task/m2-session-ux-2`.
+
+| Finding | Change | Test |
+| --- | --- | --- |
+| P2 `ui.js:180`: paragraph flushing kept processing every accumulated line after the budget ran out. `inline()` still appended the remaining text, and line-break nodes were not counted, so `renderMarkdown("x\n".repeat(9000))` produced 18,007 descendant nodes against a 600-node limit. | Every emitted node goes through `take(budget, n)`: elements, text nodes, paragraph line breaks, code spans (2 nodes), `strong`, list items and code blocks (`pre` + `code` + text = 3 nodes). Once it refuses, rendering stops everywhere: inline scanning, paragraph lines, list items and the block loop. Remaining text is dropped from the rendered output (it stays in the full-text disclosure). The truncation marker's 7 nodes are reserved up front, so the total including the marker stays within `MARKDOWN_LIMITS.nodes`. | `session-markdown.test.mjs` counts all descendant nodes, elements and text alike, for a 9,000-line paragraph, many short paragraphs, a long code block, and mixed content. Each case runs with the default character cap and again with it lifted, so the node cap alone must hold. Each case also asserts the marker is shown, the full text is exact, and content rendered before the cap. Plus the reported repro (≤ 600 nodes, beginning rendered in order), and an exact node count for a small message with no marker. |
+
+Round 4 checks run:
+
+- `node --test tests/ui/*.test.mjs`: exit 0, 269 tests, 269 pass.
+- The 5 new tests fail against `4853bb1`'s `ui.js`.
+- Parser timing re-measured after the change: `" **a"` at 16k/32k/64k chars took 2.5/3.3/5.2 ms.
+- No Python files changed.
+
 ## Risks and next action
 
 Known gaps and deferrals:

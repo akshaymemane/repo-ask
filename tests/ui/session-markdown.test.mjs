@@ -134,3 +134,40 @@ test('ordinary messages are not marked as truncated', () => {
   const root = md('**Change:**\n- one\n- two\n\n```\ncode\n```');
   assert.equal(root.querySelector('.md-truncated'), null); assert.equal(root.querySelector('.md-full'), null);
 });
+
+// ---- Review round 4: every emitted node counts against the limit ----
+
+const descendants = node => node.childNodes.reduce((n, child) => n + 1 + (child.childNodes ? descendants(child) : 0), 0);
+const NODE_CASES = {
+  'a 9,000-line paragraph': 'x\n'.repeat(9000),
+  'many short paragraphs': 'short paragraph\n\n'.repeat(5000),
+  'a long code block': '```\n' + 'code line\n'.repeat(5000) + '```\n' + 'after\n'.repeat(3000),
+  'mixed content': 'Intro **bold** and `code` here\nsecond line\n- item `x` **y**\n- item\n1. one\n2. two\n```\nblock\n```\n\n'.repeat(600),
+};
+
+for (const [name, source] of Object.entries(NODE_CASES)) {
+  test(`node limit holds for ${name}, including text nodes, line breaks and the marker`, () => {
+    for (const chars of [MARKDOWN_LIMITS.chars, 1e7]) {
+      const saved = {...MARKDOWN_LIMITS}; Object.assign(MARKDOWN_LIMITS, {chars});
+      try {
+        const root = md(source), total = descendants(root);
+        assert.ok(total <= MARKDOWN_LIMITS.nodes, `${name} (char cap ${chars}): ${total} descendant nodes > ${MARKDOWN_LIMITS.nodes}`);
+        assert.ok(root.querySelector('.md-truncated'), `${name}: truncation is shown`);
+        assert.equal(root.querySelector('details.md-full pre').textContent, source, `${name}: full text kept as plain text`);
+        assert.ok(root.children.length > 2, `${name}: some content rendered before the cap`);
+      } finally { Object.assign(MARKDOWN_LIMITS, saved); }
+    }
+  });
+}
+
+test('the reported repro stays within the limit and renders the beginning in order', () => {
+  const root = md('x\n'.repeat(9000));
+  assert.ok(descendants(root) <= MARKDOWN_LIMITS.nodes, `${descendants(root)} nodes`);
+  assert.match(root.querySelector('p').textContent, /^x\nx\nx/);
+});
+
+test('a message that fits exactly is not truncated and spends no nodes on a marker', () => {
+  const root = md('one\ntwo\n\n- a\n- b');
+  assert.equal(root.querySelector('.md-truncated'), null);
+  assert.equal(descendants(root), 1 + 3 + 1 + 2 + 2, 'p with two lines and a break; ul with two items');
+});
