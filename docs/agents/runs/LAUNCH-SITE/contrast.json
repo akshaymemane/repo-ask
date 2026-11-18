@@ -1,0 +1,18 @@
+{
+  "dark": {
+    "text on page": 17.46,
+    "muted on page": 7.55,
+    "muted on surface": 7.15,
+    "accent on page": 12.23,
+    "accent on tint": 9.77,
+    "ink on accent": 11.32
+  },
+  "light": {
+    "text on page": 16.49,
+    "muted on page": 5.14,
+    "muted on surface": 5.56,
+    "accent on page": 4.88,
+    "accent on tint": 4.63,
+    "ink on accent": 5.28
+  }
+}
