@@ -6,7 +6,7 @@ Status: Draft | Milestone: M1 for models; M2 for execution | Parent: [Master PRD
 
 Let users choose different models for Ask, planning, summaries and embeddings, and choose an execution adapter for implementation. Model API configuration and coding-agent execution are distinct capabilities: a chat-completion endpoint alone is not an implementation runner.
 
-M1 includes the existing Ollama path and an OpenAI-compatible chat/embedding adapter with explicitly tested capabilities. Named native provider adapters can be added after contract validation. M2 includes one coding-agent adapter selected through a spike; exposing a provider logo does not claim executable support.
+M1 includes the existing Ollama path and an OpenAI-compatible chat/embedding adapter with explicitly tested capabilities. The Claude Code CLI is also available as a chat-only provider (answers, plans, summaries) using the user's own login; it cannot serve embeddings. Named native provider adapters can be added after contract validation. M2 includes one coding-agent adapter selected through a spike; exposing a provider logo does not claim executable support.
 
 ## Functional requirements
 
@@ -57,6 +57,6 @@ Classify authentication, rate limit, timeout, context overflow, unsupported capa
 7. A running session retains its profile snapshot after defaults change, while credential revocation stops future calls.
 8. Unknown token pricing is displayed as unknown; reported and estimated cost are distinguishable.
 
-## Dependencies and open decision
+## Dependencies and decisions
 
-Requires F12 secret storage, usage records and policy enforcement. Selection of the first coding adapter remains open until a reproducible sample task proves startup, authentication, structured activity, termination and license compatibility.
+Requires F12 secret storage, usage records and policy enforcement. The first coding adapter is the Claude Code CLI, selected after a reproducible sample task proved startup, authentication, structured activity and termination (`docs/agents/runs/M2-INTEGRATE/acceptance.md`, `docs/agents/runs/M2-PILOT/evidence.md`). A Codex CLI adapter is planned for M4.

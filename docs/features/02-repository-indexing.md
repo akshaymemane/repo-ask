@@ -12,7 +12,7 @@ Initial scope indexes the default branch and on-demand plan/session bases. Full 
 
 1. Persist discovery metadata so a repository becomes searchable immediately.
 2. Read README and bounded manifests/configuration for a lightweight repository profile.
-3. Obtain a source snapshot at a resolved commit through a bounded local Git cache.
+3. Obtain a source snapshot at a resolved commit with bounded fetches. (First release: GitHub tree/blob APIs with immutable source persisted in SQLite, per `docs/contracts/m1-indexing.md`; explicit local checkouts are read with safe bounded Git operations. A local Git cache remains a later option.)
 4. Filter files, chunk eligible source, persist FTS entries and generate embeddings.
 5. Generate an evidence-linked repository summary, including likely components, entry points and validation commands marked as observed or inferred.
 6. Atomically activate the new snapshot after its required indexes are consistent.

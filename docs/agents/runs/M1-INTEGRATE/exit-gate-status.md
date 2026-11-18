@@ -1,5 +1,7 @@
 # M1 exit-gate status
 
+> Historical record of the M1 exit gate. M2 has since been completed; see `docs/agents/board.json` for current state.
+
 Date: 2026-11-16
 
 M1 implementation and independent component reviews are complete. Final sign-off is
