@@ -45,11 +45,11 @@ coding agent and covered by tests. Items under **Maintainer decisions** cannot b
 
 ## Not yet measured (Master PRD §11 release gates)
 
-These are product-quality measurements, not code defects. They need real repositories and time:
+These are product-quality measurements, not code defects. Remaining reference-workload validation needs real repositories and time:
 
 - 10-task end-to-end execution benchmark (≥8 reach a reviewable draft PR). One live pilot is recorded.
 - 30-plan factual-support review.
-- Catalog p95 < 1s and routing p95 < 2s on the 250-repository reference fixture.
+- Catalog/routing reference-scale validation remains open. The existing 250-record evaluation fixture (25 indexed synthetic README files, 25 chunks; no models) measured warm catalog p95 **1.35 ms** (700 page reads) and routing p95 **315.22 ms** (250 calls), both below the 1s/2s gates on this host. This does not validate 100,000 chunks or the specified reference hardware; cold results and method are in [LAUNCH-PERF-BASELINE](agents/runs/LAUNCH-PERF-BASELINE/results.md) (review pending).
 - Repeated stop-latency distribution (single measurements are within target).
 
 ## Known limitations to state at launch
