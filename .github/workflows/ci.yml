@@ -57,9 +57,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: No workstation paths in tracked files
         run: |
-          if git grep -nIE '/(Users|home)/[A-Za-z0-9._-]+/(workspace|projects|src|code)/' -- . ':!tests/**' ':!repoask/**'; then
-            echo "::error::Replace absolute workstation paths with relative ones."; exit 1
-          fi
+          status=0
+          git grep -nIE '/(Users|home)/[A-Za-z0-9._-]+/(workspace|projects|src|code)/' -- . ':!tests/**' ':!repoask/**' || status=$?
+          if [ "$status" -eq 0 ]; then echo "::error::Replace absolute workstation paths with relative ones."; exit 1; fi
+          if [ "$status" -ne 1 ]; then echo "::error::The workstation path check itself failed (git grep exit $status)."; exit "$status"; fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

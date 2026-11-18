@@ -1,0 +1,44 @@
+# LAUNCH-READINESS review — round 3
+
+Verdict: **APPROVED_WITH_MINOR_FOLLOWUPS**
+
+- Reviewed commit: `03d946eead20dee667515ff60944c314e16310e7`.
+- Reviewed branch: `task/launch-readiness`; worktree: `./`.
+- Reviewed diff: `work/opendevin-integration..HEAD` (base `83e8a112ced26904e9018a6696982fd0e5b2ea7f`); also inspected `28048a1..HEAD`, accounting for rebased ancestry. Ran `git log --oneline -12`; HEAD remained unchanged throughout review.
+- Reviewer: independent Codex quality reviewer; author: Claude.
+- Inputs: AGENTS.md, workflow, quality-reviewer persona, Master PRD, F03/F04/F07 specifications, M1 Ask contract, board, round-1/2 reviews and handoff including Round-2 response. No separate launch task card exists in this checkout; the user's assignment defines review scope. Coverage: RT-07/09, ASK-01/02/06/09, AI-01/04/06, release accuracy and CI behavior.
+
+## Findings
+
+1. **Minor — workstation-path check treats a Git execution error as a clean result.**
+   `.github/workflows/ci.yml:59-62`.
+   The pathspec and normal exit logic work: `git grep` returns 0 on a match, so the step explicitly fails; it returns 1 on no matches, and the `if` succeeds overall. Scratch-index probes verified that README paths match while nested `tests/**` and `repoask/**` paths are excluded. The actual tracked-tree check passes. These exclusion pathspecs are supported by Git on GitHub's Ubuntu runner; there is no demonstrated runner/pathspec incompatibility. However, a status greater than 1 also skips the body and returns success, even with Bash `-e -o pipefail`. Independently reproduced by passing an invalid regex: Git emits a fatal error but the step exits 0. The committed regex is valid, so this is a robustness follow-up rather than a current integration blocker. **Fix:** capture the grep status and accept only 1 as clean; fail on both matches and execution errors, with distinct messages. Owner: launch author/coordinator. The guard intentionally excludes product/tests and only detects the listed workstation directory patterns; its label should not be interpreted as exhaustive scanning.
+
+## Round-2 disposition
+
+| Finding | Result at reviewed HEAD |
+| --- | --- |
+| Credential claim unsupported | **Resolved by rebase.** Both `6d35b04` and approval `55fa04a` are ancestors. `decode()` now calls the canonical `contains_credential`; Ask exports and session redaction use the same credential module. Independently reran the original four synthetic probes: `sk-` + 32 letters, `github_pat_` + 32 letters, `xoxb-` + 32 letters, `AIza` + 35 letters. **All four return `None` from `decode()`.** Shared credential regression tests also pass. This verifies recognizable formats, not universal secret detection. |
+| Historical consumed routing output | **Still present; acceptable to defer for integration in my view.** Independent real Ask fixture again returns `resolved`, empty selected repositories, `next_action='select_repositories'`, `question=None` for the consumed historical decision, while the conversation correctly has `pending_route=None` after add → clear. The RT-09/API audit inconsistency remains minor; no answer-scope failure has been established. The named `LAUNCH-ROUTE-CONSUMED` follow-up proposes migration 14/`consumed_at` after LAUNCH-FRESHNESS migration 13, avoiding migration ownership conflict. Coordinator retains the decision. The named follow-up currently appears only in this handoff, not as a board card at reviewed HEAD: coordinator should durably assign it, include direct historical `routing.get()` assertions, preserve purge behavior and restore contract-consistent outcomes. Approval does not describe this finding as fixed. |
+
+## New-change and claim audit
+
+- **Run intent and failure copy:** `conversations.py:_run` exposes the stored intent additively. Send, retry, success and failure paths retain intent; deletion can remove it and the projection safely returns null. `thread.js` selects plan-specific failure text only for `intent='plan'`; older/missing metadata retains generic answer text. The timeout hint is conditional advice, preserves Retry and uses safe text rendering. The new service and UI tests cover the projection and failed-plan text. No migration or execution permission change is introduced.
+- **600-second quick setup:** newly created discovered Ollama chat profiles use 600 seconds, within `providers/validation.py`'s inclusive 1–600 bound and matching CLI seeding. Independent validation accepts 600. Embedding setup remains 180 seconds; existing profiles are reused without changing their timeout. The UI assertion checks 600, though its test title still says 180 seconds (editorial cleanup). Timeout is not a guarantee of model completion or a single deadline for all plan repair attempts.
+- **README troubleshooting:** the CLI profile's ten-minute default matches code; slow local generation, choosing another model and CPU/GPU inspection are reasonable troubleshooting guidance, with hardware timings presented as possibilities. Existing profiles are not automatically upgraded. Source transmission still requires the documented per-profile consent in addition to disabling local-only mode. Persistent storage/vault and execution-profile preflight guidance match the implementation. No live Ollama, GPU, hosted inference or Docker behavior was certified here.
+- **Release baseline:** prior isolation/model-role/screenshot fixes remain present; the shared credential changelog claim now describes integrated code. Earlier browser/build/release-operational qualifications remain applicable. The Python matrix still omits 3.11. CI has not been independently run on GitHub; a local shell/pathspec probe does not certify the hosted workflow.
+
+## Checks run
+
+- Ask: `PYTHONDONTWRITEBYTECODE=1 <existing-venv-python> -m unittest discover -s tests -p 'test_ask*.py'`: **45 tests, 44 passed, one error**, 144.922 seconds. `test_cli_model_seeds_missing_roles_without_inference_or_overwriting_saved_choices` fails at `tests/test_ask_composition.py:44` because loopback bind is denied (`PermissionError`, errno 1). New intent and pending-route tests pass.
+- UI: `PYTHONDONTWRITEBYTECODE=1 REPOASK_TEST_PYTHON=<existing-venv-python> node --test tests/ui/*.test.mjs`: **289 tests, 287 passed, two failed**, 25.299 seconds. Same `tests/ui/session-services.test.mjs:22,55` synthetic execution-profile bootstrap failures (`execution_test_failed`) as prior rounds. New timeout and failed-plan UI checks pass. These remain failed evidence, not passes.
+- Credentials: `PYTHONDONTWRITEBYTECODE=1 <existing-venv-python> -m unittest discover -s tests -p 'test_credential_detection.py'`: **4 passed**, 0.207 seconds. Original four synthetic decode probes all reject; no real credentials used.
+- Independent real-fixture historical-route/pending-route probe, server timeout-bound validation, scratch Git-index include/exclude probes and Bash step exit-code probes completed as described above. Actual tracked-tree workstation check and `git diff --check work/opendevin-integration..HEAD` passed.
+- AF_INET loopback and AF_UNIX bind probes both independently denied with errno 1. The broker's Unix socket requirement supports the environmental explanation for UI failures without proving unrestricted behavior.
+- Initial attempts using `./.venv/bin/python` could not run because this worktree has no `.venv`; the UI attempt with that missing interpreter produced five failures. Both suites were rerun using the existing adjacent `repo-ask` virtualenv, without installation. A module-style invocation of credential tests failed on its bare sibling import; the discovery invocation above passed. Repository bytecode writes were disabled; scratch data/logs went to temporary directories.
+
+Sandbox limits: restricted filesystem/network, no approval escalation. No packages installed; no isolated build/wheel install, hosted CI, live GitHub, Docker, real Claude/Ollama inference, rendered-browser/zoom/accessibility or multi-platform validation performed. Author's unrestricted check results remain handoff evidence, not independently reproduced passes. Process enumeration was denied by the sandbox; owned test sessions were observed through their execution handles and completed. CI cannot be reported green from this review.
+
+## Integration recommendation
+
+Approve exact commit `03d946eead20dee667515ff60944c314e16310e7` for coordinator integration with the minor routing and CI robustness follow-ups above. Deferring the historical routing fix is reasonable provided its owner and acceptance checks are recorded; coordinator makes that decision. Rerun affected regression checks after integration and obtain unrestricted evidence for the remaining failed tests before release. Only `docs/agents/runs/LAUNCH-READINESS/review-r3.md` was written in the repository by this reviewer. No commit, publication or merge performed.

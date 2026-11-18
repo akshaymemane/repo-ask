@@ -66,7 +66,7 @@ test("choosing a discovered embedding model creates a profile with probed dimens
   assert.deepEqual(calls.filter(([m]) => m === "PATCH").at(-1), ["PATCH", "/api/settings/model-roles", { assignments: { embedding: "prof_2" } }]);
 });
 
-test("choosing a discovered chat model uses 180s timeout, context length and 1024 output tokens", async () => {
+test("choosing a discovered chat model uses the 600s local timeout, context length and 1024 output tokens", async () => {
   const { host, calls } = await setup();
   const sel = select(host, "Writing plans");
   sel.value = "m:qwen2.5:14b";
