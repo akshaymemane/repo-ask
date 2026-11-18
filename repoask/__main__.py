@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import socketserver
 import json
 from pathlib import Path
 import re
@@ -46,6 +47,15 @@ ASSETS = {
     "/setup.js": ("setup.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
 }
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """Bind without HTTPServer's reverse-DNS getfqdn() lookup, which can stall startup for
+    seconds on hosts with slow DNS; a loopback-only server never needs its FQDN."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -300,7 +310,7 @@ def main():
         index.db.close()
         parser.exit(1, "Could not open workspace storage. Check the directory and database compatibility.\n")
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), RequestHandler)
+        server = LoopbackHTTPServer(("127.0.0.1", args.port), RequestHandler)
     except OSError as error:
         platform.close()
         index.db.close()
