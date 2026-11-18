@@ -155,6 +155,7 @@ class ConversationService:
 
     def _run(self,row):
         result={k:row[k] for k in ('id','conversation_id','user_message_id','assistant_message_id','job_id','state','error_code','scope_revision','routing_decision_id','created_at','updated_at')}
+        result['intent']=json.loads(row['generation_metadata_json'] or '{}').get('intent')
         result.update(self._provenance(row))
         return result
 

@@ -73,7 +73,7 @@ test("choosing a discovered chat model uses 180s timeout, context length and 102
   sel.dispatchEvent({ type: "change", bubbles: true });
   await settle(20);
   const post = calls.find(([m, p]) => m === "POST" && p === "/api/provider-profiles");
-  assert.deepEqual(post[2].config, { capabilities: ["chat", "structured_output"], timeout_seconds: 180, context_limit: 8192, max_output_tokens: 1024 });
+  assert.deepEqual(post[2].config, { capabilities: ["chat", "structured_output"], timeout_seconds: 600, context_limit: 8192, max_output_tokens: 1024 });
 });
 
 test("a failed role save reverts the dropdown and explains why", async () => {

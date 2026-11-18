@@ -3,7 +3,7 @@ import { readinessSentences } from "./plan-view.js";
 import { button, el } from "./ui.js";
 
 const ERROR_WORDS = {
-  provider_timeout: "the model took too long",
+  provider_timeout: "the model took too long. A smaller model, or one running on a GPU, may respond in time; choose it in Settings → Models",
   provider_unavailable: "the model isn't reachable",
   provider_unreachable: "the model isn't reachable",
   context_overflow: "the question and sources were too large for this model's limits. Lower its context token limit in Settings → Models",
@@ -62,7 +62,8 @@ function assistant(message, view, handlers) {
     box.append(detail);
   } else if (message.state === "failed") {
     const run = view.runs.find((item) => item.assistant_message_id === message.id);
-    box.append(el("p", `Couldn't answer: ${errorWords(message.error_code ?? run?.error_code)}.`, "msg-error"));
+    const failed = run?.intent === "plan" ? "Couldn't make the plan" : "Couldn't answer";
+    box.append(el("p", `${failed}: ${errorWords(message.error_code ?? run?.error_code)}.`, "msg-error"));
     if (run) button(box, "Retry", () => handlers.onRetry(run.id));
   } else if (message.state === "cancelled") {
     box.append(el("p", "Cancelled.", "msg-muted"));

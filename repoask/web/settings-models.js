@@ -27,7 +27,8 @@ export async function useDiscoveredModel(request, role, model) {
       const probe = await request("/api/provider-profiles/discover/dimensions", "POST", { model: model.name });
       config = { capabilities: ["embeddings"], embedding_dimensions: probe.dimensions, timeout_seconds: 180 };
     } else {
-      config = { capabilities: CHAT_CAPS, timeout_seconds: 180, context_limit: model.context_length ?? 8192, max_output_tokens: 1024 };
+      // Local inference can be slow on CPU-only machines; use the longest allowed limit, as `--model` does.
+      config = { capabilities: CHAT_CAPS, timeout_seconds: 600, context_limit: model.context_length ?? 8192, max_output_tokens: 1024 };
     }
     profile = await request("/api/provider-profiles", "POST", { name: model.name, adapter: "ollama", endpoint: OLLAMA, model: model.name, config });
   }

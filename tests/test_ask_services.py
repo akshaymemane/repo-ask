@@ -93,6 +93,10 @@ class AskTests(unittest.TestCase):
         self.routing.route('mail delivery',other)
         self.service.delete(other)
         self.assertIsNone(self.service.get(other)['pending_route'])
+    def test_runs_report_their_intent(self):
+        self.service.send(self.conv,'Plan retries','plan-intent',intent='plan')
+        runs=self.service.get(self.conv)['runs']
+        self.assertEqual([r['intent'] for r in runs],['plan'])
     def test_routing_pins_collision_missing_revoked(self):
         self.assertEqual(self.routing.route('acme/mail-worker')['selected_repository_ids'],[self.repo])
         self.assertEqual(self.routing.route('mail delivery')['status'],'needs_selection')

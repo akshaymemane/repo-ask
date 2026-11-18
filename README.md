@@ -132,6 +132,23 @@ The demo can index explicit local Git checkouts (committed `HEAD`, up to eight):
 opendevin --repo web=/path/to/storefront --repo api=/path/to/orders-api
 ```
 
+## Troubleshooting
+
+- **Answers or plans time out with a local model.** Local models are only as fast as the
+  hardware running them. On a laptop without GPU acceleration an 8B model can take several
+  minutes per answer, and plan generation (longer structured output) can exceed the profile's
+  time limit (10 minutes for the profile `--model` creates; adjustable per profile in Settings →
+  Models). Use a smaller model (for example a 3B model) or a machine with a GPU, or
+  assign a hosted OpenAI-compatible provider after turning off local-only mode.
+  `ollama ps` shows whether a model is running on the CPU or the GPU.
+- **"Choose a repository to continue."** Ask only searches repositories it can identify.
+  Name the repository in the question, attach it with **+**, or pick one of the suggested
+  repositories; each suggestion shows the terms that matched.
+- **GitHub setup is unavailable.** Credentials need persistent storage and an unlocked OS
+  credential vault: start with `--data-dir` and unlock your keychain.
+- **A session fails before the agent starts.** Check that Docker is running, the profile's
+  image is already pulled locally, and **Test execution profile** passes in Settings.
+
 ## Security and privacy
 
 - Binds to `127.0.0.1` for a single user, with host and origin checks. It has no login

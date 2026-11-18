@@ -56,9 +56,16 @@ test("failed answers explain the cause in words and offer Retry", async () => {
   const { host, calls, render } = await setup();
   render({ messages: [user(), answer({ state: "failed", content: null, citations: [], error_code: "provider_timeout" })],
     runs: [{ id: "answer_1", assistant_message_id: "msg_a1", state: "failed", error_code: "provider_timeout" }] });
-  assert.match(visibleText(host), /Couldn't answer: the model took too long\./);
+  assert.match(visibleText(host), /Couldn't answer: the model took too long\. A smaller model, or one running on a GPU, may respond in time; choose it in Settings → Models\./);
   host.querySelectorAll("button").find((x) => x.textContent === "Retry").click();
   assert.deepEqual(calls, [["onRetry", "answer_1"]]);
+});
+
+test("a failed plan request says the plan could not be made", async () => {
+  const { host, render } = await setup();
+  render({ messages: [user(), answer({ state: "failed", content: null, citations: [], error_code: "provider_timeout" })],
+    runs: [{ id: "answer_2", assistant_message_id: "msg_a1", state: "failed", error_code: "provider_timeout", intent: "plan" }] });
+  assert.match(visibleText(host), /Couldn't make the plan: the model took too long\./);
 });
 
 test("resolved routing shows a work step with change", async () => {
