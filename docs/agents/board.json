@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-17T13:00:00Z",
+  "updated": "2026-11-18T18:00:00Z",
   "phase": "M2_complete_M3_on_hold",
   "milestones": {"M0": "complete", "M1": "complete", "M2": "complete", "M3": "on_hold"},
   "coordinator": "Codex (current session)",
@@ -1827,6 +1827,40 @@
       "review_verdict": "approved",
       "integration_sha": "3002b3f",
       "next_action": "Integrated. Warm catalog p95 1.35 ms, routing p95 315 ms on 250 records/25 chunks; 100,000-chunk reference workload still unvalidated."
+    },
+    {
+      "id": "LAUNCH-PERF-100K",
+      "milestone": "launch",
+      "title": "Validate catalog and routing latency at the 100,000-chunk reference workload",
+      "state": "integrated",
+      "feature_ids": ["F02", "F03", "F12"],
+      "planned_persona": "retrieval",
+      "planned_harness": "claude",
+      "branch": "task/launch-perf-100k",
+      "base_sha": "b8a0ab4",
+      "handoff": "docs/agents/runs/LAUNCH-PERF-100K/results.md",
+      "submitted_sha": "30ac755",
+      "reviewer_session": "Codex independent review r1-r3",
+      "review_verdict": "approved",
+      "integration_sha": "1b50a7a",
+      "next_action": "Integrated. 100,000 chunks: warm catalog p95 1.6 ms, routing p95 936 ms. Fixed the 512 MiB disk cap that blocked the workload and per-hit eligibility map rebuilds."
+    },
+    {
+      "id": "LAUNCH-SITE",
+      "milestone": "launch",
+      "title": "Static product site and user documentation",
+      "state": "integrated",
+      "feature_ids": ["F11"],
+      "planned_persona": "experience",
+      "planned_harness": "codex",
+      "branch": "task/launch-site",
+      "base_sha": "b8a0ab4",
+      "handoff": "docs/agents/runs/LAUNCH-SITE/handoff.md",
+      "submitted_sha": "f5f37d3",
+      "reviewer_session": "Claude review r1-r2, browser render at 390 and 1440 px, light and dark",
+      "review_verdict": "approved",
+      "integration_sha": "aed7a1e",
+      "next_action": "Integrated. Publishing to GitHub Pages is a maintainer decision (visibility, Pages settings, product name)."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",

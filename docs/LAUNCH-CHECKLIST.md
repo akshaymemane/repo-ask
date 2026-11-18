@@ -1,6 +1,6 @@
 # Open-source launch checklist
 
-Status as of 2026-11-18 (updated after the M2 follow-ups closed). Everything in **Done** is on `work/opendevin-integration`, independently reviewed by the other
+Status as of 2026-11-18 (updated after the 100,000-chunk validation and the product site). Everything in **Done** is on `work/opendevin-integration`, independently reviewed by the other
 coding agent and covered by tests. Items under **Maintainer decisions** cannot be decided by the agents.
 
 ## Maintainer decisions (blocking a public announcement)
@@ -15,7 +15,11 @@ coding agent and covered by tests. Items under **Maintainer decisions** cannot b
 3. **Repository settings.** Enable GitHub private vulnerability reporting (SECURITY.md points to it), and decide on
    branch protection for the release branch (require the CI workflow).
 4. **Make the repository public** and tag `v0.1.0` (CHANGELOG has the 0.1.0 notes; move "Unreleased" entries under it).
-5. **Remote branches.** `origin` still has old `task/*` branches and the diagnostic `ci/macos-startup` and
+5. **Product site.** `site/` holds the landing page and user manual; `.github/workflows/pages.yml` deploys it from
+   `main` (changes under `site/**`) or by manual dispatch. Before the first deploy: finalize the name (13 pages and the
+   screenshot carry it), set Pages source to GitHub Actions, and decide whether the site lives at the default
+   `<owner>.github.io/<repo>/` address or a custom domain. A private repository on a free plan cannot serve Pages.
+6. **Remote branches.** `origin` still has old `task/*` branches and the diagnostic `ci/macos-startup` and
    `ci/fast-bind` branches; delete when convenient.
 
 ## Done in the launch wave
@@ -38,9 +42,14 @@ coding agent and covered by tests. Items under **Maintainer decisions** cannot b
 | Execution profiles can pin a Claude model (`--model`), stored on the immutable version | M2-FOLLOWUPS-AGENT-MODEL |
 | Session errors explained in plain words; a stale Retry links the newer attempt | M2-FOLLOWUPS (session errors) |
 | Publication hardening: `sensitive_content` code, canonical paths only, missing snapshot tests | M2-FOLLOWUPS-LOWS |
+| PRD reference workload validated at 100,000 chunks: catalog p95 1.6 ms, routing p95 936 ms (gates 1 s / 2 s) | LAUNCH-PERF-100K |
+| Index disk cap no longer blocks the reference workload (4 GiB live pages, 1 GiB free-space reserve, legacy runs recover) | LAUNCH-PERF-100K |
+| Product site and user manual (`site/`), link/landmark test in CI, Pages workflow (not yet deployed) | LAUNCH-SITE |
 
 ## Verified by hand
 
+- Product site rendered in Chrome at 390 px and 1440 px, light and dark: no horizontal overflow, skip link and
+  active-page marking work; UI labels and CLI flags quoted in the manual match the code.
 - Real local inference with Ollama (llama3.1:8b) through the UI: cited answer, citation opens the exact snapshot lines,
   pending repository choice survives a server restart, 390px and 1440px layouts.
 - Clean wheel install serves the app; foreign Host and cross-origin POST are rejected (403).
@@ -53,7 +62,9 @@ These are product-quality measurements, not code defects. Remaining reference-wo
 
 - 10-task end-to-end execution benchmark (≥8 reach a reviewable draft PR). One live pilot is recorded.
 - 30-plan factual-support review.
-- Catalog/routing reference-scale validation remains open. The existing 250-record evaluation fixture (25 indexed synthetic README files, 25 chunks; no models) measured warm catalog p95 **1.35 ms** (700 page reads) and routing p95 **315.22 ms** (250 calls), both below the 1s/2s gates on this host. This does not validate 100,000 chunks or the specified reference hardware; cold results and method are in [LAUNCH-PERF-BASELINE](agents/runs/LAUNCH-PERF-BASELINE/results.md) (coordinator-reviewed and reproduced).
+- Reference hardware: the 100,000-chunk run used a 12-core / 32 GiB macOS host, larger than the PRD's 8-core /
+  16 GiB reference, with lexical retrieval only (no embeddings). Method and limits are in
+  [LAUNCH-PERF-100K](agents/runs/LAUNCH-PERF-100K/results.md).
 - Repeated stop-latency distribution (single measurements are within target).
 
 ## Known limitations to state at launch

@@ -20,6 +20,10 @@ All notable user-visible changes are recorded here. The format follows
   the session runtime, using status codes only.
 - Answer runs report whether they were a question or a plan request, so a failed plan says so;
   model timeouts suggest a smaller or GPU-backed model.
+- A static product site and user manual in `site/`, with a GitHub Pages workflow that deploys
+  only from `main` or by manual dispatch.
+- Indexing also pauses before the data volume would drop below 1 GiB free, and the
+  Repositories page explains how to recover from a disk-limit pause.
 
 ### Fixed
 - Ask keeps a question that is waiting for a repository choice across reloads and restarts,
@@ -28,6 +32,11 @@ All notable user-visible changes are recorded here. The format follows
 - Credential detection is shared by indexing, session logs and exports, and now also catches
   `sk-…`, `github_pat_…`, Slack and Google API key formats before source is indexed.
 - The route bar stays on one line when the source panel is open.
+- The index disk cap (512 MiB, counted over the whole database) stopped indexing at about
+  40,000 chunks. It is now 4 GiB of live database pages, so a deleted index frees room, and
+  runs paused under the old default continue with the new one.
+- Repository suggestions are faster on large indexes: at 100,000 chunks, p95 routing time
+  dropped from 1.4 s to 0.94 s.
 - Startup no longer waits for an unresponsive Docker daemon (up to 30 s) or for a reverse
   DNS lookup (8 s+ on some hosts) before serving the web app.
 - A contained profile test left by a crashed process is resolved at startup instead of
