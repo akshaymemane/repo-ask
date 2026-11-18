@@ -5,7 +5,7 @@
 - Author/harness and session ID: Codex (session ID unavailable).
 - Persona: retrieval/platform builder; coordinator: Claude.
 - Branch: `task/index-credential-guard`.
-- Worktree: `/Users/apple/workspace/vibe-coding/opendevin-index-credential-guard`.
+- Worktree: `../opendevin-index-credential-guard`.
 - Base SHA: `437ef2626cb8fe01815f494df48fb6cf9ac15e17`.
 - Submitted implementation SHA: `6d35b04f78e7830c7a7d0ef0624f8f23d2e675c2`.
 - Task card: user-assigned LAUNCH-CREDENTIAL-GUARD; F02 IX-03/AC4, F12 AC7, Master PRD §10 Privacy.
@@ -37,7 +37,7 @@ more conservative for short PAT-like values). No contract deviation requiring co
 
 ## Verification evidence
 
-Interpreter for all unittest commands: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`.
+Interpreter for all unittest commands: `./.venv/bin/python`.
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ Interpreter for all unittest commands: `/Users/apple/workspace/vibe-coding/repo-
 | F02 regression | `-m unittest discover -s tests -p test_indexing_service.py` | Exit 0; 19 tests passed. |
 | Scope/whitespace | `git diff --check` | Exit 0. |
 
-Requested full suite actually run: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests`.
+Requested full suite actually run: `./.venv/bin/python -m unittest discover -s tests`.
 Exit 1; **618 tests in 350.891s; failures=69, errors=99, skipped=9**.
 Errors include sandbox-denied socket operations (`PermissionError: [Errno 1] Operation
 not permitted`) in HTTP, broker/adapter and provider-network fixtures, plus denied

@@ -42,3 +42,18 @@
 - SECURITY reporting channel (GitHub private vulnerability reporting) must be enabled in repository settings.
 - Product name: the PRD records that "OpenDevin" collides with the earlier OpenDevin project (now OpenHands); public
   naming review is required before announcing.
+
+## Round-2 response
+
+1. **Credential CHANGELOG claim** — branch rebased onto `work/opendevin-integration` (`55fa04a` shared credential guard,
+   independently approved). The claim is now true for this branch: `repoask/platform/credentials.py`, used by
+   `indexing/safety.py`, `sessions/redaction.py` and `ask/common.py`.
+2. **Historical routing status after consumption** — accepted as a follow-up card (LAUNCH-ROUTE-CONSUMED): add a
+   `consumed_at` column in migration 14 and stop rewriting `status`, immediately after LAUNCH-FRESHNESS (migration 13)
+   integrates. Until then `routing.get()` on a consumed decision reports `resolved` with no selection; the UI and
+   answer execution never reuse consumed decisions (reviewer-verified).
+- Also: failed plan requests say so and timeouts suggest a smaller/GPU model (runs expose `intent`); quick-setup local
+  Ollama chat profiles use 600s; README troubleshooting; absolute paths removed from new review records and a CI step
+  rejects workstation paths.
+
+Checks after rebase: Python 620 OK (9 skipped), UI 289/289, `git diff --check` clean.
