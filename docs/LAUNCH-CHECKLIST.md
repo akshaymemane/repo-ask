@@ -49,7 +49,7 @@ These are product-quality measurements, not code defects. Remaining reference-wo
 
 - 10-task end-to-end execution benchmark (≥8 reach a reviewable draft PR). One live pilot is recorded.
 - 30-plan factual-support review.
-- Catalog/routing reference-scale validation remains open. The existing 250-record evaluation fixture (25 indexed synthetic README files, 25 chunks; no models) measured warm catalog p95 **1.35 ms** (700 page reads) and routing p95 **315.22 ms** (250 calls), both below the 1s/2s gates on this host. This does not validate 100,000 chunks or the specified reference hardware; cold results and method are in [LAUNCH-PERF-BASELINE](agents/runs/LAUNCH-PERF-BASELINE/results.md) (review pending).
+- Catalog/routing reference-scale validation remains open. The existing 250-record evaluation fixture (25 indexed synthetic README files, 25 chunks; no models) measured warm catalog p95 **1.35 ms** (700 page reads) and routing p95 **315.22 ms** (250 calls), both below the 1s/2s gates on this host. This does not validate 100,000 chunks or the specified reference hardware; cold results and method are in [LAUNCH-PERF-BASELINE](agents/runs/LAUNCH-PERF-BASELINE/results.md) (coordinator-reviewed and reproduced).
 - Repeated stop-latency distribution (single measurements are within target).
 
 ## Known limitations to state at launch
