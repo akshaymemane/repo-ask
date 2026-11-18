@@ -45,3 +45,11 @@ for the UI even to use Ask.
 - `test_startup_without_session_history_never_waits_on_docker` now proves: no sessions and no checks → no runner
   constructed; a recorded profile check → the sweep runs. The existing dead-profile-test recovery test covers containment
   of a first-ever profile test with zero sessions.
+
+## Round-2 response
+
+- Finding 1 (P2, pre-existing, exposed by R2): at startup, once a dead owner's profile-test resources are contained,
+  `_recover_tests()` fences its still-valid lease to `needs_reconciliation` (same rule and statement shape as session
+  recovery, `runtime.py` `_recover_session`), guarded on the observed owner, so `reconcile_test()` resolves the check to
+  `interrupted` immediately. Live local owners and non-startup valid leases remain protected; unconfirmed containment
+  never fences. New test `test_dead_profile_test_with_unexpired_lease_resolves_at_startup` fails without the change.

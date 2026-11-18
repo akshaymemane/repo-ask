@@ -273,6 +273,14 @@ class Runtime:
                 container = 'terminated' if all(self._stop_handle(runner, h) for h in matches) else 'unverified'
             confirmed = harness in ('absent', 'terminated') and container in ('absent', 'terminated')
             entry = {'job_id': job_id, 'confirmed': confirmed, 'harness': harness, 'container': container}
+            if startup and confirmed and job.state == 'leased' and job.lease_owner not in ours:
+                # Leadership proves the previous owner is dead and its resources are contained: fence the
+                # unexpired lease as session recovery does, so the check resolves now, not at lease expiry.
+                with self.svc.store.transaction() as db:
+                    db.execute("UPDATE jobs SET state='needs_reconciliation',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,"
+                               "last_error_code='lease_expired',last_error_message='Runtime restarted',updated_at=? "
+                               "WHERE id=? AND state='leased' AND lease_owner=?", (self.svc.clock(), job_id, job.lease_owner))
+                job = self.svc.jobs.get(job_id)
             if job.state in ('leased', 'needs_reconciliation'):
                 try:
                     reconcile(item['version_id'], job_id, containment_confirmed=confirmed)

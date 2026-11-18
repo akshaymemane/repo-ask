@@ -429,6 +429,18 @@ class ProfileTestRecoveryTests(ReviewCase):
                        (json.dumps({'private_runtime': private}), self.version_id))
         return lease, harness
 
+    def test_dead_profile_test_with_unexpired_lease_resolves_at_startup(self):
+        lease, harness = self.plant('runtime:deadbeef:0', 600000)  # the dead owner's lease is still valid
+        report = self.sessions.start()
+        self.assertEqual(report['status'], 'running')
+        end = time.monotonic() + 5
+        while harness.poll() is None and time.monotonic() < end:
+            time.sleep(0.05)
+        self.assertIsNotNone(harness.poll())
+        self.assertEqual(self.world.containers, {})
+        self.assertEqual(self.jobs.get(lease.job.id).state, 'failed')
+        self.assertEqual(self.real_profiles.get_version(self.version_id)['check']['status'], 'interrupted')
+
     def test_dead_profile_test_is_contained_then_resolved_without_rerun(self):
         lease, harness = self.plant('runtime:deadbeef:0', 1000)
         time.sleep(1.1)  # the dead owner's lease expires; never stolen from metadata alone
