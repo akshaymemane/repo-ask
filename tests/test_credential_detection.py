@@ -50,7 +50,7 @@ class CredentialDetectionTests(unittest.TestCase):
                 self.assertEqual(redact_credentials(token, r'\literal'), r'\literal')
 
     def test_ordinary_identifiers_are_preserved(self):
-        values = ['task-' + 'A' * 40, 'risk-' + 'A' * 40, 'sk-learn',
+        values = ['task-' + 'A' * 40, 'risk-' + 'A' * 40, 'sk-learn', '--sk-button-background-color-' + 'a' * 20,
                   'sk-ab', 'task-' + 'ant-' + 'A' * 40,
                   'prefixsk-' + 'A' * 40]
         for value in values:
