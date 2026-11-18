@@ -1,6 +1,6 @@
 # Open-source launch checklist
 
-Status as of 2026-11-18. Everything in **Done** is on `work/opendevin-integration`, independently reviewed by the other
+Status as of 2026-11-18 (updated after the M2 follow-ups closed). Everything in **Done** is on `work/opendevin-integration`, independently reviewed by the other
 coding agent and covered by tests. Items under **Maintainer decisions** cannot be decided by the agents.
 
 ## Maintainer decisions (blocking a public announcement)
@@ -34,6 +34,10 @@ coding agent and covered by tests. Items under **Maintainer decisions** cannot b
 | Startup never waits on reverse DNS at bind time (8s+ on macOS CI) | LAUNCH-FAST-BIND |
 | Slow local models: plan-specific failure copy, actionable timeout hint, 600s local Ollama default, README guidance | LAUNCH-READINESS |
 | Spec/contract drift fixed (F02 acquisition, F07 adapters, M1 manifest permissions) | LAUNCH-READINESS |
+| Draft PRs: title from the plan goal; description lists steps, checks, omitted paths and limitations (redacted, bounded) | M2-FOLLOWUPS-PR-DEFAULTS |
+| Execution profiles can pin a Claude model (`--model`), stored on the immutable version | M2-FOLLOWUPS-AGENT-MODEL |
+| Session errors explained in plain words; a stale Retry links the newer attempt | M2-FOLLOWUPS (session errors) |
+| Publication hardening: `sensitive_content` code, canonical paths only, missing snapshot tests | M2-FOLLOWUPS-LOWS |
 
 ## Verified by hand
 
