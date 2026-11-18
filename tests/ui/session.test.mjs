@@ -286,14 +286,21 @@ function assertPurgedView(panel) {
 
 test('opening a purged session hides content actions and links its retained saved version',async()=>{
  const b=setup((m,u)=>{
-  if(u==='/api/sessions/s')return {id:'s',state:'failed',plan_version_id:'v',purged:true,purged_at:1700000000000,repositories:[]};
-  if(u==='/api/plans?limit=100')return {items:[{id:'p',latest_version_id:'newer'}],next_cursor:null};
-  if(u==='/api/plans/p?version_id=v')return {id:'p',version:{id:'v'}};
+  if(u==='/api/sessions/s')return {id:'s',state:'failed',plan_id:'p',plan_version_id:'v',purged:true,purged_at:1700000000000,repositories:[]};
   return basic(m,u);
  });
  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
  assertPurgedView(ui.panel);await ui.refresh();assertPurgedView(ui.panel);
+ assert.equal(b.requests.some(r=>r.url.startsWith('/api/plans')),false);
  assert.equal(b.requests.some(r=>/\/(retry|publications)$/.test(r.url)&&r.method==='POST'),false);
+ ui.close();
+});
+
+test('purged session without a plan id links to Ask without scanning plans',async()=>{
+ const b=setup((m,u)=>u==='/api/sessions/s'?{id:'s',state:'failed',plan_version_id:'v',purged:true,purged_at:1700000000000,repositories:[]}:basic(m,u));
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ assert.equal(ui.panel.querySelector('a[href="#/ask"]').textContent,'saved plans in Ask');
+ assert.equal(b.requests.some(r=>r.url.startsWith('/api/plans')),false);
  ui.close();
 });
 

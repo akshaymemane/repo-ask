@@ -132,9 +132,10 @@ millisecond timestamp and retries filesystem cleanup. The tombstone is stored in
 intent holding a pre-purge snapshot cannot persist content after the tombstone;
 the publisher maps that rejected insert to its existing idempotency conflict.
 
-Detail/list projections retain id, state, timestamps, plan_version_id, repository
+Detail/list projections retain id, state, timestamps, plan_id, plan_version_id, repository
 id/role/base SHA, and publication id/state/PR URL/number, plus `purged:true`,
-`purged_at` and `source_available:false`. Events/messages/diff/validations/artifacts
+`purged_at` and `source_available:false`. The additive `plan_id` field links directly
+to the saved plan without scanning the plan catalog. Events/messages/diff/validations/artifacts
 return HTTP 409 `{code:"purged",error:{code:"purged"}}`; trusted publication export
 also fails with `purged`. Guidance/question text, all event payloads, artifact
 bytes/hashes, validation commands/environment, manifests and frozen session context

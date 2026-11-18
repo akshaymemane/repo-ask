@@ -1006,23 +1006,6 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       onAvailable(); current = data; lastConfirmed = Date.now();
       if (data.purged) {
         showPurged();
-        // Tombstones retain the version id only. Resolve its plan without changing the API contract.
-        if (!data.plan_id) {
-          let next = null;
-          do {
-            const page = await request(`/api/plans?limit=100${next ? `&cursor=${enc(next)}` : ''}`);
-            if (!live(token) || current !== data) return;
-            for (const candidate of page.items || []) {
-              try {
-                const saved = await request(`/api/plans/${enc(candidate.id)}?version_id=${enc(data.plan_version_id)}`);
-                if (!live(token) || current !== data) return;
-                if (saved.version?.id !== data.plan_version_id) continue;
-                data.plan_id = candidate.id; renderHeader(); return;
-              } catch { /* This version belongs to another plan or is unavailable. */ }
-            }
-            next = page.next_cursor;
-          } while (next);
-        }
         return;
       }
       if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token) || current?.purged) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; if (typeof plan.title === 'string' && plan.title.trim()) planTitles.set(plan.id, plan.title.trim()); renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }

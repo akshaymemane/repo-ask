@@ -12,3 +12,9 @@ Implementation commit 1bdd47e; final fence/header/evidence changes remain UNCOMM
 Git index.lock creation in the main repository metadata was denied (EPERM).
 Coordinator must commit the remaining working diff before exact-commit review.
 No approval, integration, push, PR publication or remote merge is claimed.
+
+Round 2: added plan_id to the purged projection/contract, removed UI plan scanning,
+and covered direct saved-version links and absent-plan_id Ask fallback.
+Purge Python: 6 passed. UI: 302 passed, 2 existing synthetic profile bootstrap
+failures (304 total). See handoff Round 2 response; awaiting coordinator review.
+Round-2 staging denied creating the external Git index.lock; changes remain uncommitted.

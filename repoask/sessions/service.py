@@ -675,7 +675,7 @@ class SessionService:
         successor = db.execute('SELECT id FROM sessions WHERE predecessor_id=?', (row['id'],)).fetchone()
         tombstone = _loads(row['outcome_json'], {})
         if tombstone.get('purged_at') is not None:
-            return {**{k: row[k] for k in ('id', 'plan_version_id', 'state', 'created_at', 'updated_at', 'started_at', 'finished_at')},
+            return {**{k: row[k] for k in ('id', 'plan_id', 'plan_version_id', 'state', 'created_at', 'updated_at', 'started_at', 'finished_at')},
                     'purged': True, 'purged_at': tombstone['purged_at'], 'source_available': False,
                     'repositories': [{k: r[k] for k in ('repository_id', 'role', 'base_sha')} for r in repos],
                     'publication': tombstone.get('publication', {})}

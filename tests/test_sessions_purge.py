@@ -52,6 +52,7 @@ class SessionPurgeTests(SessionCase):
 
     def test_content_disk_isolation_restart_idempotency_and_api(self):
         sid=self.launch(); self.finish(sid)
+        plan_id=self.sessions.get(sid)['plan_id']
         other=self.launch('other'); self.finish(other)
         for ident in (sid,other):
             with self.store.transaction() as db:
@@ -78,6 +79,8 @@ class SessionPurgeTests(SessionCase):
         self.addCleanup(restarted.close)
         self.assertEqual(restarted.purge_session(sid),result.body)
         view=restarted.get(sid); self.assertTrue(view['purged']); self.assertNotIn('instructions',view)
+        self.assertEqual(view['plan_id'],plan_id)
+        self.assertEqual(api.dispatch('GET',f'/api/sessions/{sid}').body['plan_id'],plan_id)
         self.assertTrue(next(s for s in self.sessions.list_sessions()['items'] if s['id']==sid)['purged'])
         for endpoint in ('events','messages','diff','validations','artifacts'):
             response=api.dispatch('GET',f'/api/sessions/{sid}/{endpoint}')
