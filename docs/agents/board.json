@@ -829,7 +829,7 @@
         "runtime/experience: explain retry_exists and link the successor attempt",
         "runtime: snapshot LOWs (sensitive_content code, path normalization, test gaps); omitted-path list cap and forged-omission tests; publication refresh/compare shape minors"
       ],
-      "next_action": "Not started. Schedule before or alongside M3."
+      "next_action": "Partly done in the launch wave: PR title/description from the plan and omitted paths in review (0e06b78); session errors explained and stale Retry links the newer attempt (fc95197); execution profile preselected when exactly one is tested (earlier); Repositories Off not reproducible on current code with the pilot data (docs/agents/runs/M2-FOLLOWUPS-REPO-OFF). Remaining: execution profile model selection; snapshot LOWs."
     },
     {
       "id": "M2-PILOT",
