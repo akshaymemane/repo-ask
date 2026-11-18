@@ -61,6 +61,18 @@ class CredentialDetectionTests(unittest.TestCase):
                 self.assertEqual(redact_text(value), value)
                 self.assertEqual(export_text(value), value)
 
+    def test_keys_on_diff_lines_are_still_detected(self):
+        from repoask.indexing.safety import decode
+        from repoask.sessions.redaction import redact_text
+        from repoask.ask.common import export_text
+        key = 'sk-' + 'A' * 40
+        for text in ('@@ -1 +0,0 @@\n-' + key + '\n', '@@ -0,0 +1 @@\n+' + key + '\n', '-' + key, ' -' + key):
+            self.assertIsNone(decode(text.encode()), text[:20])
+            self.assertNotIn(key, redact_text(text))
+            self.assertNotIn(key, export_text(text))
+        for text in ('--sk-button-background-color-' + 'a' * 20, 'x-sk-' + 'a' * 30):
+            self.assertIsNotNone(decode(text.encode()), text[:20])
+
     def test_caller_specific_rules_are_preserved(self):
         self.assertIn('[redacted credential]', redact_text('passwd=synthetic'))
         self.assertIn('[redacted credential]', redact_text('Bearer ' + 'B' * 20))

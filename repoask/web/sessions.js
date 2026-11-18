@@ -12,7 +12,7 @@ const human = value => String(value ?? 'unknown').replaceAll('_', ' ');
 const ERROR_TEXT = {
   retry_exists: 'A newer attempt of this session already exists; open it to continue.',
   session_active: 'This session is still running; stop it or wait for it to finish first.',
-  runtime_in_use: 'Another OpenDevin process on this data directory is running sessions.',
+  runtime_in_use: 'Another OpenDevin process on this data directory is handling sessions; close it first.',
   plan_not_ready: 'The saved plan is not ready to start; open it to see what needs fixing.',
   publication_in_progress: 'A pull request is still being published for this session; wait for it to finish.',
   purged: 'This session’s content was deleted.',
