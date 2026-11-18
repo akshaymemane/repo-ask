@@ -20,3 +20,10 @@
 
 - LOW: no favicon, so every page load logs a 404 for `/favicon.ico`. Add a small local icon and
   `<link rel="icon">` on each page.
+
+## Round 2 (076bb58)
+
+- LOW resolved: `site/assets/favicon.svg` linked from all 13 pages; `tests/test_site.py` requires it; tests pass.
+- New disk-limit copy in indexing and troubleshooting matches `task/launch-perf-100k` behavior
+  (4 GiB live-page cap, 1 GiB free-space reserve, Delete local index then Resume).
+- Verdict: **approved**. Integrate after LAUNCH-PERF-100K so the docs never describe unshipped behavior.
