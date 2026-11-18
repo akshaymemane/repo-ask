@@ -19,8 +19,42 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 
 
+GENERIC = ('self value result item config request response error handler client cache store '
+           'update create delete fetch load save parse format validate token record event state '
+           'context options payload buffer stream index count limit offset query filter').split()
+
+
+def source_files(repository, vocabulary, target):
+    """Deterministic synthetic Python files producing exactly `target` real chunks.
+
+    Lines are indented (no top-level def/class) so the production chunker emits
+    60-line windows; one third of identifiers come from the repository's own profile.
+    """
+    import random
+    from repoask.indexing.safety import chunks
+    rng = random.Random(repository['id'])
+    own = [w.lower().strip(',;.') for w in repository['profile'].split() if len(w) > 3]
+    def word():
+        pool = own if rng.random() < 1 / 3 else vocabulary if rng.random() < .5 else GENERIC
+        return rng.choice(pool)
+    files, produced = [], 0
+    while produced < target:
+        lines = ['class Module%d:' % len(files)]
+        while len(lines) < 1000:
+            lines.append('    %s_%s = %s(%s)  # %s' % tuple(word() for _ in range(5)))
+            if len(lines) % 5 == 0 and len(lines) >= 55 * (target - produced - 2):
+                current = sum(1 for _ in chunks('\n'.join(lines)))
+                if produced + current > target:
+                    del lines[-5:]
+                    break
+        count = sum(1 for _ in chunks('\n'.join(lines)))
+        produced += count
+        files.append({'path': 'src/module_%04d.py' % len(files), 'content': '\n'.join(lines).encode()})
+    return files
+
+
 @contextmanager
-def fixture():
+def fixture(source_chunks=0):
     import test_github_service as github_fixture
     from repoask.ask import RoutingService
     from repoask.indexing import IndexService
@@ -40,20 +74,31 @@ def fixture():
             test.remote.repos['11'].append(record)
         test.refresh()
 
+        vocabulary = sorted({w.lower().strip(',;.') for item in data['tasks'] + data['repositories']
+                             for w in item.get('prompt', item.get('profile', '')).split() if len(w) > 3})
+        per_repository = source_chunks // 25
+
         def reader(source, revision, caps):
             i = int(source['id'].split(':')[1]) - 1
-            return {'revision': 'a' * 40, 'revision_kind': 'git', 'branch': 'main',
-                    'files': [{'path': 'README.md',
-                               'content': data['repositories'][i]['profile'].encode()}]}
+            repository = data['repositories'][i]
+            files = [{'path': 'README.md', 'content': repository['profile'].encode()}]
+            if per_repository:
+                files += source_files(repository, vocabulary, per_repository - 1)
+            return {'revision': 'a' * 40, 'revision_kind': 'git', 'branch': 'main', 'files': files}
 
         index = IndexService(test.platform.store, test.platform.jobs, test.service,
                              ProviderService(test.platform.store, None), snapshot_reader=reader)
+        started = time.perf_counter()
         for i in range(1, 26):
             run = index.request_index('gh:' + str(i))
-            Worker(test.platform.jobs, {'index.run': index.run_index},
-                   worker_id='fixture').run_once()
+            worker = Worker(test.platform.jobs, {'index.run': index.run_index}, worker_id='fixture')
+            # Large snapshots checkpoint at the elapsed cap and resume as the same job.
+            while index.get_run(run['id'])['state'] not in ('completed', 'failed', 'cancelled'):
+                if not worker.run_once():
+                    break
             if index.get_run(run['id'])['state'] != 'completed':
-                raise RuntimeError('Fixture indexing failed')
+                raise RuntimeError('Fixture indexing failed: %s' % index.get_run(run['id']))
+        test.indexing_seconds = time.perf_counter() - started
         # Fail closed if any measured operation unexpectedly attempts transport.
         def offline(request):
             raise RuntimeError('Unexpected transport during measurement')
@@ -79,8 +124,8 @@ def timed(call):
     return (time.perf_counter_ns() - start) / 1_000_000, result
 
 
-def benchmark(reads, repeats, prompt_limit):
-    with fixture() as (test, index, routing, data):
+def benchmark(reads, repeats, prompt_limit, source_chunks=0):
+    with fixture(source_chunks) as (test, index, routing, data):
         prompts = data['tasks'][:prompt_limit]
         # UI emits only optional query, plus limit=100 and cursors. Cover empty,
         # broad multi-page, selective and no-match searches, not invented UI filters.
@@ -127,6 +172,8 @@ def benchmark(reads, repeats, prompt_limit):
         catalog_values = [v for values in warm.values() for v in values]
         with test.platform.store.read() as db:
             chunks = db.execute('SELECT count(*) FROM code_chunks').fetchone()[0]
+            files = db.execute('SELECT count(DISTINCT snapshot_id || path) FROM code_chunks').fetchone()[0]
+            page = db.execute('PRAGMA page_size').fetchone()[0] * db.execute('PRAGMA page_count').fetchone()[0]
         catalog_summary = summary(catalog_values)
         routing_summary = summary(route_values)
         return {
@@ -134,9 +181,11 @@ def benchmark(reads, repeats, prompt_limit):
                             'platform': platform.platform(), 'processor': platform.processor(),
                             'cpu_count': os.cpu_count()},
             'fixture': {'repositories': len(data['repositories']), 'indexed_repositories': 25,
-                        'chunks': chunks, 'files_per_indexed_repository': 1,
-                        'file_content': 'synthetic profile in README.md', 'labelled_prompts': len(prompts),
-                        'embedding_models': 0},
+                        'chunks': chunks, 'files': files,
+                        'file_content': 'synthetic profile in README.md' + (
+                            '; deterministic synthetic Python under src/' if source_chunks else ''),
+                        'labelled_prompts': len(prompts), 'embedding_models': 0,
+                        'database_bytes': page, 'indexing_seconds': round(test.indexing_seconds, 1)},
             'method': {'percentile': 'nearest rank', 'reads_per_variant_page': reads,
                        'routing_repeats_per_prompt': repeats,
                        'cold': 'first-use after fixture construction; OS/SQLite caches not flushed',
@@ -166,9 +215,12 @@ def main():
     parser.add_argument('--routing-repeats', type=positive, default=5)
     parser.add_argument('--prompt-limit', type=positive, default=50,
                         help='reduce prompts for smoke checks; full baseline uses all 50')
+    parser.add_argument('--source-chunks', type=int, default=0,
+                        help='total eligible chunks across the 25 indexed repositories, e.g. 100000 '
+                             'for the PRD reference workload (default: README profiles only)')
     parser.add_argument('--assert', dest='assert_gates', action='store_true')
     args = parser.parse_args()
-    result = benchmark(args.catalog_reads, args.routing_repeats, args.prompt_limit)
+    result = benchmark(args.catalog_reads, args.routing_repeats, args.prompt_limit, args.source_chunks)
     print(json.dumps(result, indent=2))
     return int(args.assert_gates and not all(result['gates'].values()))
 

@@ -7,7 +7,7 @@ import time
 from ..platform.clock import now_ms, new_id
 from ..platform.errors import PlatformError, NotFound, LeaseLost
 from ..platform.worker import CancelledError
-from .safety import CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
+from .safety import DISK_RESERVE, CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
 from .snapshots import local_snapshot, github_snapshot
 from .vectors import VectorStore, VectorUnavailable
 
@@ -439,6 +439,13 @@ class IndexService:
             db.execute("UPDATE index_runs SET state='cancelled',updated_at=? WHERE id=?",(self.clock(),run['id']))
         return run, None
 
+    def _disk_exhausted(self, caps, incoming):
+        """The index cap, or the volume's free-space reserve, would be crossed."""
+        if self.store.used_bytes() + self.vectors.used_bytes() + incoming > caps['disk_bytes']:
+            return True
+        free = self.store.free_bytes()
+        return free is not None and free - incoming < DISK_RESERVE
+
     def _pause_limit(self, db, run, code):
         db.execute("UPDATE index_runs SET state='paused',error_code=?,updated_at=? WHERE id=?", (code,self.clock(),run['id']))
 
@@ -536,7 +543,7 @@ class IndexService:
                     run, current = self._fence(db,job,context)
                     if excluded(path,current['exclusions']):
                         raise IndexError('selection_changed')
-                    if self.store.size_bytes() + self.vectors.size_bytes() + len(raw)*4 > caps['disk_bytes']:
+                    if self._disk_exhausted(caps, len(raw)*4):
                         self._pause_limit(db,run,'disk_limit')
                         return {'state':'paused'}
                     db.execute('INSERT OR IGNORE INTO snapshot_files VALUES(?,?,?,?,?,?)',(sid,path,digest(raw),len(raw),len(text.splitlines()),text))
@@ -644,7 +651,7 @@ class IndexService:
                     run,source = self._fence(db,job,context)
                     if any(excluded(r['path'],source['exclusions']) for r in batch):
                         raise IndexError('selection_changed')
-                    if self.store.size_bytes()+self.vectors.size_bytes()+sum(len(r['text'].encode()) for r in batch)*4+len(batch)*spec['dimensions']*8 > caps['disk_bytes']:
+                    if self._disk_exhausted(caps, sum(len(r['text'].encode()) for r in batch)*4+len(batch)*spec['dimensions']*8):
                         self._pause_limit(db,run,'disk_limit')
                         return {'state':'paused'}
                     for row,vector in zip(batch,values):
@@ -740,9 +747,12 @@ class IndexService:
                 placeholders = ','.join('?' for _ in ids)
                 if expression:
                     rows = db.execute('SELECT c.*,s.repository_id,s.revision,bm25(code_chunks_fts) AS score FROM code_chunks_fts JOIN code_chunks c ON c.id=code_chunks_fts.chunk_id JOIN repository_snapshots s ON s.id=c.snapshot_id WHERE code_chunks_fts MATCH ? AND c.snapshot_id IN ('+placeholders+') ORDER BY score,c.id LIMIT 1000',(expression,*ids)).fetchall()
+                    hidden = {}  # Chunks of one file share the same exclusion verdict.
                     for row in rows:
-                        source = scopes[row['repository_id']][0]
-                        if excluded(row['path'],source['exclusions']):
+                        key = (row['repository_id'],row['path'])
+                        if key not in hidden:
+                            hidden[key] = excluded(row['path'],scopes[row['repository_id']][0]['exclusions'])
+                        if hidden[key]:
                             continue
                         rank = len(ranked)+1
                         ranked[row['id']] = 1/(60+rank)

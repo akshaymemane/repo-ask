@@ -1,6 +1,7 @@
 """Serialized SQLite access with explicit persistence."""
 from contextlib import contextmanager
 from pathlib import Path
+import shutil
 import sqlite3
 from threading import RLock
 from .clock import now_ms
@@ -79,6 +80,23 @@ class Store:
                 except FileNotFoundError:
                     pass  # A concurrent checkpoint may have removed its WAL.
             return total
+
+    def used_bytes(self):
+        """Live database pages; rows deleted by a purge free pages for reuse."""
+        with self.read() as conn:
+            if not self.persistent:
+                return 0
+            pages, free, size = (conn.execute(f"PRAGMA {name}").fetchone()[0]
+                                 for name in ("page_count", "freelist_count", "page_size"))
+            return (pages - free) * size
+
+    def free_bytes(self):
+        """Free space on the database volume, or None for in-memory stores."""
+        with self.read() as conn:
+            if not self.persistent:
+                return None
+            filename = conn.execute("PRAGMA database_list").fetchone()[2]
+        return shutil.disk_usage(Path(filename).parent).free
 
     def backup_to(self, target):
         with self.read() as conn:

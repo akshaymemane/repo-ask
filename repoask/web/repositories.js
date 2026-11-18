@@ -168,6 +168,7 @@ export function createRepositoriesPage({ host, request, panel, shell }) {
     index.append(el("h4", "Index"));
     const run = c.active_run;
     if (run) index.append(el("p", `Indexing · ${String(run.phase ?? run.state).replaceAll("_", " ")} · ${run.progress?.files ?? 0} files${run.retry_at ? ` · retry ${relativeTime(run.retry_at)}` : ""}${run.error_code ? ` · ${run.error_code.replaceAll("_", " ")}` : ""}`));
+    if (run?.error_code === "disk_limit") index.append(el("p", "Indexing paused because the local index reached its size limit or the disk has less than 1 GB free. Free some disk space or use Delete local index on repositories you no longer need, then resume.", "detail-muted"));
     const actions = el("div", undefined, "detail-actions"); index.append(actions);
     const reindex = button(actions, c.active_snapshot ? "Reindex now" : "Index now", (event, control) => change(control,
       () => request(`/api/repositories/${id}/index`, "POST", embeddingVersionId ? { embedding_version_id: embeddingVersionId } : {}), "Indexing started. The current snapshot stays usable until the new one is ready."));

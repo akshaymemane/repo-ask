@@ -33,3 +33,14 @@ class BenchmarkLatencyTests(unittest.TestCase):
                 self.assertLessEqual(stats['p95_ms'], stats['max_ms'])
         self.assertIn('sqlite', result['environment'])
         self.assertIn('cpu_count', result['environment'])
+
+    def test_source_chunks_reach_exact_target(self):
+        root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            [sys.executable, str(root / 'scripts/benchmark_latency.py'), '--catalog-reads', '1',
+             '--routing-repeats', '1', '--prompt-limit', '1', '--source-chunks', '250'],
+            cwd=root, capture_output=True, text=True, timeout=60, check=True)
+        fixture = json.loads(completed.stdout)['fixture']
+        self.assertEqual(fixture['chunks'], 250)
+        self.assertGreater(fixture['files'], 25)
+        self.assertGreater(fixture['database_bytes'], 0)

@@ -258,9 +258,11 @@ class GitHubService:
             raise GitHubError('validation')
         self.purge_hooks[name] = callback
 
+    _ELIGIBLE = "r.index_enabled AND EXISTS(SELECT 1 FROM repository_installations ri JOIN github_installations i ON i.id=ri.installation_id JOIN github_connections c ON c.id=i.connection_id WHERE ri.repository_id=r.id AND i.status='active' AND c.status='connected')"
+
     def _eligible_map(self):
         with self.store.read() as db:
-            return {r[0]: bool(r[1]) for r in db.execute("SELECT r.id, r.index_enabled AND EXISTS(SELECT 1 FROM repository_installations ri JOIN github_installations i ON i.id=ri.installation_id JOIN github_connections c ON c.id=i.connection_id WHERE ri.repository_id=r.id AND i.status='active' AND c.status='connected') FROM repositories r")}
+            return {r[0]: bool(r[1]) for r in db.execute("SELECT r.id, " + self._ELIGIBLE + " FROM repositories r")}
 
     def _notify(self, before):
         after = self._eligible_map()
@@ -471,7 +473,10 @@ class GitHubService:
 
     def is_eligible(self, repository_id):
         self._one('repositories', repository_id)
-        return self._eligible_map()[repository_id]
+        # One row, not the whole map: routing asks this per candidate and per search hit.
+        with self.store.read() as db:
+            row = db.execute("SELECT " + self._ELIGIBLE + " FROM repositories r WHERE r.id=?", (repository_id,)).fetchone()
+        return bool(row and row[0])
 
     def list_repositories(self, *, cursor=None, limit=50, query='', owner=None, index_enabled=None):
         if type(limit) is not int or not 1 <= limit <= 100 or not isinstance(query, str) or len(query) > 200 or (owner is not None and not isinstance(owner, str)) or (index_enabled is not None and type(index_enabled) is not bool):

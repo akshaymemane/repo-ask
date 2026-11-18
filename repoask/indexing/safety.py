@@ -9,7 +9,9 @@ CHUNKER = 'lines-symbols-v2'
 PARSER = 'text-v1'
 DEFAULTS = dict(files=2000, file_bytes=256*1024, source_bytes=16*1024*1024,
                 chunks=10000, batch_size=16, batch_tokens=8192,
-                embedding_tokens=8*1024*1024, elapsed_ms=81920, disk_bytes=512*1024*1024)
+                embedding_tokens=8*1024*1024, elapsed_ms=81920, disk_bytes=4*1024**3)
+# Indexing pauses before leaving less than this free on the data volume.
+DISK_RESERVE = 1024**3
 BLOCKED = {'node_modules', 'vendor', 'dist', 'build', 'target', '__pycache__',
            '.git', '.svn', 'coverage', 'generated', '.next', 'venv', '.venv'}
 

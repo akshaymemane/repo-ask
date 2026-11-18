@@ -123,6 +123,15 @@ class VectorStore:
             return self.conn.execute('PRAGMA page_count').fetchone()[0] * self.conn.execute('PRAGMA page_size').fetchone()[0]
         return 0
 
+    def used_bytes(self):
+        """Live pages only: deleted rows leave reusable free pages that do not count."""
+        with self.lock:
+            if not self.conn:
+                return self.size_bytes()
+            pages, free, size = (self.conn.execute(f'PRAGMA {name}').fetchone()[0]
+                                 for name in ('page_count', 'freelist_count', 'page_size'))
+            return (pages - free) * size
+
     def purge(self, repository):
         with self.lock:
             if not self.available and (self.path is None or not Path(self.path).exists()):

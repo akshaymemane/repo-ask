@@ -148,6 +148,39 @@ class IndexingTests(unittest.TestCase):
         Worker(self.jobs,{'index.run':self.service.run_index},worker_id='retry').run_once()
         self.assertEqual(self.service.get_run(run['id'])['state'],'completed')
 
+    def test_disk_cap_pauses_ingestion(self):
+        from repoask.indexing.safety import DEFAULTS
+        # Reference workload: 100,000 chunks must fit under the default cap.
+        self.assertGreaterEqual(DEFAULTS['disk_bytes'], 4*1024**3)
+        run = self.service.request_index(self.repo,limits={'disk_bytes':1})
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='cap').run_once()
+        result = self.service.get_run(run['id'])
+        self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+
+    def test_purged_rows_free_cap_headroom(self):
+        # Enough rows to occupy whole pages; a purge leaves them on the freelist.
+        self.files.update({f'pkg/m{i}.py': ('\n'.join(f'value_{i}_{n} = {n}' for n in range(200))).encode()
+                           for i in range(40)})
+        self.index()
+        used = self.store.used_bytes()
+        self.service.purge_repository(self.repo)
+        self.assertLess(self.store.used_bytes(), used)
+        self.assertLessEqual(self.store.used_bytes(), self.store.size_bytes())
+
+    def test_free_space_reserve_pauses_until_space_returns(self):
+        from repoask.indexing.safety import DISK_RESERVE
+        free = self.store.free_bytes()
+        self.assertIsInstance(free,int)
+        self.store.free_bytes = lambda: DISK_RESERVE
+        run = self.service.request_index(self.repo)
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='full').run_once()
+        result = self.service.get_run(run['id'])
+        self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+        self.store.free_bytes = lambda: free
+        self.service.resume(run['id'])
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='freed').run_once()
+        self.assertEqual(self.service.get_run(run['id'])['state'],'completed')
+
     def test_lexical_partial_demo_purge_and_namespace(self):
         run = self.service.request_index(self.repo,limits={'files':1})
         Worker(self.jobs,{'index.run':self.service.run_index},worker_id='lexical').run_once()

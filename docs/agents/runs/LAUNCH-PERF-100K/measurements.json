@@ -1,0 +1,528 @@
+{
+  "environment": {
+    "python": "3.12.0",
+    "sqlite": "3.42.0",
+    "platform": "macOS-15.7.9-x86_64-i386-64bit",
+    "processor": "i386",
+    "cpu_count": 12
+  },
+  "fixture": {
+    "repositories": 250,
+    "indexed_repositories": 25,
+    "chunks": 100000,
+    "files": 5025,
+    "file_content": "synthetic profile in README.md; deterministic synthetic Python under src/",
+    "labelled_prompts": 50,
+    "embedding_models": 0,
+    "database_bytes": 1103454208,
+    "indexing_seconds": 80.6
+  },
+  "method": {
+    "percentile": "nearest rank",
+    "reads_per_variant_page": 100,
+    "routing_repeats_per_prompt": 5,
+    "cold": "first-use after fixture construction; OS/SQLite caches not flushed",
+    "warm": "same process/database after full unmeasured warm-up",
+    "scope": "service calls only; no HTTP/JSON/browser, network, clone, model or container startup"
+  },
+  "catalog": {
+    "queries": {
+      "all": "",
+      "broad": "owner",
+      "selective": "billing",
+      "no_match": "zzzz-no-such-repository"
+    },
+    "cold_by_variant": {
+      "all": {
+        "samples": 3,
+        "p50_ms": 1.189724,
+        "p95_ms": 1.210537,
+        "max_ms": 1.210537
+      },
+      "broad": {
+        "samples": 2,
+        "p50_ms": 0.685558,
+        "p95_ms": 1.66473,
+        "max_ms": 1.66473
+      },
+      "selective": {
+        "samples": 1,
+        "p50_ms": 0.576631,
+        "p95_ms": 0.576631,
+        "max_ms": 0.576631
+      },
+      "no_match": {
+        "samples": 1,
+        "p50_ms": 0.532533,
+        "p95_ms": 0.532533,
+        "max_ms": 0.532533
+      }
+    },
+    "cold": {
+      "samples": 7,
+      "p50_ms": 0.685558,
+      "p95_ms": 1.66473,
+      "max_ms": 1.66473
+    },
+    "warm": {
+      "samples": 700,
+      "p50_ms": 0.913714,
+      "p95_ms": 2.360674,
+      "max_ms": 2.472545
+    },
+    "warm_by_variant": {
+      "all": {
+        "samples": 300,
+        "p50_ms": 1.709939,
+        "p95_ms": 1.746571,
+        "max_ms": 1.873536
+      },
+      "broad": {
+        "samples": 200,
+        "p50_ms": 0.985239,
+        "p95_ms": 2.370101,
+        "max_ms": 2.472545
+      },
+      "selective": {
+        "samples": 100,
+        "p50_ms": 0.82516,
+        "p95_ms": 0.843146,
+        "max_ms": 0.948429
+      },
+      "no_match": {
+        "samples": 100,
+        "p50_ms": 0.764326,
+        "p95_ms": 0.771442,
+        "max_ms": 0.781699
+      }
+    },
+    "warm_by_page": [
+      {
+        "variant": "all",
+        "page": 1,
+        "samples": 100,
+        "p50_ms": 1.709939,
+        "p95_ms": 1.748205,
+        "max_ms": 1.81434
+      },
+      {
+        "variant": "all",
+        "page": 2,
+        "samples": 100,
+        "p50_ms": 1.722013,
+        "p95_ms": 1.758458,
+        "max_ms": 1.873536
+      },
+      {
+        "variant": "all",
+        "page": 3,
+        "samples": 100,
+        "p50_ms": 0.892471,
+        "p95_ms": 0.903912,
+        "max_ms": 1.065032
+      },
+      {
+        "variant": "broad",
+        "page": 1,
+        "samples": 100,
+        "p50_ms": 2.357434,
+        "p95_ms": 2.388113,
+        "max_ms": 2.472545
+      },
+      {
+        "variant": "broad",
+        "page": 2,
+        "samples": 100,
+        "p50_ms": 0.913324,
+        "p95_ms": 0.925267,
+        "max_ms": 0.985239
+      },
+      {
+        "variant": "selective",
+        "page": 1,
+        "samples": 100,
+        "p50_ms": 0.82516,
+        "p95_ms": 0.843146,
+        "max_ms": 0.948429
+      },
+      {
+        "variant": "no_match",
+        "page": 1,
+        "samples": 100,
+        "p50_ms": 0.764326,
+        "p95_ms": 0.771442,
+        "max_ms": 0.781699
+      }
+    ]
+  },
+  "routing": {
+    "cold": {
+      "samples": 50,
+      "p50_ms": 975.503108,
+      "p95_ms": 1151.19273,
+      "max_ms": 1233.118498
+    },
+    "warm": {
+      "samples": 250,
+      "p50_ms": 1007.481468,
+      "p95_ms": 1409.681458,
+      "max_ms": 1883.294945
+    },
+    "warm_by_prompt": [
+      {
+        "prompt_number": 1,
+        "samples": 5,
+        "p50_ms": 1868.727374,
+        "p95_ms": 1883.294945,
+        "max_ms": 1883.294945
+      },
+      {
+        "prompt_number": 2,
+        "samples": 5,
+        "p50_ms": 1564.902128,
+        "p95_ms": 1593.742288,
+        "max_ms": 1593.742288
+      },
+      {
+        "prompt_number": 3,
+        "samples": 5,
+        "p50_ms": 1276.167848,
+        "p95_ms": 1327.495652,
+        "max_ms": 1327.495652
+      },
+      {
+        "prompt_number": 4,
+        "samples": 5,
+        "p50_ms": 1194.587017,
+        "p95_ms": 1248.70901,
+        "max_ms": 1248.70901
+      },
+      {
+        "prompt_number": 5,
+        "samples": 5,
+        "p50_ms": 1191.027985,
+        "p95_ms": 1235.766708,
+        "max_ms": 1235.766708
+      },
+      {
+        "prompt_number": 6,
+        "samples": 5,
+        "p50_ms": 1181.270514,
+        "p95_ms": 1216.376488,
+        "max_ms": 1216.376488
+      },
+      {
+        "prompt_number": 7,
+        "samples": 5,
+        "p50_ms": 944.684416,
+        "p95_ms": 988.854225,
+        "max_ms": 988.854225
+      },
+      {
+        "prompt_number": 8,
+        "samples": 5,
+        "p50_ms": 923.684243,
+        "p95_ms": 948.328608,
+        "max_ms": 948.328608
+      },
+      {
+        "prompt_number": 9,
+        "samples": 5,
+        "p50_ms": 977.647204,
+        "p95_ms": 1001.305593,
+        "max_ms": 1001.305593
+      },
+      {
+        "prompt_number": 10,
+        "samples": 5,
+        "p50_ms": 1033.064739,
+        "p95_ms": 1068.367377,
+        "max_ms": 1068.367377
+      },
+      {
+        "prompt_number": 11,
+        "samples": 5,
+        "p50_ms": 1007.51359,
+        "p95_ms": 1039.291036,
+        "max_ms": 1039.291036
+      },
+      {
+        "prompt_number": 12,
+        "samples": 5,
+        "p50_ms": 889.535743,
+        "p95_ms": 927.996033,
+        "max_ms": 927.996033
+      },
+      {
+        "prompt_number": 13,
+        "samples": 5,
+        "p50_ms": 921.703868,
+        "p95_ms": 924.589306,
+        "max_ms": 924.589306
+      },
+      {
+        "prompt_number": 14,
+        "samples": 5,
+        "p50_ms": 1047.203823,
+        "p95_ms": 1069.645317,
+        "max_ms": 1069.645317
+      },
+      {
+        "prompt_number": 15,
+        "samples": 5,
+        "p50_ms": 931.860396,
+        "p95_ms": 956.610309,
+        "max_ms": 956.610309
+      },
+      {
+        "prompt_number": 16,
+        "samples": 5,
+        "p50_ms": 958.630063,
+        "p95_ms": 987.472977,
+        "max_ms": 987.472977
+      },
+      {
+        "prompt_number": 17,
+        "samples": 5,
+        "p50_ms": 956.903816,
+        "p95_ms": 979.550185,
+        "max_ms": 979.550185
+      },
+      {
+        "prompt_number": 18,
+        "samples": 5,
+        "p50_ms": 828.041707,
+        "p95_ms": 936.352885,
+        "max_ms": 936.352885
+      },
+      {
+        "prompt_number": 19,
+        "samples": 5,
+        "p50_ms": 851.6622,
+        "p95_ms": 856.490192,
+        "max_ms": 856.490192
+      },
+      {
+        "prompt_number": 20,
+        "samples": 5,
+        "p50_ms": 980.392691,
+        "p95_ms": 996.268293,
+        "max_ms": 996.268293
+      },
+      {
+        "prompt_number": 21,
+        "samples": 5,
+        "p50_ms": 954.987775,
+        "p95_ms": 963.747107,
+        "max_ms": 963.747107
+      },
+      {
+        "prompt_number": 22,
+        "samples": 5,
+        "p50_ms": 975.036503,
+        "p95_ms": 987.340388,
+        "max_ms": 987.340388
+      },
+      {
+        "prompt_number": 23,
+        "samples": 5,
+        "p50_ms": 984.609383,
+        "p95_ms": 1022.856865,
+        "max_ms": 1022.856865
+      },
+      {
+        "prompt_number": 24,
+        "samples": 5,
+        "p50_ms": 917.166023,
+        "p95_ms": 935.985544,
+        "max_ms": 935.985544
+      },
+      {
+        "prompt_number": 25,
+        "samples": 5,
+        "p50_ms": 884.890213,
+        "p95_ms": 904.014358,
+        "max_ms": 904.014358
+      },
+      {
+        "prompt_number": 26,
+        "samples": 5,
+        "p50_ms": 943.579867,
+        "p95_ms": 971.504694,
+        "max_ms": 971.504694
+      },
+      {
+        "prompt_number": 27,
+        "samples": 5,
+        "p50_ms": 906.63893,
+        "p95_ms": 927.519944,
+        "max_ms": 927.519944
+      },
+      {
+        "prompt_number": 28,
+        "samples": 5,
+        "p50_ms": 873.82516,
+        "p95_ms": 981.57351,
+        "max_ms": 981.57351
+      },
+      {
+        "prompt_number": 29,
+        "samples": 5,
+        "p50_ms": 859.26589,
+        "p95_ms": 907.914065,
+        "max_ms": 907.914065
+      },
+      {
+        "prompt_number": 30,
+        "samples": 5,
+        "p50_ms": 1029.885614,
+        "p95_ms": 1173.188669,
+        "max_ms": 1173.188669
+      },
+      {
+        "prompt_number": 31,
+        "samples": 5,
+        "p50_ms": 937.897225,
+        "p95_ms": 985.456829,
+        "max_ms": 985.456829
+      },
+      {
+        "prompt_number": 32,
+        "samples": 5,
+        "p50_ms": 900.584349,
+        "p95_ms": 1009.60341,
+        "max_ms": 1009.60341
+      },
+      {
+        "prompt_number": 33,
+        "samples": 5,
+        "p50_ms": 1147.858782,
+        "p95_ms": 1162.457749,
+        "max_ms": 1162.457749
+      },
+      {
+        "prompt_number": 34,
+        "samples": 5,
+        "p50_ms": 949.23603,
+        "p95_ms": 973.120257,
+        "max_ms": 973.120257
+      },
+      {
+        "prompt_number": 35,
+        "samples": 5,
+        "p50_ms": 1014.922093,
+        "p95_ms": 1161.50246,
+        "max_ms": 1161.50246
+      },
+      {
+        "prompt_number": 36,
+        "samples": 5,
+        "p50_ms": 1409.681458,
+        "p95_ms": 1607.387255,
+        "max_ms": 1607.387255
+      },
+      {
+        "prompt_number": 37,
+        "samples": 5,
+        "p50_ms": 1231.094392,
+        "p95_ms": 1266.031298,
+        "max_ms": 1266.031298
+      },
+      {
+        "prompt_number": 38,
+        "samples": 5,
+        "p50_ms": 1296.120853,
+        "p95_ms": 1318.749742,
+        "max_ms": 1318.749742
+      },
+      {
+        "prompt_number": 39,
+        "samples": 5,
+        "p50_ms": 1253.280361,
+        "p95_ms": 1302.029407,
+        "max_ms": 1302.029407
+      },
+      {
+        "prompt_number": 40,
+        "samples": 5,
+        "p50_ms": 1258.045007,
+        "p95_ms": 1270.645836,
+        "max_ms": 1270.645836
+      },
+      {
+        "prompt_number": 41,
+        "samples": 5,
+        "p50_ms": 1092.402802,
+        "p95_ms": 1227.055101,
+        "max_ms": 1227.055101
+      },
+      {
+        "prompt_number": 42,
+        "samples": 5,
+        "p50_ms": 1122.014811,
+        "p95_ms": 1124.853619,
+        "max_ms": 1124.853619
+      },
+      {
+        "prompt_number": 43,
+        "samples": 5,
+        "p50_ms": 1073.83536,
+        "p95_ms": 1081.626155,
+        "max_ms": 1081.626155
+      },
+      {
+        "prompt_number": 44,
+        "samples": 5,
+        "p50_ms": 989.131368,
+        "p95_ms": 1018.42803,
+        "max_ms": 1018.42803
+      },
+      {
+        "prompt_number": 45,
+        "samples": 5,
+        "p50_ms": 999.614698,
+        "p95_ms": 1024.076481,
+        "max_ms": 1024.076481
+      },
+      {
+        "prompt_number": 46,
+        "samples": 5,
+        "p50_ms": 1042.367964,
+        "p95_ms": 1060.699937,
+        "max_ms": 1060.699937
+      },
+      {
+        "prompt_number": 47,
+        "samples": 5,
+        "p50_ms": 1011.544662,
+        "p95_ms": 1030.050218,
+        "max_ms": 1030.050218
+      },
+      {
+        "prompt_number": 48,
+        "samples": 5,
+        "p50_ms": 1226.353664,
+        "p95_ms": 1248.572043,
+        "max_ms": 1248.572043
+      },
+      {
+        "prompt_number": 49,
+        "samples": 5,
+        "p50_ms": 1029.265601,
+        "p95_ms": 1075.262551,
+        "max_ms": 1075.262551
+      },
+      {
+        "prompt_number": 50,
+        "samples": 5,
+        "p50_ms": 1122.624598,
+        "p95_ms": 1133.366819,
+        "max_ms": 1133.366819
+      }
+    ]
+  },
+  "gates": {
+    "catalog_p95_under_1000_ms": true,
+    "routing_p95_under_2000_ms": true
+  }
+}
