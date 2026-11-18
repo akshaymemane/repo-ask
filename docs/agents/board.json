@@ -1701,14 +1701,18 @@
       "id": "LAUNCH-READINESS",
       "milestone": "launch",
       "title": "Open-source release files, README, Ask pending-route recovery",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": ["F04", "F11", "F12"],
       "planned_persona": "experience",
       "planned_harness": "claude",
       "branch": "task/launch-readiness",
       "base_sha": "437ef26",
       "handoff": "docs/agents/runs/LAUNCH-READINESS/handoff.md",
-      "next_action": "Codex independent review of 40d84de and d3902bd in progress."
+      "submitted_sha": "03d946e",
+      "reviewer_session": "fresh independent Codex reviewer; r1 and r2 changes requested, r3 approved with minor follow-ups (CI grep exit status fixed in e2d2bd2)",
+      "review_verdict": "approved",
+      "integration_sha": "e2d2bd2",
+      "next_action": "Integrated. Open-source files and CI, public README, Ask pending-route recovery, slow-model guidance, spec drift fixes. Follow-up: LAUNCH-ROUTE-CONSUMED."
     },
     {
       "id": "LAUNCH-FRESHNESS",
@@ -1733,6 +1737,27 @@
       "planned_harness": "codex",
       "depends_on": ["LAUNCH-FRESHNESS"],
       "next_action": "F12 OP-10: expose terminal-session purge reusing tombstone/redaction; schedule after LAUNCH-FRESHNESS (shared sessions/ scope)."
+    },
+    {
+      "id": "LAUNCH-ROUTE-CONSUMED",
+      "milestone": "launch",
+      "title": "Record routing-decision consumption without rewriting the routing outcome",
+      "state": "backlog",
+      "feature_ids": ["F03", "F04"],
+      "planned_persona": "experience",
+      "planned_harness": "claude",
+      "depends_on": ["LAUNCH-FRESHNESS"],
+      "next_action": "Migration 14 adds routing_decisions.consumed_at; update_scope sets it instead of status='resolved'; pending_route checks it; assert historical routing.get() output; keep purge behavior (LAUNCH-READINESS review-r2 finding 2)."
+    },
+    {
+      "id": "LAUNCH-HEALTH-PROJECTION",
+      "milestone": "launch",
+      "title": "Health reports the persistent index and runtime, not the legacy demo index",
+      "state": "backlog",
+      "feature_ids": ["F12"],
+      "planned_persona": "platform",
+      "planned_harness": "codex",
+      "next_action": "repoask/platform/workspace.py reports persistent:false and the --model legacy adapter; project persistent index and execution health without source-bearing diagnostics (spec-gap audit non-blocking #2)."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
