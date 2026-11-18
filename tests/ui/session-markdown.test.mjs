@@ -106,8 +106,13 @@ test('inline parsing stays linear on adversarial input (caps lifted so the parse
       assert.ok(root.children.length > 0, 'something rendered');
     }
     // Doubling the input roughly doubles the work; a quadratic scan would quadruple it.
+    // Per-call average over enough repetitions (>= 40 ms per sample) that runner noise does not dominate.
     const time = n => { const input = ' **a'.repeat(n); let best = Infinity;
-      for (let i = 0; i < 5; i++) { const t = performance.now(); md(input); best = Math.min(best, performance.now() - t); }
+      for (let i = 0; i < 3; i++) {
+        let calls = 0; const t = performance.now();
+        do { md(input); calls++; } while (performance.now() - t < 40);
+        best = Math.min(best, (performance.now() - t) / calls);
+      }
       return best; };
     time(8192); const small = Math.max(time(32768), 1), large = time(65536);
     assert.ok(large < small * 3.5, `32k→64k units: ${small.toFixed(1)} ms → ${large.toFixed(1)} ms`);
