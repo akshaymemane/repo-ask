@@ -88,3 +88,55 @@ class LaunchFreshnessTests(SessionCase):
         with self.assertRaises(SessionError) as caught:
             self.launch(version, acknowledged_base={self.repo: 'd' * 40})
         self.assertEqual(caught.exception.code, 'validation')
+
+    def failed_current_session(self):
+        _, version = self.ready_plan()
+        with patch.object(self.github.client, 'default_branch_sha', return_value='c' * 40):
+            sid = self.launch(version)['session_id']
+        with self.store.transaction() as db:
+            db.execute("UPDATE sessions SET state='failed' WHERE id=?", (sid,))
+        return sid
+
+    def test_retry_after_advance_requires_ack_and_replays_durably(self):
+        sid = self.failed_current_session()
+        with patch.object(self.github.client, 'default_branch_sha', return_value='d' * 40):
+            with self.assertRaises(SessionError) as refused:
+                self.sessions.retry(sid, 'retry-fresh')
+        self.assertEqual(refused.exception.code, 'base_advanced')
+        with self.store.read() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM sessions').fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT count(*) FROM jobs WHERE kind='session.run'").fetchone()[0], 1)
+        other = self.make_service()
+        ack = {self.repo: 'c' * 40}
+        with patch.object(self.github.client, 'default_branch_sha', side_effect=AssertionError('reobserved')):
+            with self.assertRaises(SessionError) as repeated:
+                other.retry(sid, 'retry-fresh')
+            self.assertEqual(repeated.exception.details, refused.exception.details)
+            for invalid in ({self.repo: 'd' * 40}, [], {self.repo: 1}):
+                with self.assertRaises(SessionError) as error:
+                    other.retry(sid, 'retry-fresh', acknowledged_base=invalid)
+                self.assertEqual(error.exception.code, 'validation')
+            result = other.retry(sid, 'retry-fresh', acknowledged_base=ack)
+            self.assertEqual(other.retry(sid, 'retry-fresh', acknowledged_base=ack), result)
+            with self.assertRaises(SessionError) as original:
+                other.retry(sid, 'retry-fresh')
+            self.assertEqual(original.exception.code, 'base_advanced')
+        successor = other.get(result['session_id'])
+        self.assertEqual(successor['instructions']['acknowledged_base'], ack)
+        self.assertEqual(successor['repositories'][0]['base_sha'], 'c' * 40)
+        self.assertEqual(successor['predecessor_id'], sid)
+
+    def test_retry_api_409_shape_and_acknowledged_creation(self):
+        sid = self.failed_current_session()
+        api = ExecutionAPI(sessions=self.sessions)
+        path = f'/api/sessions/{sid}/retry'
+        body = {'idempotency_key': 'retry-api'}
+        with patch.object(self.github.client, 'default_branch_sha', return_value='d' * 40):
+            response = api.dispatch('POST', path, body=body)
+        self.assertEqual(response.status, 409)
+        details = [dict(repository_id=self.repo, pinned_revision='c' * 40, current_head='d' * 40, status='advanced')]
+        self.assertEqual(response.body, {'code': 'base_advanced', 'details': details,
+                                       'error': {'code': 'base_advanced', 'details': details}})
+        response = api.dispatch('POST', path, body=dict(body, acknowledged_base={self.repo: 'c' * 40}))
+        self.assertEqual(response.status, 202)
+        self.assertEqual(api.dispatch('POST', path, body=dict(body, acknowledged_base={self.repo: 'c' * 40})).body, response.body)

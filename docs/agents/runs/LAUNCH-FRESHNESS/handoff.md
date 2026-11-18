@@ -88,3 +88,67 @@ Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 Not integrated, approved, pushed or published.
+
+## Round 1 response
+
+- Responds to Claude's `review-claude-r1.md`, CHANGES_REQUESTED on `28b08f5`.
+  Revision starting HEAD: `d96ad19`; same `task/launch-freshness` worktree and runtime
+  builder. No nested agents, new migration, dependency installation or remote action.
+- Major finding: retry accepts optional `acknowledged_base`, validates its type and
+  pinned revision, persists it on the linked successor, and reuses migration 13's
+  durable observation. Omission still inherits predecessor acknowledgement; explicit
+  empty maps remain unacknowledged. A refusal creates no successor or job. Same-key
+  unacknowledged replay preserves the original refusal even after acknowledged
+  success; identical acknowledged replay returns the successor after service restart.
+- Retry API returns launch's exact `base_advanced` 409 shape. Sessions preserves
+  error details and reuses `renderBaseAdvanced` with “Retry on the saved base” and
+  “Open plan”; the choice retains its key and survives polling without auto retry.
+- Minor finding: append-only CSS overrides use `var(--warning)`, tinted `color-mix`,
+  `var(--radius)` and the existing accent focus-visible ring. Shared notice actions
+  receive `.btn`; wrapping text and block margins accommodate narrow layouts.
+- Changed files: `repoask/sessions/service.py`, `repoask/session_api.py`,
+  `repoask/web/{sessions.js,plan-view.js,styles.css}`, `tests/test_launch_freshness.py`,
+  `tests/ui/launch-freshness.test.mjs`, `docs/contracts/m2-sessions.md`, and this run's
+  handoff/status. All within assigned scope. Requirement: F04 AC6 / ASK-08 recovery
+  and pinned-base handoff; both round 1 findings addressed, pending exact-SHA review.
+
+### Round 1 verification
+
+- Focused Python: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p test_launch_freshness.py`
+  — 8 tests passed. Covers refusal/no successor or job, invalid acknowledgement,
+  saved observation after service restart, acknowledged successor/pinned base,
+  acknowledged and unacknowledged replay, retry API 409 payload and 202 replay.
+- Full UI: `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs`
+  — 294 tests, 292 passed, 2 failed. Both `session-services.test.mjs` bridge fixtures
+  fail at synthetic execution-profile bootstrap (`execution_test_failed`), before
+  freshness behavior. All 8 freshness UI tests pass, covering both initial Start
+  paths, safe rendering, persisted acknowledgement, retry refusal/no silent retry,
+  both explicit retry-notice actions, same key/map and preservation through refresh.
+- `node --check repoask/web/sessions.js`, `node --check repoask/web/plan-view.js`,
+  and `git diff --check` passed.
+- Direct AF_UNIX bind in a temporary directory: `PermissionError: [Errno 1]
+  Operation not permitted`. No permission bypass attempted.
+- Staging attempt denied creating the linked worktree's Git `index.lock` under
+  `/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/`; changes remain unstaged.
+- Known gaps: no real browser/390px visual measurement, live GitHub, inference or
+  container pilot. Responsive spacing is a CSS change and DOM behavior is tested;
+  it is not presented as rendered-browser evidence. Independent Claude re-review
+  and unrestricted regression checks remain coordinator-owned next steps.
+- Follow-up markup check: the ended-session wrapper is a `div` so it can contain
+  the notice section; the notice takes a full flex row, with min-width zero.
+  Full UI rerun after this adjustment: same 294 / 292 pass / 2 fixture failures.
+- Requested commit attempted with title `fix(sessions): acknowledge advanced bases when retrying`
+  and final trailer `Co-Authored-By: Codex <noreply@openai.com>`; Git reported no
+  changes staged following the index-lock denial. No new commit was created.
+- Full Python (completed): `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests`
+  — 622 tests in 408.505s; 69 failures, 99 errors, 9 skipped. No freshness test
+  failures. The log contains socket/process permission denials, fixture-startup
+  failures, resource warnings and runner timeout/assertion fallout, consistent with
+  the known sandbox restriction; a green unrestricted suite is not established.
+  Compared with the prior handoff's 620-test run, the two new backend tests pass and
+  the prior schema-constant failure is absent. Full suites and focused processes
+  exited; no application worker was intentionally started. Sandbox limits prevent
+  claiming unrestricted process-tree inspection or containment verification.
+- Round 1 submission: no new commit; changes remain unstaged on `d96ad19` due to
+  staging denial. Coordinator should commit in a writable Git context, run the
+  unrestricted suites and request Claude review of that exact commit.

@@ -98,6 +98,13 @@ class ExecutionAPI:
             fields(body,set())
             return APIResponse(202,self.sessions.stop(ident))
         if method=='POST' and operation=='retry':
-            data=fields(body,{'idempotency_key'},{'idempotency_key'})
-            return APIResponse(202,self.sessions.retry(ident,**data))
+            data=fields(body,{'idempotency_key','acknowledged_base'},{'idempotency_key'})
+            from .sessions.errors import SessionError
+            try:
+                return APIResponse(202,self.sessions.retry(ident,**data))
+            except SessionError as exc:
+                if exc.code != 'base_advanced':
+                    raise
+                return APIResponse(409, {'error': {'code': exc.code, 'details': exc.details},
+                                         'code': exc.code, 'details': exc.details})
         return None

@@ -1,4 +1,6 @@
 import {test} from 'node:test';
+import {webcrypto} from 'node:crypto';
+globalThis.crypto ||= webcrypto;
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createBrowser,install,settle,visibleText} from './dom.mjs';
@@ -88,4 +90,36 @@ test('session detail surfaces the persisted older-base acknowledgement',async()=
   };
   const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request,pollMs:1e6});
   try {ui.open();await settle();assert.match(visibleText(ui.panel),/Started on an older base \(acknowledged\)/);}finally{ui.close();}
+});
+
+for (const action of ['Retry on the saved base', 'Open plan']) test(`retry after advance offers ${action}`, async()=>{
+  const {createSessionPanel,executionRequest}=await import('../../repoask/web/sessions.js');
+  const posts=[];
+  const b=createBrowser(readFileSync(new URL('../../repoask/web/index.html',import.meta.url),'utf8'),{hash:'#/sessions/s',respond:(method,path,options)=>{
+    if(path==='/api/sessions/s/retry') {
+      const data=JSON.parse(options.body); posts.push(data);
+      if(!data.acknowledged_base)return {status:409,body:{code:'base_advanced',details:[{repository_id:'r',pinned_revision:'a'.repeat(40),current_head:'b'.repeat(40)}]}};
+      return {session_id:'successor'};
+    }
+    if(path.includes('/events?'))return {items:[],next_seq:0,has_more:false};
+    if(path.includes('/messages?'))return {items:[],next_cursor:null};
+    if(path.endsWith('/diff'))return {available:false,reason:'no_checkpoint'};
+    if(path.endsWith('/validations'))return {items:[],fully_validated:false};
+    if(path==='/api/sessions/s')return {id:'s',state:'failed',phase:'agent',plan_id:'p',attempt:1,source_available:true,execution:{},limits:{},repositories:[{repository_id:'r',role:'write',base_sha:'a'.repeat(40),base_branch:'main'}],instructions:{},runner:{},capabilities:{},usage:{},outcome:{},publication:{},latest_seq:0};
+    return {items:[]};
+  }});install(b);b.document.getElementById('view-sessions').hidden=false;
+  const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:executionRequest,pollMs:1e6});
+  try {
+    ui.open();await settle();
+    ui.panel.querySelectorAll('button').find(n=>n.textContent==='Retry' && !n.disabled).click();await settle();
+    const notice=ui.panel.querySelector('.base-advanced-notice'); assert.ok(notice, JSON.stringify(posts)+' '+visibleText(ui.panel));assert.equal(b.document.activeElement,notice);
+    assert.match(visibleText(notice),/aaaaaaa to bbbbbbb/);assert.equal(posts.length,1,'refusal does not silently retry');
+    await ui.refresh();assert.equal(ui.panel.querySelector('.base-advanced-notice'),notice,'polling preserves the pending decision');
+    const controls=notice.querySelectorAll('button');assert.ok(controls.every(n=>n.classList.contains('btn')));
+    controls.find(n=>n.textContent===action).click();await settle();
+    if(action==='Retry on the saved base') {
+      assert.equal(posts.length,2);assert.equal(posts[0].idempotency_key,posts[1].idempotency_key);
+      assert.deepEqual(posts[1].acknowledged_base,{r:'a'.repeat(40)});assert.equal(b.window.location.hash,'#/sessions/successor');
+    } else {assert.equal(posts.length,1);assert.equal(b.window.location.hash,'#/plans/p');}
+  } finally {ui.close();}
 });

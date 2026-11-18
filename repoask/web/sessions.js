@@ -1,3 +1,4 @@
+import { renderBaseAdvanced } from './plan-view.js';
 // Durable session views consume safe public projections. Source is always text.
 import { badge, relativeTime, renderMarkdown } from './ui.js';
 import { readRepositoryPages } from './repo-source.js';
@@ -18,7 +19,7 @@ export async function executionRequest(path, method = 'GET', body, {signal} = {}
   catch { throw new Error(method === 'GET' ? 'Connection unavailable. Reconnect to reload saved state.' : 'Connection lost; outcome unknown. Retry the same request to reconcile saved state.'); }
   let value;
   try { value = await response.json(); } catch { throw new Error('Response unavailable; outcome unknown. Reload saved state or retry the same request.'); }
-  if (!response.ok) { const code = /^[a-z_]{1,80}$/.test(value?.code) ? value.code : `http_${response.status}`; const e = new Error(human(code)); e.status = response.status; e.code = code; throw e; }
+  if (!response.ok) { const code = /^[a-z_]{1,80}$/.test(value?.code) ? value.code : `http_${response.status}`; const e = new Error(human(code)); e.status = response.status; e.code = code; e.details = value?.details; throw e; }
   return value;
 }
 function link(parent, text, hash) { const a = el('a', text); a.setAttribute('href', hash); a.dataset.focus = hash; parent.append(a); return a; }
@@ -855,8 +856,10 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   }
   function renderEnded(over) {
     focusReplacement(ended, () => {
+      const freshnessNotice = ended.querySelector('.base-advanced-notice');
       ended.replaceChildren(); ended.hidden = !over;
       if (!over) return;
+      if (freshnessNotice && !current.successor_id) ended.append(freshnessNotice);
       const s = current, text = terminal.has(s.state) ? 'This session has ended.' : 'Stop requested; the agent no longer takes messages.';
       ended.append(el('span', `${text}${!form.hidden ? ' Your unsent text is kept below, read-only.' : ''}`));
       const cardRetry = ['interrupted', 'failed', 'blocked'].includes(s.state);
@@ -1004,10 +1007,19 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     finally { if (live(token)) { b.disabled = b === stop ? stopLocked() : b.dataset?.retry || b === retry ? retryLocked() : b === send ? sendLocked() : false; if (focused && (document.activeElement === document.body || !document.activeElement?.isConnected)) b.focus(); } }
   }
   // Retry reuses one idempotency key until the server gives a definite answer; every retry control shares it.
-  const retryAction = b => mutate(b, async t => {
+  const retryAction = (b, acknowledged_base) => mutate(b, async t => {
     const openedID = currentID; retryKey ||= globalThis.crypto.randomUUID(); storage.set(`session-retry-${currentID}`, retryKey);
-    try { const answer = await request(`/api/sessions/${enc(currentID)}/retry`, 'POST', {idempotency_key:retryKey}); if (!live(t)) return; if (!answer.session_id) throw new Error('Retry outcome unknown; retry the same request.'); location.hash = `#/sessions/${enc(answer.session_id)}`; }
-    catch(e) { if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); } throw e; }
+    try { const answer = await request(`/api/sessions/${enc(currentID)}/retry`, 'POST', {idempotency_key:retryKey, ...(acknowledged_base ? {acknowledged_base} : {})}); if (!live(t)) return; if (!answer.session_id) throw new Error('Retry outcome unknown; retry the same request.'); location.hash = `#/sessions/${enc(answer.session_id)}`; }
+    catch(e) {
+      if (live(t) && e.code === 'base_advanced') {
+        renderBaseAdvanced(ended, e.details || [], {nameFor: repoName,
+          retainLabel: 'Retry on the saved base', regenerateLabel: 'Open plan',
+          onRetain: ack => retryAction(b, ack),
+          onRegenerate: () => { location.hash = `#/plans/${enc(current.plan_id)}`; },
+          onError: error => say(error.message)});
+        return;
+      }
+      if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); } throw e; }
   });
   function filtersActive() { return Boolean(listFilters && (listFilters.query.value.trim() || listFilters.state.value || listFilters.repository.value || listFilters.date.value)); }
   function renderRepositoryFilter() {
@@ -1116,7 +1128,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     messageRows = el('section', undefined, 'session-section session-messages'); messageRows.hidden = true; main.append(messageRows);
     moreMessages = button(main, 'More messages', b => mutate(b, () => loadMessages(token, true))); moreMessages.hidden = true; moreMessages.classList.add('btn');
     questionArea = el('div', undefined, 'session-question'); main.append(questionArea);
-    ended = el('p', undefined, 'session-ended'); ended.hidden = true; main.append(ended);
+    ended = el('div', undefined, 'session-ended'); ended.hidden = true; main.append(ended);
     form = el('form', undefined, 'session-composer'); main.append(form);
     const label = el('label', undefined, 'session-composer-field'); composeLabel = el('span', 'Send guidance', 'session-composer-label'); compose = el('textarea'); compose.maxLength = 8000; compose.rows = 3; compose.setAttribute('placeholder', 'Guide the agent while it works…'); label.append(composeLabel, compose);
     targetLabel = el('label', undefined, 'session-composer-target'); targetLabel.append(el('span', 'Message target', 'detail-muted')); responseTo = el('select'); targetLabel.append(responseTo); targetLabel.hidden = true;

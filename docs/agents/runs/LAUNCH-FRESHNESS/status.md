@@ -1,13 +1,15 @@
 # LAUNCH-FRESHNESS
 
 Runtime builder: Codex. Coordinator/reviewer: Claude.
-Base/HEAD: 437ef2626cb8fe01815f494df48fb6cf9ac15e17.
-Branch: task/launch-freshness.
-Implementation complete within exclusive scope. Six backend and six UI freshness
-checks pass. Final focused backend + migration: 7 passed. Full UI: 292 tests,
-290 pass, 2 execution-fixture failures. Full Python: 620 tests, 70 failures,
-99 errors, 9 skips; schema constant failure corrected and focused check passed.
-Socket/process restrictions prevent a green unrestricted integration result.
-Git staging denied by linked-worktree index lock permissions; no new commit.
-Changes ready to stage. Blocker owner: coordinator for commit and exact-SHA review.
-See handoff.md for evidence, gaps, migration and suggested commit message.
+Branch/worktree: task/launch-freshness, opendevin-launch-freshness.
+Round 1 response to review of 28b08f5; revision starting HEAD d96ad19.
+Both findings addressed within original scope; no new migration.
+Retry acknowledgement, API 409 shape and shared themed notice implemented.
+Focused Python: 8 passed. Freshness UI: 8 passed.
+Full Python: 622 tests, 69 failures, 99 errors, 9 skips (408.505s).
+Full UI: 294 tests, 292 passed, 2 synthetic execution-profile fixture failures.
+Socket/process sandbox limits prevent green unrestricted integration evidence.
+Git add denied linked-worktree index.lock; Conventional Commit attempted but no
+changes staged. Changes remain unstaged; no new commit. Diff/syntax checks pass.
+Next: coordinator commits, reruns unrestricted checks and requests exact-SHA Claude
+review. See handoff.md, Round 1 response, for changes, commands and known gaps.

@@ -24,7 +24,7 @@ Coordinator: migrations, ExecutionProfileService, SessionAPI/PublicationAPI, sha
 - get(id), list_sessions(limit=50,cursor=None), events(id,after=0,limit=200), artifacts(id), diff(id), validations(id).
 - send_message(id,content,client_request_id,question_id=None): durable queued/delivered/acknowledged/rejected state. Same client key is idempotent. Material scope/grant changes return plan_amendment_required and cannot expand authorization. Unknown delivery remains queued, never fake ack. Messages for a waiting question release only that question. Terminal attempts reject new messages.
 - stop(id): commit stop_requested and revoke new tools immediately; signal process/container outside request thread. Return stopping until both verified. Repeated stop idempotent; containment failure remains visible. Target ack<=2s, containment<=10s from signal, using actual runtime/adapter results.
-- retry(id,idempotency_key): explicit linked successor from terminal/interrupted attempt, same pinned intent subject to fresh readiness. Never mutate terminal history or replay uncertain execution automatically.
+- retry(id,idempotency_key,acknowledged_base?): explicit linked successor from terminal/interrupted attempt, same pinned intent subject to fresh readiness. Never mutate terminal history or replay uncertain execution automatically.
 - run_session(job,context): fence every state/event/tool/checkpoint write with live lease+job/run identity. Guard checks stop, shutdown, access, authority, budgets and inventory gate before every tool and before returning source. No tool before exact trusted inventory verified. Persist only mapped safe summaries, never raw stream/reasoning.
 - start()/close()/recover(): dedicated bounded runtime worker separate from indexing/Ask worker; model execution cannot block Ask queue. Default concurrency1. Heartbeat owns live job; app interruption terminates owned harness/container, checkpoints where safe, marks interrupted and external job needs_reconciliation. Recovery inspects labelled owned containers and recorded process identities, contains or reports failure, never assumes absence means success and never automatic rerun.
 
@@ -40,7 +40,7 @@ Run declared validation only inside the same isolated policy. Record exact argv/
 
 Event envelope `{session_id,seq,created_at,type,payload}`; per-session monotonic sequence assigned transactionally, bounded payload<=8KiB. Map runtime tool_started/tool_finished/tool_denied to tool.started/tool.finished/tool.denied; map adapter summaries/results/usage explicitly. Event types include session.state,agent.summary,tool.*,checkpoint,validation.*,question.asked,message.delivery,stop.requested,containment,usage,error,publication.state. No private reasoning, credentials, container IDs, local executable paths or private socket endpoints in normal responses.
 
-`GET /api/sessions?limit=&cursor=` -> items,next_cursor; `POST /api/sessions` exact reserved body ->202 session_id,state. `GET /api/sessions/{id}` -> metadata,repository bases,limits,execution provenance,outcome,latest_seq,pending_question and capability statuses. `GET .../events?after=&limit=` -> items,next_seq,has_more (replayable polling acceptable; no duplicate events). `GET .../diff`, `GET .../validations`, `POST .../messages`, `POST .../stop`, `POST .../retry` (idempotency_key). Use common safe errors/origin checks. Source-bearing artifacts always use live permission checks.
+`GET /api/sessions?limit=&cursor=` -> items,next_cursor; `POST /api/sessions` exact reserved body ->202 session_id,state. `GET /api/sessions/{id}` -> metadata,repository bases,limits,execution provenance,outcome,latest_seq,pending_question and capability statuses. `GET .../events?after=&limit=` -> items,next_seq,has_more (replayable polling acceptable; no duplicate events). `GET .../diff`, `GET .../validations`, `POST .../messages`, `POST .../stop`, `POST .../retry` (idempotency_key, optional acknowledged_base). Use common safe errors/origin checks. Source-bearing artifacts always use live permission checks.
 
 Questions use existing broker ask_user callback; persist question/state, bounded wait while observing stop/lease/deadline, return only a matching user answer. Adapter capability remains false until actual callback lifecycle proof. Generic follow-ups may be delivered through trusted tool-result annotations; do not claim stdin/resume support. Any broker extension gets independent review and explicit producer ownership assignment.
 
@@ -111,3 +111,12 @@ The UI presents an inline focused notice and explicit saved-base/regenerate acti
 in both conversation and saved-plan launch flows. Regeneration uses the existing
 conversation plan-generation path; it does not mutate the saved version. Current
 index acquisition and plan readiness rules still apply to the generated plan.
+
+Retry freshness uses the same optional `acknowledged_base` map, validation, durable
+observation and 409 shape as initial launch. Omission inherits the predecessor's
+acknowledgement; an explicit empty map does not. A current-base predecessor retried
+after branch advancement refuses without creating a successor/job until the client
+resends the same retry key with the pinned-base acknowledgement. That map is saved
+on the successor; identical acknowledged replay returns it, including after restart.
+The original unacknowledged request continues to reproduce its saved 409. Sessions
+reuses the focused notice with “Retry on the saved base” and “Open plan” actions.

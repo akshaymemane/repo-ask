@@ -447,26 +447,40 @@ class SessionService:
             raise SessionError('idempotency_conflict')
         return self._create(plan_version_id, content_hash, idempotency_key, launch_hash, None, acknowledged_base)
 
-    def retry(self, session_id, idempotency_key):
+    def retry(self, session_id, idempotency_key, acknowledged_base=None):
         _ident(session_id, 'session_id')
         if not isinstance(idempotency_key, str) or not _KEY_RE.match(idempotency_key):
             raise SessionError('validation', details=['idempotency_key'])
         with self.store.read() as db:
             pred = self._row(db, session_id)
-            existing = self._by_key(db, idempotency_key)
+            existing = db.execute('SELECT * FROM sessions WHERE idempotency_key=?', (idempotency_key,)).fetchone()
             successor = db.execute('SELECT idempotency_key FROM sessions WHERE predecessor_id=?', (session_id,)).fetchone()
         launch_hash = sha256(canonical({'kind': 'retry', 'predecessor_id': session_id,
                                         'plan_version_id': pred['plan_version_id'],
                                         'content_hash': pred['content_hash']}).encode())
+        if acknowledged_base is None:
+            acknowledged_base = _loads(pred['instructions_json'], {}).get('acknowledged_base', {})
+        if not isinstance(acknowledged_base, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not _SHA_RE.fullmatch(v) for k, v in acknowledged_base.items()):
+            raise SessionError('validation', details=['acknowledged_base'])
+        with self.store.read() as db:
+            saved = db.execute('SELECT * FROM launch_base_observations WHERE idempotency_key=?', (idempotency_key,)).fetchone()
+        if saved:
+            if saved['launch_hash'] != launch_hash:
+                raise SessionError('idempotency_conflict')
+            observation = json.loads(saved['observation_json'])
+            if acknowledged_base and acknowledged_base != {observation['repository_id']: observation['pinned_revision']}:
+                raise SessionError('validation', details=['acknowledged_base'])
+            if observation['status'] == 'advanced' and not acknowledged_base:
+                raise SessionError('base_advanced', details=[observation])
         if existing:
-            if existing['launch_hash'] != launch_hash:
+            if existing['launch_hash'] != launch_hash or _loads(existing['instructions_json'], {}).get('acknowledged_base', {}) != acknowledged_base:
                 raise SessionError('idempotency_conflict')
             return {'session_id': existing['id'], 'state': existing['state']}
         if successor:
             raise SessionError('retry_exists')
         if pred['state'] not in TERMINAL:
             raise SessionError('session_active')
-        return self._create(pred['plan_version_id'], pred['content_hash'], idempotency_key, launch_hash, pred)
+        return self._create(pred['plan_version_id'], pred['content_hash'], idempotency_key, launch_hash, pred, acknowledged_base)
 
     def _launch_observation(self, key, launch_hash, write, repo):
         # Persist the first decision before refusing creation. Replays never contact
@@ -542,7 +556,7 @@ class SessionService:
         if blocking:
             raise SessionError('plan_not_ready', details=blocking)
         write, repo = private['write'], private['repo']
-        acknowledged_base = acknowledged_base or (_loads(predecessor['instructions_json'], {}).get('acknowledged_base', {}) if predecessor else {})
+        acknowledged_base = {} if acknowledged_base is None else acknowledged_base
         if any(k != write['repository_id'] or v != write['revision'] for k, v in acknowledged_base.items()):
             raise SessionError('validation', details=['acknowledged_base'])
         observation = self._launch_observation(key, launch_hash, write, repo)
