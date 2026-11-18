@@ -432,6 +432,21 @@ class ProfileTests(unittest.TestCase):
             self.assertNotIn(private, serialized)
         self.assertNotIn(PRIVATE, json.dumps(self.private_result()))
 
+    def test_profile_test_passes_the_chosen_model_and_legacy_versions_pass_none(self):
+        self.create(agent_model='sonnet'); self.request(); self.work()
+        self.assertEqual('passed', self.result()['status'])
+        self.assertEqual('sonnet', self.adapter.kwargs['model'])
+        # A version stored before agent_model existed has no key; the test must use the CLI default.
+        self.create(name='Legacy profile')
+        with self.platform.store.transaction() as db:
+            row = db.execute('SELECT config_json FROM execution_profile_versions WHERE id=?',
+                             (self.profile['active_version_id'],)).fetchone()
+            config = json.loads(row[0]); config.pop('agent_model', None)
+            db.execute('UPDATE execution_profile_versions SET config_json=? WHERE id=?',
+                       (json.dumps(config), self.profile['active_version_id']))
+        self.request(); self.work()
+        self.assertIsNone(self.adapter.kwargs['model'])
+
     def test_claimed_success_is_not_proof_without_inventory_tools_change_and_validation(self):
         for mode in ('no_inventory', 'unchanged', 'wrong_change', 'direct_mutation'):
             with self.subTest(mode=mode):
