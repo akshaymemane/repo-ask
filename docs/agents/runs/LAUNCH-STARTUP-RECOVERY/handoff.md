@@ -34,3 +34,14 @@ for the UI even to use Ask.
 
 - A workspace with session history and an unresponsive Docker daemon still spends up to 30s recovering in the background,
   and shutdown during that window waits for it (runtime lock). The UI is served meanwhile.
+
+## Round-1 response
+
+- Finding 1 (P1, profile-test containers with zero sessions): fixed in `7137092` (found concurrently by the
+  coordinator's full-suite run, `test_dead_profile_test_is_contained_then_resolved_without_rerun`) and refined here:
+  `reconcile()` keeps `startup` immutable for lease semantics and uses a separate `sweep` predicate — Docker is skipped
+  only when there are no stale/pending runners, no sessions and no execution-profile checks (a check row is inserted at
+  queue time, before any container is provisioned, `repoask/execution/profiles.py:395`).
+- `test_startup_without_session_history_never_waits_on_docker` now proves: no sessions and no checks → no runner
+  constructed; a recorded profile check → the sweep runs. The existing dead-profile-test recovery test covers containment
+  of a first-ever profile test with zero sessions.
