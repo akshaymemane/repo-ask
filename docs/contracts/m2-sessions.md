@@ -128,7 +128,9 @@ returns HTTP 200 `{session_id,purged_at}`. Only TERMINAL sessions qualify;
 `session_active` and a publication outside `published/blocked/failed/no_changes`
 (`publication_in_progress`) return 409. Repeated purge preserves the original
 millisecond timestamp and retries filesystem cleanup. The tombstone is stored in
-`outcome_json`; no migration is required.
+`outcome_json`. Migration 15 adds a database insert fence so a publication
+intent holding a pre-purge snapshot cannot persist content after the tombstone;
+the publisher maps that rejected insert to its existing idempotency conflict.
 
 Detail/list projections retain id, state, timestamps, plan_version_id, repository
 id/role/base SHA, and publication id/state/PR URL/number, plus `purged:true`,

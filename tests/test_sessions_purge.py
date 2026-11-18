@@ -111,3 +111,13 @@ class SessionPurgeTests(SessionCase):
         root=self.data/'sessions'; root.mkdir(); (root/sid).symlink_to(outside,target_is_directory=True)
         self.sessions.purge_session(sid)
         self.assertFalse((root/sid).is_symlink()); self.assertEqual((outside/'log').read_text(),'KEEP')
+
+    def test_publication_insert_from_stale_snapshot_is_rejected_after_purge(self):
+        import sqlite3
+        sid=self.launch(); self.finish(sid)
+        self.sessions.purge_session(sid)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.publication(sid,'queued')
+        with self.store.read() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM publications WHERE session_id=?',(sid,)).fetchone()[0],0)
+        self.assertTrue(self.sessions.get(sid)['purged'])

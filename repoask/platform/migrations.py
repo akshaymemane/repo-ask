@@ -47,6 +47,11 @@ MIGRATIONS += (Migration(14, "routing_decision_consumption", (
     # Decisions retired before this column existed were marked resolved without a selection.
     "UPDATE routing_decisions SET status='needs_selection', consumed_at=created_at WHERE status='resolved' AND selected_json='[]' AND prompt<>''",
 )),)
+MIGRATIONS += (Migration(15, "session_purge_publication_fence", (
+    """CREATE TRIGGER publication_reject_purged_session BEFORE INSERT ON publications
+       WHEN json_extract((SELECT outcome_json FROM sessions WHERE id=NEW.session_id), '$.purged_at') IS NOT NULL
+       BEGIN SELECT RAISE(ABORT, 'session_purged'); END""",
+)),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 

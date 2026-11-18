@@ -637,6 +637,13 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   // Header: what this is, where it runs, which attempt, how long; the state's primary actions sit beside it.
   function renderHeader() {
     const s = current, version = plan?.version?.version;
+    if (s.purged) {
+      titleNode.textContent = 'Session';
+      meta.replaceChildren(el('span', s.id), el('span', human(s.state)), el('span', `Plan version ${s.plan_version_id}`), el('p', `Content deleted on ${time(s.purged_at)}`, 'session-purge-status'));
+      for (const r of repos(s)) meta.append(el('span', `${r.repository_id} · Base ${r.base_sha}`));
+      if (prAction) prAction.hidden = true;
+      return;
+    }
     if (titleNode.textContent !== (plan?.title || 'Session')) titleNode.textContent = plan?.title || 'Session';
     focusReplacement(meta, () => {
       meta.replaceChildren();
@@ -656,8 +663,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       link(origin, `Plan ${version ? `v${version}` : 'version'}`, `#/plans/${enc(s.plan_id)}/${enc(s.plan_version_id)}`).setAttribute('aria-label', `Saved plan ${version ? `version ${version}` : 'version'}${plan?.title ? `: ${plan.title}` : ''}`);
       if (plan?.conversation_id) { origin.append(' · '); link(origin, 'conversation', `#/ask/${enc(plan.conversation_id)}`).setAttribute('aria-label', 'Back to the conversation'); }
     });
-    if (s.purged) meta.append(el('p', `Content deleted on ${time(s.purged_at)}`, 'session-purge-status'));
-    else if (terminal.has(s.state)) {
+    if (terminal.has(s.state)) {
       const token = epoch, id = currentID;
       const action = button(meta, 'Delete session content', async b => {
         if (!live(token) || !window.confirm('Delete this session’s events, guidance messages, diffs, checkpoints and validation output? Session identity, state, dates, saved plan version, repository/base commit and PR identity stay. The PR on GitHub is not affected. Backups require separate handling.')) return;

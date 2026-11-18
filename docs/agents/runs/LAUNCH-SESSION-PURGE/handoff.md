@@ -4,31 +4,32 @@
 
 - Author/harness and session ID: Codex API session, LAUNCH-SESSION-PURGE.
 - Persona, branch and worktree: platform/runtime; task/session-purge; /Users/apple/workspace/vibe-coding/opendevin-session-purge.
-- Base SHA: dbfa1103eeb2ba923f868843c87dcabadda52c56. Submitted SHA: pending commit attempt.
+- Base SHA: dbfa1103eeb2ba923f868843c87dcabadda52c56. Implementation commit: 1bdd47e (feat(sessions): add terminal session content purge). Final follow-up is UNCOMMITTED: git add was denied creating /Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-session-purge/index.lock (Operation not permitted). Review must include the working diff after the coordinator commits it; 1bdd47e alone lacks the publication insert fence.
 - Task card and requirements: user-assigned LAUNCH-SESSION-PURGE; F12 OP-10, F05 retention projections, M2 publication identity.
 - Status: review (not approved/integrated).
 
 ## Outcome
 
-Terminal-only per-session purge atomically redacts retained SQLite context, events, guidance/questions, artifact bytes/hashes, validation commands/environment, session manifests and publication prose/events. Active sessions and nonterminal publications block with stable 409 codes. outcome_json stores a durable, idempotent purged_at tombstone without a migration. Retained identity includes session/state/timestamps, plan version, repository/base SHA, publication id/state/PR URL/number. Publication remote reconciliation identifiers remain intact.
+Terminal-only per-session purge atomically redacts retained SQLite context, events, guidance/questions, artifact bytes/hashes, validation commands/environment, session manifests and publication prose/events. Active sessions and nonterminal publications block with stable 409 codes. outcome_json stores a durable, idempotent purged_at tombstone using migration 15 only for a publication insert fence. Retained identity includes session/state/timestamps, plan version, repository/base SHA, publication id/state/PR URL/number. Publication remote reconciliation identifiers remain intact.
 
 A bounded directory-descriptor helper removes data_dir/sessions/<id> without following symlinks; interrupted cleanup retries after restart without restoring content. Current session artifacts are SQLite-backed; the documented per-session disk tree is the retention convention. Purged content endpoints return explicit 409 purged; get/list return minimal identity. New guidance and retry are blocked after purge.
 
 The finished-session UI offers a native keyboard-accessible confirmation, describes deletion and retained identity/PR behavior, uses >=44px action targets and displays deletion date in detail/list. Purged views clear cached content and fence late plan responses. README adds the requested retention line; F12 remains accurate.
 
-Changed paths (all exclusive scope): repoask/sessions/service.py, repoask/sessions/purge.py, repoask/session_api.py, repoask/web/sessions.js, append-only repoask/web/styles.css, tests/test_sessions_purge.py, tests/ui/session.test.mjs, docs/contracts/m2-sessions.md, README.md, task-local run documents. runtime.py, services.py, migrations, manifests, board and other task paths are unchanged.
+Changed paths (all exclusive scope): repoask/sessions/service.py, repoask/sessions/purge.py, repoask/session_api.py, repoask/web/sessions.js, append-only repoask/web/styles.css, tests/test_sessions_purge.py, tests/ui/session.test.mjs, docs/contracts/m2-sessions.md, README.md, task-local run documents, plus repoask/platform/migrations.py under the explicitly authorized migration-15 exception. runtime.py, services.py, manifests, board and other task paths are unchanged.
 
-Contracts consumed: m2-sessions.md and m2-publication.md at base; additive retention contract documented as assigned. No schema or external-effect deviation.
+Contracts consumed: m2-sessions.md and m2-publication.md at base; additive retention contract documented as assigned. Migration 15 is strictly needed because PublicationService takes its snapshot before its insertion transaction: the trigger prevents a stale snapshot racing purge from retaining new publication prose afterward. Version 14 remains reserved for the concurrent task.
 
 ## Verification evidence
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
-| OP-10 service/API | /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p test_sessions_purge.py | 5 passed; terminal/active matrix, publication state blockers, PR identity, content redaction, isolated disk deletion, symlink target preservation, cleanup retry, database reopen, idempotency, API shapes and purged endpoint responses. |
+| OP-10 service/API | /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p test_sessions_purge.py | 6 passed; terminal/active matrix, publication state blockers, PR identity, content redaction, isolated disk deletion, symlink target preservation, cleanup retry, database reopen, idempotency, API shapes and purged endpoint responses. |
 | API regression | Same Python, -m unittest discover -s tests -p test_session_api.py | 4 passed. |
 | UI | REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs | 299 tests: 297 passed, 2 failed in session-services bridge synthetic execution-profile bootstrap. Purge detail/confirmation/list tests pass. |
-| Python regression | Same Python, -m unittest discover -s tests | Running; final result to be recorded. |
+| Python regression | Same Python, -m unittest discover -s tests | 631 run in 406.651s: 69 failures, 99 errors, 9 skips (454 passed). Run preceded the final migration fence and additional focused tests; final fence checked by the targeted suites below. Many errors are direct socket bind EPERM; runtime failures include waits for broker-driven activity that cannot start. Not a clean regression run. |
 | Sandbox | Direct AF_UNIX socket bind probe; ps process listing | Socket bind fails PermissionError EPERM; ps denied. No permission-bypass flags used. |
+| Final migration/publication regression | Same Python, unittest discover patterns test_publication_schema.py, test_publication_service.py, test_platform_foundation.py, test_platform_review.py | 2 + 39 + 17 + 12 passed; with 6 purge and 4 API tests, 80 final targeted Python checks passed. |
 | Patch hygiene | git diff --check | Passed. |
 
 UI tests use the repository DOM harness and synthetic transport, not a real browser or actual inference. No Docker/model/GitHub external writes were attempted. Full-suite failure output is not copied into shared artifacts.
@@ -37,6 +38,7 @@ UI tests use the repository DOM harness and synthetic transport, not a real brow
 
 - Socket-dependent runtime/profile integration needs rerunning outside this sandbox. No claim that unrelated runtime failures are fixed.
 - Disk cleanup is limited to the documented per-session retention tree (10,000 entries, 64 levels); failure leaves content tombstoned and reports an error for retry. Backups and independent plans/repositories require their own controls.
-- Migrations/configuration: none.
-- Background processes: full Python regression command is still running; no product runtime launched.
+- Migrations/configuration: migration 15 (session_purge_publication_fence); no configuration.
+- Background processes: all owned test commands completed; no product runtime launched. Sandbox denies process enumeration, so no broader process census is claimed.
+- Commit limitation: first implementation commit succeeded; final follow-up staging was denied by the sandbox. Coordinator must commit the remaining tracked modifications with the Codex co-author trailer before exact-commit review. No bypass or escalation attempted.
 - Reviewer: Claude coordinator; review exact commit, purge/publication serialization, non-content identity preservation, deletion boundaries and UI stale-response clearing. Integrator owns board updates and integration.
