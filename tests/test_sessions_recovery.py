@@ -56,12 +56,15 @@ class RecoveryTests(SessionCase):
             self.addCleanup(svc.close)
             return svc
         self.sessions.close()
+        with self.store.transaction() as db:
+            checks = [tuple(r) for r in db.execute('SELECT * FROM execution_profile_checks')]
+            db.execute('DELETE FROM execution_profile_checks')
         first = fresh(); first.start(); first.close()
-        self.assertEqual(calls, [], 'a workspace that never ran a session needs no Docker sweep')
-        _, version = self.ready_plan()
-        self.sessions.launch(version['id'], version['content_hash'], 'k-history')
+        self.assertEqual(calls, [], 'a workspace that never ran a session or profile test needs no Docker sweep')
+        with self.store.transaction() as db:
+            db.executemany('INSERT INTO execution_profile_checks VALUES (%s)' % ','.join('?' * len(checks[0])), checks)
         second = fresh(); second.start(); second.close()
-        self.assertTrue(calls, 'with session history the startup sweep still runs')
+        self.assertTrue(calls, 'after a profile test (which provisions containers) the startup sweep runs')
 
     def test_restart_contains_recorded_harness_and_container_without_rerun(self):
         sid, lease, harness = self.crashed_session()

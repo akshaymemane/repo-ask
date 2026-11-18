@@ -193,10 +193,12 @@ class Runtime:
         report = {'interrupted': [], 'cancelled': [], 'containment_failed': [], 'orphans_removed': 0,
                   'profile_tests': []}
         if startup and not (stale or pending):
-            # The startup orphan sweep needs Docker; a workspace that never ran a session has no
-            # containers of its own to sweep, so do not wait on a possibly unresponsive daemon.
+            # The startup orphan sweep needs Docker. Containers are only ever provisioned for a session
+            # or an execution-profile test; with neither recorded there is nothing of ours to sweep, so
+            # do not wait on a possibly unresponsive daemon.
             with svc.store.read() as db:
-                startup = db.execute('SELECT 1 FROM sessions LIMIT 1').fetchone() is not None
+                startup = (db.execute('SELECT 1 FROM sessions LIMIT 1').fetchone() is not None or
+                           db.execute('SELECT 1 FROM execution_profile_checks LIMIT 1').fetchone() is not None)
         runner = self._runner() if (stale or pending or startup) else None
         owned = None
         if runner is not None:
