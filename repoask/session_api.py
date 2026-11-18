@@ -64,8 +64,15 @@ class ExecutionAPI:
                 q=query_fields(raw_query,{'limit','cursor'})
                 return APIResponse(200,self.sessions.list_sessions(limit=page_limit(q.get('limit',50)),cursor=q.get('cursor')))
             if method=='POST':
-                data=fields(body,{'plan_version_id','content_hash','idempotency_key'},{'plan_version_id','content_hash','idempotency_key'})
-                return APIResponse(202,self.sessions.launch(**data))
+                data=fields(body,{'plan_version_id','content_hash','idempotency_key','acknowledged_base'},{'plan_version_id','content_hash','idempotency_key'})
+                from .sessions.errors import SessionError
+                try:
+                    return APIResponse(202,self.sessions.launch(**data))
+                except SessionError as exc:
+                    if exc.code != 'base_advanced':
+                        raise
+                    return APIResponse(409, {'error': {'code': exc.code, 'details': exc.details},
+                                             'code': exc.code, 'details': exc.details})
         match=re.fullmatch(r'/api/sessions/([^/]+)(/(events|diff|validations|artifacts|messages|stop|retry))?',path)
         if not match:
             return None

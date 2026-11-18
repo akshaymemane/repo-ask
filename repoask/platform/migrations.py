@@ -39,6 +39,9 @@ from .publication_schema import PUBLICATION_SQL
 MIGRATIONS += (Migration(11, "draft_publications", PUBLICATION_SQL),)
 from .service_schema import PROVIDER_ADAPTER_V12_SQL
 MIGRATIONS += (Migration(12, "claude_cli_provider_adapter", PROVIDER_ADAPTER_V12_SQL, rebuild_tables=True),)
+MIGRATIONS += (Migration(13, "launch_base_observations", (
+    "CREATE TABLE launch_base_observations (idempotency_key TEXT PRIMARY KEY, launch_hash TEXT NOT NULL, observation_json TEXT NOT NULL)",
+)),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 

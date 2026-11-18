@@ -596,6 +596,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       lines(facts, [['Attempt', `${s.attempt ?? 'unknown'} · ${s.id}`], ['Plan version', `${s.plan_version_id} · SHA256 ${s.content_hash}`], ['Elapsed time', elapsed], ['Execution profile', `${x.profile_id || 'unknown'} · Version ${x.version ?? 'unknown'} (${x.profile_version_id || 'unknown'})`], ['Agent', `${x.adapter || 'unknown'} · CLI ${x.cli_version || 'unknown'} · Model ${u.observed_model || u.model || [...events.values()].find(e => e.type === 'agent.summary' && e.payload?.kind === 'ready')?.payload.model || outcome.model || 'unknown'}`], ['Destination', x.destination ? `${x.destination.kind || 'unknown'} · ${x.destination.host || x.destination.disclosure || 'destination details unknown'}` : 'unknown'], ['Pinned image', x.image_id || 'unknown'], ['Resource limits', limitsText(s.limits)], ['Usage', tokens], ['Cost', cost], ['Containment', human(s.runner?.containment)], ['Outcome', human(outcome.result || outcome.status || outcome.code || outcome.reason || s.error_code || 'not yet recorded')], ['Stop reason', human(s.stop_reason || 'none')]]);
       for (const r of repos(s)) details.append(el('p', `${repoName(r.repository_id, true)} (${r.repository_id}) · ${r.role} · Base ${r.base_sha || 'unknown'} (${r.base_branch || 'unknown branch'}) · Session branch ${r.session_branch || 'not assigned'}`));
       details.append(el('p', `Capabilities: user questions ${s.capabilities?.ask_user ? 'available' : 'unavailable'} · Follow-ups ${s.capabilities?.follow_up ? 'available' : 'no proven delivery channel; messages may remain queued'} · Resume ${s.capabilities?.resume ? 'available' : 'unavailable'}`));
+      if (Object.keys(s.instructions?.acknowledged_base || {}).length) details.append(el('p', 'Started on an older base (acknowledged)', 'session-warning'));
       details.append(el('p', `External source sharing at launch: ${x.allow_external_source === true ? 'explicitly permitted by the pinned profile; live workspace and repository policy still apply' : x.allow_external_source === false ? 'disabled' : 'unknown'}.`));
     });
     const b = phaseBadge(s, lastChecks, pubInfo.pub);
@@ -640,6 +641,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       meta.replaceChildren();
       const part = node => { if (meta.childNodes.length) meta.append(sep()); meta.append(node); return node; };
       for (const r of repos(s)) {
+        if (s.instructions?.acknowledged_base?.[r.repository_id]) part(el('span', 'Started on an older base (acknowledged)', 'session-warning'));
         const where = el('span', undefined, 'session-meta-repo'); where.append(el('strong', repoName(r.repository_id, true)));
         const sha = shortSha(r.base_sha); if (r.base_branch || sha) { const base = el('code', ` ${r.base_branch || 'base'}${sha ? `@${sha}` : ''}`); if (r.base_sha) base.setAttribute('title', `Base ${r.base_sha}`); where.append(base); }
         where.setAttribute('title', r.repository_id); part(where);

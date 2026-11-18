@@ -176,7 +176,7 @@ class ClaudeCliMigrationTests(unittest.TestCase):
                 store.close()
             store = Store.open(data)
             try:
-                self.assertEqual(store.schema_version(), 12)
+                self.assertEqual(store.schema_version(), migrations.LATEST_VERSION)
                 service = ProviderService(store, None)
                 self.assertEqual(service.roles()['ask']['profile_id'], old['id'])
                 with store.read() as conn:

@@ -159,3 +159,27 @@ export function renderPlanDocument(version, { nameFor = (id) => id, onCitation =
   doc.append(more);
   return doc;
 }
+
+// Shared launch decision for the conversation card and saved plan Start controls.
+export function renderBaseAdvanced(parent, observations, {nameFor = id => id, onRetain, onRegenerate, onError = () => {}}) {
+  parent.querySelector('.base-advanced-notice')?.remove();
+  const notice = el('section', undefined, 'base-advanced-notice');
+  notice.setAttribute('role', 'alert'); notice.setAttribute('tabindex', '-1');
+  const acknowledged = {};
+  for (const item of observations) {
+    notice.append(el('p', `${nameFor(item.repository_id)} moved from ${String(item.pinned_revision).slice(0,7)} to ${String(item.current_head).slice(0,7)} since this plan was made.`));
+    acknowledged[item.repository_id] = item.pinned_revision;
+  }
+  const action = (label, run) => {
+    const control = button(notice, label, async () => {
+      if (control.disabled || !control.isConnected) return;
+      control.disabled = true;
+      try { await run(); } catch (error) { onError(error); notice.focus(); }
+      finally { control.disabled = false; }
+    });
+  };
+  action('Start on the saved base', () => onRetain(acknowledged));
+  action('Regenerate plan', onRegenerate);
+  parent.append(notice); notice.focus();
+  return notice;
+}

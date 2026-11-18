@@ -421,14 +421,31 @@ class SessionService:
         row = db.execute('SELECT id,state,launch_hash FROM sessions WHERE idempotency_key=?', (key,)).fetchone()
         return dict(row) if row else None
 
-    def launch(self, plan_version_id, content_hash, idempotency_key):
+    def launch(self, plan_version_id, content_hash, idempotency_key, acknowledged_base=None):
         _ident(plan_version_id, 'plan_version_id')
         _ident(content_hash, 'content_hash')
         if not isinstance(idempotency_key, str) or not _KEY_RE.match(idempotency_key):
             raise SessionError('validation', details=['idempotency_key'])
+        acknowledged_base = {} if acknowledged_base is None else acknowledged_base
+        if not isinstance(acknowledged_base, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not _SHA_RE.fullmatch(v) for k, v in acknowledged_base.items()):
+            raise SessionError('validation', details=['acknowledged_base'])
         launch_hash = sha256(canonical({'kind': 'launch', 'plan_version_id': plan_version_id,
                                         'content_hash': content_hash}).encode())
-        return self._create(plan_version_id, content_hash, idempotency_key, launch_hash, None)
+        with self.store.read() as db:
+            saved = db.execute('SELECT * FROM launch_base_observations WHERE idempotency_key=?', (idempotency_key,)).fetchone()
+            existing = db.execute('SELECT instructions_json FROM sessions WHERE idempotency_key=?', (idempotency_key,)).fetchone()
+        if saved:
+            if saved['launch_hash'] != launch_hash:
+                raise SessionError('idempotency_conflict')
+            observation = json.loads(saved['observation_json'])
+            allowed = {observation['repository_id']: observation['pinned_revision']}
+            if acknowledged_base and acknowledged_base != allowed:
+                raise SessionError('validation', details=['acknowledged_base'])
+            if observation['status'] == 'advanced' and not acknowledged_base:
+                raise SessionError('base_advanced', details=[observation])
+        if existing and _loads(existing['instructions_json'], {}).get('acknowledged_base', {}) != acknowledged_base:
+            raise SessionError('idempotency_conflict')
+        return self._create(plan_version_id, content_hash, idempotency_key, launch_hash, None, acknowledged_base)
 
     def retry(self, session_id, idempotency_key):
         _ident(session_id, 'session_id')
@@ -451,7 +468,42 @@ class SessionService:
             raise SessionError('session_active')
         return self._create(pred['plan_version_id'], pred['content_hash'], idempotency_key, launch_hash, pred)
 
-    def _create(self, plan_version_id, content_hash, key, launch_hash, predecessor):
+    def _launch_observation(self, key, launch_hash, write, repo):
+        # Persist the first decision before refusing creation. Replays never contact
+        # GitHub again, including after application restart.
+        with self.store.read() as db:
+            saved = db.execute('SELECT * FROM launch_base_observations WHERE idempotency_key=?', (key,)).fetchone()
+        if saved:
+            if saved['launch_hash'] != launch_hash:
+                raise SessionError('idempotency_conflict')
+            return json.loads(saved['observation_json'])
+        result = {}
+        done = threading.Event()
+        def observe():
+            try:
+                token = self.github.mint_installation_token(write['repository_id'])['token']
+                head = self.github.client.default_branch_sha(token, repo['owner'], repo['name'], write['branch'])
+                if isinstance(head, str) and _SHA_RE.fullmatch(head):
+                    result['head'] = head
+            except Exception:
+                pass  # Optional freshness observation; pinned acquisition still applies.
+            finally:
+                done.set()
+        threading.Thread(target=observe, name='launch-head', daemon=True).start()
+        done.wait(2.0)
+        head = result.get('head') if done.is_set() else None
+        observation = {'repository_id': write['repository_id'], 'pinned_revision': write['revision'],
+                       'current_head': head, 'status': 'unavailable' if head is None else
+                       'current' if head == write['revision'] else 'advanced'}
+        with self.store.transaction() as db:
+            db.execute('INSERT OR IGNORE INTO launch_base_observations VALUES (?,?,?)',
+                       (key, launch_hash, canonical(observation)))
+            saved = db.execute('SELECT * FROM launch_base_observations WHERE idempotency_key=?', (key,)).fetchone()
+        if saved['launch_hash'] != launch_hash:
+            raise SessionError('idempotency_conflict')
+        return json.loads(saved['observation_json'])
+
+    def _create(self, plan_version_id, content_hash, key, launch_hash, predecessor, acknowledged_base=None):
         with self.store.read() as db:
             existing = self._by_key(db, key)
             pv = db.execute('SELECT plan_id FROM plan_versions WHERE id=?', (plan_version_id,)).fetchone()
@@ -490,6 +542,12 @@ class SessionService:
         if blocking:
             raise SessionError('plan_not_ready', details=blocking)
         write, repo = private['write'], private['repo']
+        acknowledged_base = acknowledged_base or (_loads(predecessor['instructions_json'], {}).get('acknowledged_base', {}) if predecessor else {})
+        if any(k != write['repository_id'] or v != write['revision'] for k, v in acknowledged_base.items()):
+            raise SessionError('validation', details=['acknowledged_base'])
+        observation = self._launch_observation(key, launch_hash, write, repo)
+        if observation['status'] == 'advanced' and acknowledged_base.get(write['repository_id']) != write['revision']:
+            raise SessionError('base_advanced', details=[observation])
         prompt, _ = build_prompt(content, plan_version_id=plan_version_id, content_hash=content_hash,
                                  repository_name=repo['full_name'], base_sha=write['revision'],
                                  contexts=context_aliases(content))
@@ -517,6 +575,7 @@ class SessionService:
             publication = {'policy': policy, 'requires_explicit_action': policy == 'manual_draft',
                            'requires_full_validation': policy == 'on_success_draft', 'state': 'not_started',
                            'authorized_by_launch': policy == 'on_success_draft'}
+        instructions = dict(instructions, base_observation=observation, acknowledged_base=acknowledged_base)
         try:
             return self._insert_session(plan_version_id, content_hash, key, launch_hash, predecessor, pv, content,
                                         snapshot, limits, instructions, publication)

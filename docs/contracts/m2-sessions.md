@@ -76,3 +76,38 @@ Existingpublicresponses fromservice37a areshapeinputs (notapproval): GETsession 
 Events: items(session_id,seq,created_at,type,payload),next_seq,has_more. Diff: session_id,repository_id,base_sha,state,edits_since_last_checkpoint_may_be_lost,available,reason(optional),files,rejected,diff_hash,stats,captured_at; eachfile carriespath/status/diff/modes/sizes. Missing/forbidden/redacted remainsunavailable, neverempty-success. Validations: items(id,ordinal,command,source,status,required,exit_code,artifact_id,environment,output,output_redacted,started_at,finished_at),summarycounts,fully_validated. Failure/staleartifactoutcomes mustbevisible andcannotbeoverriddenbyclientinference. Artifactslistmetadataonly; noarbitraryhostpaths.
 
 Profile API list uses items,next_cursor, model-provider API continuesprofiles-listdistinct. RootAPIboundseventlimit1..200. UIhistorypaginated; serverMessage/Launch/Retry keys preserved acrossunknownnetwork outcomes; definite4xx allowcorrectionwithoutlosingdraft. UIstaleepoch/focus/source-policyfences required. No source/rawJSONdump whenhumanstates/counts/provenancecancommunicatethedecision.
+
+### Launch freshness (F04 AC6; additive)
+
+`POST /api/sessions` optionally accepts `acknowledged_base`, a mapping from write
+repository ID to its exact pinned revision. It means deliberately retain that saved
+base; it never changes the plan version or commit. Unknown repositories or a
+revision other than the plan's pinned revision are rejected as validation errors.
+
+Before creation, the service observes the write branch through the existing GitHub
+client, waiting at most two seconds. Equal HEAD proceeds. An advanced HEAD without
+acknowledgement returns HTTP 409:
+
+```json
+{"code":"base_advanced","error":{"code":"base_advanced","details":[{"repository_id":"gh:1","pinned_revision":"<saved SHA>","current_head":"<observed SHA>","status":"advanced"}]},"details":[{"repository_id":"gh:1","pinned_revision":"<saved SHA>","current_head":"<observed SHA>","status":"advanced"}]}
+```
+
+No session or execution job is created by that refusal. Reposting the exact saved
+version/hash with `acknowledged_base` uses the same idempotency key. The first
+observation is durable (schema 13); identical unacknowledged retries reproduce the
+same 409, including after restart or an acknowledged launch. Other plan/hash reuse
+of the key is an idempotency conflict. Successful identical requests return the
+existing session. Changing an acknowledgement after success is a conflict.
+
+Session detail's existing `instructions` JSON adds `acknowledged_base` (empty map
+when absent) and `base_observation`, with `repository_id`, `pinned_revision`,
+`current_head` and `status` (`current`, `advanced`, `unavailable`). Offline, invalid
+upstream output or timeout records `unavailable` and a null head, and proceeds with
+the saved base. Existing worker-time `head_sha_at_start` and `base_is_head` event
+information continues independently. A retry attempt inherits any recorded older
+base acknowledgement while observing freshness for its own launch key.
+
+The UI presents an inline focused notice and explicit saved-base/regenerate actions
+in both conversation and saved-plan launch flows. Regeneration uses the existing
+conversation plan-generation path; it does not mutate the saved version. Current
+index acquisition and plan readiness rules still apply to the generated plan.

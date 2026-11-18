@@ -1,7 +1,7 @@
 import { limitsText } from "./sessions.js";
 import { createComposer } from "./composer.js";
 import { renderThread } from "./thread.js";
-import { renderPlanDocument } from "./plan-view.js";
+import { renderPlanDocument, renderBaseAdvanced } from "./plan-view.js";
 import { rememberRepositories } from "./repo-source.js";
 import { relativeTime } from "./ui.js";
 import { openSource } from "./code-viewer.js";
@@ -45,6 +45,13 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
   try { sendAttempt = JSON.parse(window.sessionStorage?.getItem('ask-pending-send') || 'null'); } catch {}
   const persistAttempt = () => { try { if(sendAttempt) window.sessionStorage?.setItem('ask-pending-send',JSON.stringify(sendAttempt)); else window.sessionStorage?.removeItem('ask-pending-send'); } catch {} }; const launchKeys = new Map(); const promptDrafts=new Map(); const scopeDrafts=new Map();
   const say = error => { status.textContent = error instanceof Error ? error.message : error; };
+  async function regenerateSavedPlan(version, conversationId) {
+    const c = version.content;
+    const conversation = conversationId ? {id: conversationId} : await request('/api/conversations', 'POST', {repository_ids: c.repositories.map(r => r.repository_id)});
+    await request(`/api/conversations/${enc(conversation.id)}/messages`, 'POST', {content:c.user_request, intent:'plan', client_request_id:globalThis.crypto.randomUUID()});
+    location.hash = `#/ask/${enc(conversation.id)}`;
+    await load();
+  }
   const inside = (parent, child) => { for (let n=child;n;n=n.parentNode) if(n===parent)return true; return false; };
   const button = (parent, text, fn) => {
     const b = el('button', text); b.type = 'button';
@@ -216,13 +223,21 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
             key ||= globalThis.crypto.randomUUID(); launchKeys.set(v.id, key);
             try { window.sessionStorage?.setItem(`ask-launch-${v.id}`, key); } catch {}
           }
-          try {
-            const result = await request('/api/sessions', 'POST', {plan_version_id:v.id, content_hash:v.content_hash, idempotency_key:launchKeys.get(v.id)});
+          const launch = async (acknowledged_base) => {
+            if (token !== epoch) return;
+            if (draft || planDraft) throw new Error('Save edits before starting.');
+            const result = await request('/api/sessions', 'POST', {plan_version_id:v.id, content_hash:v.content_hash, idempotency_key:launchKeys.get(v.id), ...(acknowledged_base ? {acknowledged_base} : {})});
             if (!result.session_id) throw new Error('Session outcome unknown. Retry Start session to reconcile.');
             launchKeys.delete(v.id); try { window.sessionStorage?.removeItem(`ask-launch-${v.id}`); } catch {}
             if (token !== epoch) return;
             location.hash = `#/sessions/${enc(result.session_id)}`;
-          } catch (error) {
+          };
+          try { await launch(); } catch (error) {
+            if (error.code === 'base_advanced') {
+              renderBaseAdvanced(threadHost, error.details || [], {nameFor:id => knownNames.get(id) || id,
+                onRetain: ack => launch(ack), onRegenerate: () => regenerateSavedPlan(v, id), onError:say});
+              return;
+            }
             if (error.status >= 400 && error.status < 500) {
               launchKeys.delete(v.id); try { window.sessionStorage?.removeItem(`ask-launch-${v.id}`); } catch {}
             }
@@ -472,10 +487,15 @@ export async function createAskPanel({host, request = http, onMount = () => {}, 
       if(displayedProfile){const record=await request(`/api/execution-profile-versions/${enc(execution.profile_version_id)}`);if(token!==epoch)return;const now={id:record.id,image:record.config?.image,allow_external_source:record.config?.allow_external_source,profile_deleted:record.profile_deleted};if(JSON.stringify(now)!==JSON.stringify(displayedProfile))throw new Error('Execution source consent changed. Reload and review before starting.');}
       if(draft || planDraft)throw new Error('Save edits before starting.');
       if(!launchKeys.has(v.id)){let key;try{key=window.sessionStorage?.getItem(`ask-launch-${v.id}`);}catch{}key ||= globalThis.crypto.randomUUID();launchKeys.set(v.id,key);try{window.sessionStorage?.setItem(`ask-launch-${v.id}`,key);}catch{}}
-      try {
-        const result=await request('/api/sessions','POST',{plan_version_id:v.id,content_hash:v.content_hash,idempotency_key:launchKeys.get(v.id)});
+      const launch = async (acknowledged_base) => {
+        if(token!==epoch)return;
+        if(draft || planDraft)throw new Error('Save edits before starting.');
+        const result=await request('/api/sessions','POST',{plan_version_id:v.id,content_hash:v.content_hash,idempotency_key:launchKeys.get(v.id),...(acknowledged_base ? {acknowledged_base} : {})});
         if(token!==epoch)return;if(!result.session_id)throw new Error('Session outcome unknown. Retry Start with the same saved version to reconcile.');location.hash=`#/sessions/${enc(result.session_id)}`;
-      }catch(e){if(e.status>=400&&e.status<500){launchKeys.delete(v.id);try{window.sessionStorage?.removeItem(`ask-launch-${v.id}`);}catch{}}throw e;}
+      };
+      try { await launch(); } catch(e){if(e.code==='base_advanced'){
+        renderBaseAdvanced(impl,e.details || [],{nameFor:id=>knownNames.get(id) || id,onRetain:ack=>launch(ack),onRegenerate:()=>regenerateSavedPlan(v,p.conversation_id),onError:say});return;
+      }if(e.status>=400&&e.status<500){launchKeys.delete(v.id);try{window.sessionStorage?.removeItem(`ask-launch-${v.id}`);}catch{}}throw e;}
     });
     planStart=start; start.dataset.ready=String(v.readiness.state==='ready'); start.dataset.evidence=String(profileEvidenceReady); start.disabled=v.readiness.state!=='ready'||!profileEvidenceReady;start.title=v.readiness.blocking_reasons.join(', ');
     const reasons=el('p',`Start session: ${v.readiness.state==='ready'?'server readiness ready':v.readiness.blocking_reasons.join(', ') || v.readiness.state}`);planNotice=reasons; reasons.id='ask-launch-reasons';impl.append(reasons);editor.append(impl);start.setAttribute('aria-describedby',reasons.id);
@@ -509,6 +529,6 @@ async function http(path,method='GET',body) {
   const response=await fetch(path,{method,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
   let value;
   try {value=await response.json();}catch(error){if(response.ok)throw error;}
-  if(!response.ok){const error=new Error(typeof value?.error==='string'?value.error:value?.error?.message || value?.message || value?.code || `HTTP ${response.status}`);error.status=response.status;error.code=value?.code || value?.error?.code;throw error;}
+  if(!response.ok){const error=new Error(typeof value?.error==='string'?value.error:value?.error?.message || value?.message || value?.code || `HTTP ${response.status}`);error.status=response.status;error.code=value?.code || value?.error?.code;error.details=value?.details || value?.error?.details;throw error;}
   return value;
 }

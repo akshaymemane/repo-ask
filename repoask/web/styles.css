@@ -1569,3 +1569,8 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   .example:hover, .rail-new:active, .btn:active, .button:active, .ask-button:active, .publication-primary:active, .icon-button:active { transform: none; }
 }
+
+/* Explicit launch freshness choice. */
+.base-advanced-notice { padding: 1rem; border: 1px solid currentColor; border-radius: .5rem; margin-block: 1rem; }
+.base-advanced-notice:focus { outline: 2px solid currentColor; outline-offset: 3px; }
+.base-advanced-notice button { margin-inline-end: .5rem; }
