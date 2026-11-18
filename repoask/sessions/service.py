@@ -277,6 +277,9 @@ class SessionService:
         question prompts, validation commands/output, message content) are hidden.
         """
         with self.store.read() as db:
+            row = self._row(db, session_id)
+            if _loads(row['outcome_json'], {}).get('purged_at') is not None:
+                return {'available': False, 'reason': 'purged'}
             rows = [dict(r) for r in db.execute('SELECT repository_id,role,source_manifest_json FROM session_repositories '
                                                 'WHERE session_id=?', (session_id,))]
         if not rows:
@@ -448,6 +451,7 @@ class SessionService:
         return self._create(plan_version_id, content_hash, idempotency_key, launch_hash, None, acknowledged_base)
 
     def retry(self, session_id, idempotency_key, acknowledged_base=None):
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         if not isinstance(idempotency_key, str) or not _KEY_RE.match(idempotency_key):
             raise SessionError('validation', details=['idempotency_key'])
@@ -669,6 +673,12 @@ class SessionService:
         question = db.execute("SELECT id,prompt,created_at FROM session_questions WHERE session_id=? AND state='open'", (row['id'],)).fetchone()
         latest = db.execute('SELECT coalesce(max(seq),0) FROM session_events WHERE session_id=?', (row['id'],)).fetchone()[0]
         successor = db.execute('SELECT id FROM sessions WHERE predecessor_id=?', (row['id'],)).fetchone()
+        tombstone = _loads(row['outcome_json'], {})
+        if tombstone.get('purged_at') is not None:
+            return {**{k: row[k] for k in ('id', 'plan_version_id', 'state', 'created_at', 'updated_at', 'started_at', 'finished_at')},
+                    'purged': True, 'purged_at': tombstone['purged_at'], 'source_available': False,
+                    'repositories': [{k: r[k] for k in ('repository_id', 'role', 'base_sha')} for r in repos],
+                    'publication': tombstone.get('publication', {})}
         snapshot = _loads(row['profile_snapshot_json'], {})
         caps = snapshot.get('capabilities') if isinstance(snapshot.get('capabilities'), dict) else {}
         public_repos = []
@@ -731,10 +741,11 @@ class SessionService:
         for row in rows:
             policy = self.source_policy(row['id'])
             with self.store.read() as db:
-                items.append(self._public(db, row, live=policy['available'], reason=policy['reason']))
+                items.append(self._public(db, self._row(db, row['id']), live=policy['available'], reason=policy['reason']))
         return {'items': items, 'next_cursor': nxt}
 
     def events(self, session_id, after=0, limit=200):
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         if type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 500:
             raise SessionError('validation')
@@ -755,6 +766,7 @@ class SessionService:
                 'source_available': bool(live)}
 
     def artifacts(self, session_id):
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         policy = self.source_policy(session_id)
         with self.store.read() as db:
@@ -774,6 +786,7 @@ class SessionService:
                           (session_id, kind)).fetchone()
 
     def diff(self, session_id):
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         live, repository_id = self._live_source(session_id)
         with self.store.read() as db:
@@ -812,6 +825,7 @@ class SessionService:
         """
         from .publication import verify_capture
 
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         with self.store.read() as db:
             row = dict(self._row(db, session_id))
@@ -851,6 +865,7 @@ class SessionService:
                 'policy': policy, 'outcome': outcome, 'validations': validations, 'source_available': True}
 
     def validations(self, session_id):
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         live, _ = self._live_source(session_id)
         with self.store.read() as db:
@@ -885,6 +900,8 @@ class SessionService:
         now = self.clock()
         with self.store.transaction() as db:
             row = self._row(db, session_id)
+            if _loads(row['outcome_json'], {}).get('purged_at') is not None:
+                raise SessionError('purged')
             prior = db.execute('SELECT * FROM session_messages WHERE session_id=? AND client_request_id=?',
                                (session_id, client_request_id)).fetchone()
             if prior:
@@ -919,6 +936,7 @@ class SessionService:
     def list_messages(self, session_id, limit=50, cursor=None):
         """Delivery history in (created_at,id) order; content hidden when source is unavailable."""
         from repoask.ask.common import page
+        self._require_retained(session_id)
         _ident(session_id, 'session_id')
         with self.store.read() as db:
             self._row(db, session_id)
@@ -1000,6 +1018,48 @@ class SessionService:
                 self.stop(sid, reason='access_revoked')
             except PlatformError:
                 pass
+
+    def _require_retained(self, session_id):
+        _ident(session_id, 'session_id')
+        with self.store.read() as db:
+            if _loads(self._row(db, session_id)['outcome_json'], {}).get('purged_at') is not None:
+                raise SessionError('purged')
+
+    def purge_session(self, session_id):
+        """Durable content tombstone; remote publication identity remains reconcilable."""
+        _ident(session_id, 'session_id')
+        with self.store.transaction() as db:
+            row = self._row(db, session_id)
+            if row['state'] not in TERMINAL:
+                raise SessionError('session_active')
+            pub = db.execute('SELECT * FROM publications WHERE session_id=?', (session_id,)).fetchone()
+            if pub and pub['state'] not in ('published', 'blocked', 'failed', 'no_changes'):
+                raise SessionError('publication_in_progress')
+            old = _loads(row['outcome_json'], {})
+            stamp = old.get('purged_at', self.clock())
+            identity = ({k: pub[k] for k in ('id', 'state', 'pull_request_number', 'pull_request_url')} if pub else {})
+            tombstone = canonical({'purged_at': stamp, 'publication': identity})
+            db.execute("UPDATE sessions SET profile_snapshot_json='{}',limits_json='{}',instructions_json='{}',"
+                       "usage_json='{}',publication_json='{}',outcome_json=?,error_code=NULL,stop_reason=NULL WHERE id=?",
+                       (tombstone, session_id))
+            db.execute("UPDATE session_artifacts SET content=NULL,byte_count=0,sha256='redacted' WHERE session_id=?", (session_id,))
+            db.execute('UPDATE session_events SET payload_json=? WHERE session_id=?', ('{"redacted":true}', session_id))
+            db.execute('UPDATE session_messages SET content=NULL WHERE session_id=?', (session_id,))
+            db.execute('UPDATE session_questions SET prompt=NULL WHERE session_id=?', (session_id,))
+            db.execute("UPDATE session_repositories SET base_manifest_json='{}',source_manifest_json='{}',current_diff_hash=NULL,"
+                       "base_branch=NULL,session_branch=NULL WHERE session_id=?", (session_id,))
+            db.execute("UPDATE validation_runs SET command_json='{}',environment_json='{}' WHERE session_id=?", (session_id,))
+            db.execute("UPDATE session_runners SET private_json='{}' WHERE session_id=?", (session_id,))
+            if pub:
+                db.execute("UPDATE publications SET title='[deleted]',body='',commit_message='[deleted]',commit_name='[deleted]',"
+                           "commit_email='deleted@example.invalid' WHERE session_id=?", (session_id,))
+                db.execute("UPDATE publication_events SET payload_json='{}' WHERE publication_id=?", (pub['id'],))
+        # Retry cleanup even for an existing tombstone after interruption or I/O failure.
+        from .purge import remove_session_files
+        path = self.runtime.leadership.path
+        if path is not None:
+            remove_session_files(path.parent, session_id)
+        return {'session_id': session_id, 'purged_at': stamp}
 
     def purge_repository(self, repository_id):
         """Redact session-derived source for a purged repository; keep minimal history."""

@@ -120,3 +120,29 @@ resends the same retry key with the pinned-base acknowledgement. That map is sav
 on the successor; identical acknowledged replay returns it, including after restart.
 The original unacknowledged request continues to reproduce its saved 409. Sessions
 reuses the focused notice with “Retry on the saved base” and “Open plan” actions.
+
+### Finished-session retention (OP-10)
+
+`purge_session(session_id)` / `POST /api/sessions/{id}/purge` with exactly `{}`
+returns HTTP 200 `{session_id,purged_at}`. Only TERMINAL sessions qualify;
+`session_active` and a publication outside `published/blocked/failed/no_changes`
+(`publication_in_progress`) return 409. Repeated purge preserves the original
+millisecond timestamp and retries filesystem cleanup. The tombstone is stored in
+`outcome_json`; no migration is required.
+
+Detail/list projections retain id, state, timestamps, plan_version_id, repository
+id/role/base SHA, and publication id/state/PR URL/number, plus `purged:true`,
+`purged_at` and `source_available:false`. Events/messages/diff/validations/artifacts
+return HTTP 409 `{code:"purged",error:{code:"purged"}}`; trusted publication export
+also fails with `purged`. Guidance/question text, all event payloads, artifact
+bytes/hashes, validation commands/environment, manifests and frozen session context
+are redacted in active SQLite rows. Publication title/body/commit prose and event
+payloads are redacted, retaining remote reconciliation identifiers. Plan and
+repository content have independent retention controls; GitHub PRs and backups
+are unaffected.
+
+Artifacts currently persist in SQLite. Any retained filesystem artifacts belong
+under `data_dir/sessions/<session-id>`; purge removes that tree using directory
+file descriptors, no symlink following, a 10,000-entry/64-level bound. Other session
+directories are untouched. Disk cleanup failure is visible and may be retried;
+content is already inaccessible through the durable tombstone.

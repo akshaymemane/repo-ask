@@ -23,6 +23,15 @@ class ExecutionAPI:
         self.profiles,self.sessions=profiles,sessions
 
     def dispatch(self, method, path, raw_query='', body=None):
+        from .sessions.errors import SessionError
+        try:
+            return self._dispatch(method,path,raw_query,body)
+        except SessionError as exc:
+            if exc.code != 'purged':
+                raise
+            return APIResponse(409,{'code':'purged','error':{'code':'purged'}})
+
+    def _dispatch(self, method, path, raw_query='', body=None):
         if method!='GET' and raw_query:
             raise ValueError('Mutation queries are not supported.')
         if self.profiles is not None:
@@ -73,7 +82,7 @@ class ExecutionAPI:
                         raise
                     return APIResponse(409, {'error': {'code': exc.code, 'details': exc.details},
                                              'code': exc.code, 'details': exc.details})
-        match=re.fullmatch(r'/api/sessions/([^/]+)(/(events|diff|validations|artifacts|messages|stop|retry))?',path)
+        match=re.fullmatch(r'/api/sessions/([^/]+)(/(events|diff|validations|artifacts|messages|stop|retry|purge))?',path)
         if not match:
             return None
         ident,operation=unquote(match[1]),match[3]
@@ -94,6 +103,15 @@ class ExecutionAPI:
         if method=='POST' and operation=='messages':
             data=fields(body,{'content','client_request_id','question_id'},{'content','client_request_id'})
             return APIResponse(202,self.sessions.send_message(ident,**data))
+        if method=='POST' and operation=='purge':
+            fields(body,set())
+            from .sessions.errors import SessionError
+            try:
+                return APIResponse(200,self.sessions.purge_session(ident))
+            except SessionError as exc:
+                if exc.code not in ('session_active','publication_in_progress'):
+                    raise
+                return APIResponse(409,{'code':exc.code,'error':{'code':exc.code}})
         if method=='POST' and operation=='stop':
             fields(body,set())
             return APIResponse(202,self.sessions.stop(ident))

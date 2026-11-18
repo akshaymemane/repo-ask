@@ -95,6 +95,8 @@ explicitly allowed to receive source. Connection tests send synthetic content on
 
 ## Implementation sessions and draft pull requests
 
+Finished sessions offer **Delete session content**; local content is purged while minimal identity and GitHub PRs remain.
+
 Requirements: Docker running, a container image already pulled (sessions never pull
 images and have no network; for Python projects, `docker pull python:3.12-slim`), and the
 [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI installed and logged in

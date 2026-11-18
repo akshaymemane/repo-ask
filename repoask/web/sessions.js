@@ -656,13 +656,28 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       link(origin, `Plan ${version ? `v${version}` : 'version'}`, `#/plans/${enc(s.plan_id)}/${enc(s.plan_version_id)}`).setAttribute('aria-label', `Saved plan ${version ? `version ${version}` : 'version'}${plan?.title ? `: ${plan.title}` : ''}`);
       if (plan?.conversation_id) { origin.append(' · '); link(origin, 'conversation', `#/ask/${enc(plan.conversation_id)}`).setAttribute('aria-label', 'Back to the conversation'); }
     });
+    if (s.purged) meta.append(el('p', `Content deleted on ${time(s.purged_at)}`, 'session-purge-status'));
+    else if (terminal.has(s.state)) {
+      const token = epoch, id = currentID;
+      const action = button(meta, 'Delete session content', async b => {
+        if (!live(token) || !window.confirm('Delete this session’s events, guidance messages, diffs, checkpoints and validation output? Session identity, state, dates, saved plan version, repository/base commit and PR identity stay. The PR on GitHub is not affected. Backups require separate handling.')) return;
+        b.disabled = true;
+        try {
+          const deleted = await request(`/api/sessions/${enc(id)}/purge`, 'POST', {});
+          if (!live(token) || currentID !== id) return;
+          current = {id, state: current.state, plan_version_id: current.plan_version_id, repositories: repos(current).map(r => ({repository_id:r.repository_id,role:r.role,base_sha:r.base_sha})), purged:true, purged_at:deleted.purged_at, source_available:false};
+          showPurged(); await refresh(token);
+        } catch (e) { if (live(token)) { say(`Content deletion failed: ${e.code || e.message}`); b.disabled = false; } }
+      });
+      action.className = 'session-purge-action';
+    }
     renderPrAction();
   }
   function renderPrAction() {
     if (!prAction || !current) return;
     const done = terminal.has(current.state), pub = pubInfo.pub;
     // Only a completed session offers to start a draft PR from the header; an existing one is always reachable.
-    prAction.hidden = !done || (!pub && (current.state !== 'completed' || !['idle', 'review'].includes(pubInfo.mode)));
+    prAction.hidden = current.purged || !done || (!pub && (current.state !== 'completed' || !['idle', 'review'].includes(pubInfo.mode)));
     prAction.textContent = pub ? (pub.state === 'published' ? 'View draft PR' : 'Draft PR status') : 'Create draft PR…';
     prAction.classList.toggle('btn-primary', !pub && current.state === 'completed');
   }
@@ -707,7 +722,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     return {text: 'checks not fully validated', tone: 'warn'};
   }
   function renderResult() {
-    if (!current || !terminal.has(current.state)) { if (!result.hidden || result.childNodes.length) { result.hidden = true; result.replaceChildren(); } return; }
+    if (!current || current.purged || !terminal.has(current.state)) { if (!result.hidden || result.childNodes.length) { result.hidden = true; result.replaceChildren(); } return; }
     const s = current, o = s.outcome || {}, contained = s.runner?.containment === 'confirmed' || o.containment?.confirmed === true, lost = o.edits_since_last_checkpoint_may_be_lost === true;
     let headline, detail = [], next = null, code = null, tone = 'ok', offerRetry = false;
     if (s.state === 'completed') {
@@ -965,6 +980,12 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
     if (pendingMessage && page.items.some(m => m.client_request_id === pendingMessage.client_request_id)) { pendingMessage = null; storage.set(`session-message-${currentID}`, null); compose.value = ''; }
     renderMessages();
   }
+  function showPurged() {
+    sourceAllowed = false; plan = {}; lastChecks = null; clearSource();
+    summary.replaceChildren(); result.replaceChildren(); publication.replaceChildren();
+    ended.replaceChildren(); stop.disabled = true; retry.disabled = true;
+    renderHeader(); say(`Content deleted on ${time(current.purged_at)}`);
+  }
   async function refresh(token = epoch) {
     if (!live(token) || refreshBusy || !currentID) return;
     refreshBusy = true;
@@ -973,7 +994,8 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (!live(token)) return;
       if (data.id !== currentID || typeof data.state !== 'string') throw new Error('Unsupported session response.');
       onAvailable(); current = data; lastConfirmed = Date.now();
-      if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token)) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; if (typeof plan.title === 'string' && plan.title.trim()) planTitles.set(plan.id, plan.title.trim()); renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }
+      if (data.purged) { showPurged(); return; }
+      if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token) || current?.purged) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; if (typeof plan.title === 'string' && plan.title.trim()) planTitles.set(plan.id, plan.title.trim()); renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }
       if (data.source_available === false) { if (sourceAllowed) clearSource(); sourceAllowed = false; }
       else if (!sourceAllowed) { sourceAllowed = true; events.clear(); history.clear(); cursor = 0; messageCursor = null; }
       renderSummary(); renderQuestion();
@@ -1048,6 +1070,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
         if (main) part(el('span', repoName(main.repository_id), 'session-row-repo')).setAttribute('title', `${repoName(main.repository_id, true)} (${main.repository_id})`);
         part(el('span', `attempt ${s.attempt ?? '?'}`));
         if (Number.isFinite(s.created_at)) part(el('span', relativeTime(s.created_at))).setAttribute('title', `Created ${time(s.created_at)}`);
+        if (s.purged) part(el('span', `Content deleted on ${time(s.purged_at)}`));
         const seconds = elapsedSeconds(s); if (seconds !== null) part(el('span', terminal.has(s.state) ? `ran ${duration(seconds)}` : `running ${duration(seconds)}`));
         const sha = shortSha(main?.base_sha); if (sha) part(el('code', `${main.base_branch || 'base'}@${sha}`)).setAttribute('title', `Base ${main.base_sha}`);
         row.append(top, facts); activity.append(row);

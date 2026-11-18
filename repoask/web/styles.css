@@ -1581,3 +1581,8 @@ dialog, dialog.modal { border-color: color-mix(in srgb, var(--line) 78%, var(--a
 .base-advanced-notice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .base-advanced-notice .btn { margin-block: .25rem; max-width: 100%; white-space: normal; }
 .session-ended .base-advanced-notice { flex-basis: 100%; min-width: 0; box-sizing: border-box; }
+
+/* Explicit session retention control. */
+.session-purge-action { min-height: 44px; min-width: 44px; }
+.session-purge-action:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.session-purge-status { white-space: normal; }

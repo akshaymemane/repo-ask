@@ -255,3 +255,27 @@ test('the rail Recent list shows sessions with repository, attempt and phase whi
  // Without catalog names the repository id is the honest fallback; the plan title falls back to a neutral label.
  assert.equal(last.items[0].meta,'gh:1 · attempt 1 · needs your input');assert.equal(last.items[0].attention,true);assert.equal(last.items[1].meta,'gh:1 · attempt 1 · completed');assert.equal(last.items[0].title,'Saved plan');ui.close();
 });
+
+test('finished session content deletion confirms scope and renders durable deletion date', async()=>{
+ let purged=false, confirmations=[];
+ const b=setup((m,u)=>{
+  if(m==='POST' && u.endsWith('/purge')) {purged=true;return {session_id:'s',purged_at:1700000000000};}
+  if(u==='/api/sessions/s')return session('s',{state:'completed',purged,purged_at:purged?1700000000000:null,source_available:!purged});
+  return basic(m,u);
+ });
+ b.window.confirm=text=>{confirmations.push(text);return true;};
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ const action=button(ui.panel,'Delete session content'); assert.ok(action);action.focus();assert.equal(b.document.activeElement,action);
+ action.click();await settle();
+ assert.equal(confirmations.length,1);assert.match(confirmations[0],/PR on GitHub is not affected/);
+ assert.match(confirmations[0],/validation output/);assert.match(visibleText(ui.panel),/Content deleted on/);
+ assert.equal(button(ui.panel,'Delete session content'),undefined);
+ assert.deepEqual(JSON.parse(b.requests.find(r=>r.url.endsWith('/purge')).body),{});
+ ui.close();
+});
+
+test('session list displays retained deletion date',async()=>{
+ const b=setup((m,u)=>u.startsWith('/api/sessions?')?{items:[session('s',{state:'completed',purged:true,purged_at:1700000000000})],next_cursor:null}:basic(m,u),'#/sessions');
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ assert.match(visibleText(ui.panel),/Content deleted on/);ui.close();
+});
