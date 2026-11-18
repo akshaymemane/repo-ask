@@ -1371,6 +1371,8 @@ export function createExecutionSettings({request = executionRequest, onAvailable
     form.append(el('p', 'Adapter: Claude Code · Authentication: normal installed CLI login. API-key and managed authentication profiles are unavailable.'));
     const image = field(form, 'Locally provisioned container image (tag or digest)', config.image || ''); image.required = true; image.maxLength = 255;
     form.append(el('p', 'Choose an image already present in Docker with the tools your plan needs. Network is disabled inside the container. Missing dependencies produce unavailable checks; no host fallback is used. Memory must cover workspace disk + temporary disk + at least 64 MiB.'));
+    const agentModel = field(form, 'Claude model (optional)', config.agent_model || ''); agentModel.maxLength = 80; agentModel.placeholder = 'Default from your Claude Code settings';
+    form.append(el('p', 'Leave blank to use the model your Claude Code login defaults to, or enter an alias such as sonnet or opus, or a full model id. Saved with this immutable profile version.', 'field-hint'));
     const consent = field(form, 'Allow sending repository source to the external coding model', '', 'checkbox'); consent.checked = config.allow_external_source === true;
     const values = {};
     for (const [kind, title, specs] of [['runner_limits','Container resource limits',runnerFields], ['agent_limits','Agent limits',agentFields]]) {
@@ -1387,7 +1389,7 @@ export function createExecutionSettings({request = executionRequest, onAvailable
       if (!Number.isFinite(agent_limits.max_budget_usd) || agent_limits.max_budget_usd <= 0) { status.textContent = 'Maximum spending must be a positive number up to 10 USD.'; return; }
       if (runner_limits.memory_mib < runner_limits.workspace_mib + runner_limits.tmp_mib + 64) { status.textContent = 'Increase container memory to cover workspace + temporary disk + 64 MiB.'; return; }
       mutation(save, async () => {
-        const saved = await request(profile ? `/api/execution-profiles/${enc(profile.id)}` : '/api/execution-profiles', profile ? 'PATCH' : 'POST', {name:name.value.trim(),adapter:'claude_code',auth_mode:'cli_login',image:image.value.trim(),allow_external_source:consent.checked,runner_limits,agent_limits});
+        const saved = await request(profile ? `/api/execution-profiles/${enc(profile.id)}` : '/api/execution-profiles', profile ? 'PATCH' : 'POST', {name:name.value.trim(),adapter:'claude_code',auth_mode:'cli_login',image:image.value.trim(),agent_model:agentModel.value.trim()||null,allow_external_source:consent.checked,runner_limits,agent_limits});
         if (!saved.id || !saved.version) throw new Error('Save outcome unknown. Reload saved execution profiles before creating another version.');
         profiles.set(saved.id, saved); preserveFocus(renderRows); renderEditor(); status.textContent = 'Execution profile version saved. Run its synthetic coding test before selecting it for a session.';
       });

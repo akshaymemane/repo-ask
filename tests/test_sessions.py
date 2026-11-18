@@ -123,6 +123,16 @@ class RunTests(SessionCase):
             ('say', 'Fixed add and ran tests'),
         ]
 
+    def test_profile_agent_model_is_pinned_and_reaches_the_agent(self):
+        self.profiles.versions['epv_1']['config']['agent_model'] = 'claude-opus-5-5'
+        self.script_fix()
+        _, version = self.ready_plan()
+        self.sessions.start()
+        sid = self.sessions.launch(version['id'], version['content_hash'], 'k-model')['session_id']
+        self.wait_state(sid)
+        self.assertEqual(self.world.runs[-1]['model'], 'claude-opus-5-5')
+        self.assertEqual(self.sessions.get(sid)['execution']['agent_model'], 'claude-opus-5-5')
+
     def test_full_session_events_diff_validation_and_replay(self):
         self.script_fix()
         _, version = self.ready_plan(validation=[

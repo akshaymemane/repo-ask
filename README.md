@@ -105,8 +105,9 @@ images and have no network; for Python projects, `docker pull python:3.12-slim`)
 1. **Settings → Privacy:** turn off **Keep everything on this computer**. The coding agent
    sends the plan and permitted source to Anthropic.
 2. **Settings → Coding agent:** set the **Pull request author** (name and email for
-   commits), create an execution profile with your image, tick **Allow sending repository
-   source to the external coding model**, and run **Test execution profile** until it passes.
+   commits), create an execution profile with your image, optionally choose a **Claude model**
+   (blank uses your Claude Code default), tick **Allow sending repository source to the external
+   coding model**, and run **Test execution profile** until it passes.
 3. **Repositories:** turn on **Use in Ask** and **Allow changes** for the target repository.
 4. **Ask:** describe the change with the repository attached and click **Generate plan**.
    When exactly one execution profile has passed its test, new plans use it and are ready

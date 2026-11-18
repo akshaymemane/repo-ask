@@ -321,11 +321,12 @@ class ScriptedAgent:
 
     def run(self, endpoint, prompt, *, auth_mode, on_inventory_verified, emit, synthetic=False, local_only=True,
             external_source_consent=False, stop_event=None, on_started=None, timeout_seconds=180, max_turns=12,
-            max_budget_usd=1.0, max_output_bytes=524288):
+            max_budget_usd=1.0, max_output_bytes=524288, model=None):
         world = self.world
         world.runs.append({'prompt': prompt, 'auth_mode': auth_mode, 'synthetic': synthetic, 'local_only': local_only,
                            'consent': external_source_consent, 'timeout_seconds': timeout_seconds,
-                           'max_turns': max_turns, 'max_budget_usd': max_budget_usd, 'stop_event': stop_event})
+                           'max_turns': max_turns, 'max_budget_usd': max_budget_usd, 'stop_event': stop_event,
+                           'model': model})
         if stop_event is None or stop_event.is_set():
             raise AssertionError('a fresh unset stop Event is required')
         child = subprocess.Popen(['/bin/sleep', '300'], start_new_session=True)

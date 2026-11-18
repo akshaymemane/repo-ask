@@ -51,7 +51,9 @@ _PROBE_CODES = frozenset({
     'isolation_unverified', 'not_running', 'not_found', 'unsafe_path', 'discard_failed',
 })
 _FIELDS = frozenset({'name', 'adapter', 'auth_mode', 'image', 'allow_external_source',
-                     'runner_limits', 'agent_limits'})
+                     'runner_limits', 'agent_limits', 'agent_model'})
+# Claude Code model alias or id (e.g. "sonnet", "opus", "claude-opus-5-5", "opus[1m]"); None uses the CLI default.
+AGENT_MODEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}')
 _FIXTURE = {'calc.sh': b'#!/bin/sh\nprintf "%s\\n" "$(($1 - $2))"\n'}
 _VALIDATION = ('set -eu\n'
                'test "$(sh ./calc.sh 2 3)" = 5\n'
@@ -124,13 +126,18 @@ def _validate(spec):
                                ('max_output_bytes', 1024, 1024 * 1024)):
         if type(agent[key]) is not int or not lower <= agent[key] <= upper:
             _error('validation')
+    model = spec.get('agent_model')
+    if isinstance(model, str):
+        model = model.strip() or None
+    if model is not None and (not isinstance(model, str) or not AGENT_MODEL.fullmatch(model)):
+        _error('validation')
     budget = agent['max_budget_usd']
     if (isinstance(budget, bool) or not isinstance(budget, (int, float))
             or not math.isfinite(budget) or not 0 < budget <= 10):
         _error('validation')
     return {'name': name.strip(), 'adapter': 'claude_code', 'auth_mode': 'cli_login',
             'config': {'image': image, 'allow_external_source': consent,
-                       'runner_limits': limits, 'agent_limits': agent}}
+                       'runner_limits': limits, 'agent_limits': agent, 'agent_model': model}}
 
 
 def _valid_image(image):
@@ -606,7 +613,8 @@ class ExecutionProfileService:
                         timeout_seconds=max(0.001, deadline - time.monotonic()),
                         max_turns=config['agent_limits']['max_turns'],
                         max_budget_usd=config['agent_limits']['max_budget_usd'],
-                        max_output_bytes=config['agent_limits']['max_output_bytes'])
+                        max_output_bytes=config['agent_limits']['max_output_bytes'],
+                        model=config.get('agent_model'))
                     harness_confirmed = result.get('stop_confirmed') is True
                 except ProcessContainmentError:
                     harness_confirmed = False

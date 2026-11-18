@@ -784,7 +784,7 @@ class Attempt:
                                  external_source_consent=snap['allow_external_source'] is True, stop_event=self.stop_event,
                                  on_started=self.on_started, timeout_seconds=min(agent['wall_seconds'], remaining),
                                  max_turns=agent['max_turns'], max_budget_usd=agent['max_budget_usd'],
-                                 max_output_bytes=agent['max_output_bytes'])
+                                 max_output_bytes=agent['max_output_bytes'], model=snap.get('agent_model'))
         except LeaseLost:
             raise
         except Exception as exc:

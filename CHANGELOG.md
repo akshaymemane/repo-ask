@@ -14,6 +14,8 @@ All notable user-visible changes are recorded here. The format follows
   validation output can be deleted; its identity, base commit and pull request link remain.
 - **Base branch freshness:** starting or retrying a session whose base branch moved since the
   plan was made asks whether to start on the saved base or regenerate the plan.
+- Execution profiles can pin a Claude model (alias or id) for the coding agent; blank keeps the
+  Claude Code default. The model is part of the immutable profile version and shown on sessions.
 - System health shows the saved index by state, the models assigned to Ask and planning, and
   the session runtime, using status codes only.
 - Answer runs report whether they were a question or a plan request, so a failed plan says so;

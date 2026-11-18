@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import sys
@@ -24,6 +25,8 @@ from .adapter_process import (ProcessContainmentError, ProcessLimitsError, Proce
 TOOLS = ("list_files", "read_file", "search_text", "write_file", "delete_file", "run_command", "ask_user")
 SERVER = "opendevin"
 TRUSTED_TOOLS = frozenset(f"mcp__{SERVER}__{name}" for name in TOOLS)
+# Same rule as execution profiles: a Claude Code model alias or id, never an option or path.
+_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}")
 
 
 class AdapterError(RuntimeError):
@@ -254,7 +257,7 @@ class ClaudeAdapter:
         synthetic: bool = False, local_only: bool = True,
         external_source_consent: bool = False, stop_event=None, on_started=None,
         timeout_seconds: float = 180, max_turns: int = 12,
-        max_budget_usd: float = 1.0, max_output_bytes: int = 524288,
+        max_budget_usd: float = 1.0, max_output_bytes: int = 524288, model: str | None = None,
     ) -> dict:
         """Run one attempt, revoking its required shared Event on every exit.
 
@@ -279,7 +282,7 @@ class ClaudeAdapter:
                 synthetic=synthetic, local_only=local_only,
                 external_source_consent=external_source_consent, stop_event=stop_event,
                 on_started=on_started, timeout_seconds=timeout_seconds, max_turns=max_turns,
-                max_budget_usd=max_budget_usd, max_output_bytes=max_output_bytes,
+                max_budget_usd=max_budget_usd, max_output_bytes=max_output_bytes, model=model,
             )
         except ProcessContainmentError:
             # Any process this attempt started (metadata query or agent) may still
@@ -296,7 +299,7 @@ class ClaudeAdapter:
         synthetic: bool = False, local_only: bool = True,
         external_source_consent: bool = False, stop_event=None, on_started=None,
         timeout_seconds: float = 180, max_turns: int = 12,
-        max_budget_usd: float = 1.0, max_output_bytes: int = 524288,
+        max_budget_usd: float = 1.0, max_output_bytes: int = 524288, model: str | None = None,
     ) -> dict:
         """Internal single attempt; public run owns the whole-lifecycle stop guard."""
         if auth_mode != "cli_login":
@@ -318,6 +321,8 @@ class ClaudeAdapter:
         if (type(max_turns) is not int or not 1 <= max_turns <= 40 or
             _number(max_budget_usd) is None or not 0 < max_budget_usd <= 10):
             raise AdapterError("invalid_limits")
+        if model is not None and (not isinstance(model, str) or not _MODEL.fullmatch(model)):
+            raise AdapterError("invalid_model")
         # One deadline for metadata and agent: prelaunch time is not added on top.
         deadline = time.monotonic() + timeout_seconds
         self._check_policy()
@@ -444,6 +449,8 @@ class ClaudeAdapter:
                     "--permission-mode", "dontAsk", "--permission-prompts", "none",
                     "--allowedTools", ",".join(sorted(TRUSTED_TOOLS)),
                     "--max-turns", str(max_turns), "--max-budget-usd", str(max_budget_usd)]
+            if model is not None:
+                argv += ["--model", model]
             environment = _environment()
             environment["CLAUDE_CODE_PLUGIN_CACHE_DIR"] = str(plugin_root)
             remaining = deadline - time.monotonic()

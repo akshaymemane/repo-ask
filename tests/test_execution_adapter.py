@@ -125,6 +125,20 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result['code'], 'rate_limit')
         self.assertNotIn('PRIVATE', json.dumps(self.events))
 
+    def test_configured_model_is_passed_to_the_cli(self):
+        check = "assert sys.argv[sys.argv.index('--model') + 1] == 'claude-opus-5-5'\n"
+        binary = self.script('import os, sys\n' + check + '\nprint(' + repr(json.dumps(self.init())) + ')\nprint(' +
+                             repr(json.dumps({'type': 'result', 'subtype': 'success'})) + ')\n')
+        result = ClaudeAdapter(claude_binary=binary).run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+            on_inventory_verified=self.mark_ready, emit=lambda *_: None, stop_event=threading.Event(), model='claude-opus-5-5')
+        self.assertEqual(result['status'], 'completed')
+
+    def test_unsafe_model_values_are_refused_before_launch(self):
+        for model in ('--dangerously-skip-permissions', '../model', 'opus sonnet', '', 'x' * 81):
+            with self.assertRaisesRegex(AdapterError, 'invalid_model'):
+                ClaudeAdapter(claude_binary=sys.executable).run(self.endpoint, 'fixture', auth_mode='cli_login', synthetic=True,
+                    on_inventory_verified=self.mark_ready, emit=lambda *_: None, stop_event=threading.Event(), model=model)
+
     def test_launch_has_empty_trusted_cwd_and_no_host_credential_environment(self):
         check = '''
 assert os.listdir('.') == []

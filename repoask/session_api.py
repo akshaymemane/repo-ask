@@ -4,7 +4,7 @@ from urllib.parse import unquote
 from .api import APIResponse, fields, page_limit, query_fields
 
 
-PROFILE_FIELDS={'name','adapter','auth_mode','image','allow_external_source','runner_limits','agent_limits'}
+PROFILE_FIELDS={'name','adapter','auth_mode','image','allow_external_source','runner_limits','agent_limits','agent_model'}
 
 
 def bounded_int(value, minimum, maximum):

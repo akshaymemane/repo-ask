@@ -335,7 +335,7 @@ class SessionService:
                     'image_id': check.get('image_id'), 'cli_version': check.get('cli_version'),
                     'capabilities': capabilities if isinstance(capabilities, (dict, list)) else {},
                     'allow_external_source': config.get('allow_external_source') is True,
-                    'checked_at': check.get('checked_at')}
+                    'agent_model': config.get('agent_model'), 'checked_at': check.get('checked_at')}
         return snapshot, limits, reasons
 
     def _preflight(self, content):
@@ -699,7 +699,8 @@ class SessionService:
             'stop_requested': bool(row['stop_requested']), 'stop_reason': row['stop_reason'], 'error_code': row['error_code'],
             'repositories': public_repos, 'limits': _loads(row['limits_json'], {}),
             'execution': {k: snapshot.get(k) for k in ('profile_id', 'profile_version_id', 'version', 'adapter', 'auth_mode',
-                                                       'image', 'image_id', 'cli_version', 'allow_external_source', 'checked_at')}
+                                                       'image', 'image_id', 'cli_version', 'allow_external_source', 'agent_model',
+                                                       'checked_at')}
                          | {'destination': dict(DESTINATION)},
             'instructions': _loads(row['instructions_json'], {}), 'usage': _loads(row['usage_json'], {}),
             'publication': _loads(row['publication_json'], {}), 'outcome': _loads(row['outcome_json'], {}),

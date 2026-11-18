@@ -149,3 +149,11 @@ under `data_dir/sessions/<session-id>`; purge removes that tree using directory
 file descriptors, no symlink following, a 10,000-entry/64-level bound. Other session
 directories are untouched. Disk cleanup failure is visible and may be retried;
 content is already inaccessible through the durable tombstone.
+
+## Execution profile agent model (additive)
+
+Execution profile specs accept an optional `agent_model`: `null`/blank (Claude Code's own default) or a Claude Code
+model alias or id matching `[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}` (for example `sonnet`, `opus`, `claude-opus-5-5`,
+`opus[1m]`). It is stored on the immutable profile version (`config.agent_model`), pinned into the session's profile
+snapshot at launch, exposed as `execution.agent_model` on session reads, and passed to the CLI as `--model <value>` for
+both the synthetic profile test and sessions. The adapter re-validates it and refuses anything else (`invalid_model`).

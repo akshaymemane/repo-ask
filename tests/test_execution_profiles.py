@@ -329,6 +329,15 @@ class ProfileTests(unittest.TestCase):
                                    'localhost:5000/team/image', IMAGE, 'team/image@' + IMAGE)):
             self.assertEqual(image, self.service.create(self.spec(name='Image %d' % n, image=image))['version']['config']['image'])
 
+    def test_agent_model_is_optional_validated_and_reaches_the_profile_test(self):
+        default = self.create()
+        self.assertIsNone(self.service.get_version(default['active_version_id'])['config']['agent_model'])
+        chosen = self.create(name='Opus profile', agent_model=' claude-opus-5-5 ')
+        self.assertEqual(self.service.get_version(chosen['active_version_id'])['config']['agent_model'], 'claude-opus-5-5')
+        for bad in ('--model', 'a/b', 'two words', 7):
+            with self.assertRaises(Exception):
+                self.create(name='Bad model', agent_model=bad)
+
     def test_validation_rejects_credentials_paths_flags_and_unsupported_auth(self):
         for key in ('executable', 'environment', 'mounts', 'docker_args', 'secret_value', 'token', 'capabilities'):
             self.code('validation', lambda: self.service.create(self.spec(**{key: PRIVATE})))
