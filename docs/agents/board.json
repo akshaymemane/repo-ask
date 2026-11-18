@@ -820,7 +820,7 @@
       "id": "M2-FOLLOWUPS",
       "milestone": "post-M2",
       "title": "Minor follow-ups from M2 reviews and the live pilot",
-      "state": "backlog",
+      "state": "integrated",
       "items": [
         "experience: Repositories status shows Off after indexing completes",
         "experience: preselect or expose the execution profile on the plan; make the conversation Start session launch or say it opens the plan",
@@ -829,7 +829,7 @@
         "runtime/experience: explain retry_exists and link the successor attempt",
         "runtime: snapshot LOWs (sensitive_content code, path normalization, test gaps); omitted-path list cap and forged-omission tests; publication refresh/compare shape minors"
       ],
-      "next_action": "Partly done in the launch wave: PR title/description from the plan and omitted paths in review (0e06b78); session errors explained and stale Retry links the newer attempt (fc95197); execution profile preselected when exactly one is tested (earlier); Repositories Off not reproducible on current code with the pilot data (docs/agents/runs/M2-FOLLOWUPS-REPO-OFF). Remaining: execution profile model selection; snapshot LOWs."
+      "next_action": "All six follow-ups addressed in the launch wave: PR title/description from the plan and omitted paths in review (0e06b78); session errors explained and stale Retry links the newer attempt (fc95197); execution profile preselected when exactly one is tested (earlier) and profiles can pin a Claude model (agent model, Codex-reviewed); publication LOWs: sensitive_content code, canonical paths, snapshot tests, adapter marker isolation (4007256, Claude-reviewed); Repositories Off not reproducible on current code with the pilot data (docs/agents/runs/M2-FOLLOWUPS-REPO-OFF)."
     },
     {
       "id": "M2-PILOT",
