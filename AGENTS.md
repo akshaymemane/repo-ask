@@ -42,6 +42,8 @@ the first parallel builders; publication and remote merges remain separately sco
 - Freeze affected API/data/event contracts before dependent parallel implementation.
   Propose contract changes to the coordinator; do not silently change fixtures and consumers.
 - Inherit the user's configured models; roles do not mandate a model or reasoning level.
+- Write paths in handoffs and reviews relative to the repository (`./.venv/bin/python`, `../opendevin-<task>`);
+  CI rejects absolute workstation paths in tracked files.
 - Record changed files, commits, commands, results, known gaps and requirement coverage
   using `docs/agents/templates/handoff.md`. Distinguish checks run from checks proposed.
 - Update only your task-local status/handoff; the coordinator updates the board.

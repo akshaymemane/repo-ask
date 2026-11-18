@@ -101,7 +101,8 @@ test('inline parsing stays linear on adversarial input (caps lifted so the parse
       // Best of three: other test files run in parallel, so one sample can absorb a GC pause.
       let root, ms = Infinity;
       for (let i = 0; i < 3; i++) { const started = performance.now(); root = md(input); ms = Math.min(ms, performance.now() - started); }
-      assert.ok(ms < 100, `${JSON.stringify(unit)} × ${input.length} chars took ${ms.toFixed(1)} ms`);
+      // Generous absolute ceiling for shared CI runners; the doubling ratio below is the linearity check.
+      assert.ok(ms < 1000, `${JSON.stringify(unit)} × ${input.length} chars took ${ms.toFixed(1)} ms`);
       assert.ok(root.children.length > 0, 'something rendered');
     }
     // Doubling the input roughly doubles the work; a quadratic scan would quadruple it.

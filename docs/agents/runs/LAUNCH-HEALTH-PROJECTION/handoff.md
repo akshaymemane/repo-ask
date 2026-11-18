@@ -3,7 +3,7 @@
 ## Identity
 
 - Author/harness and session ID: Codex, current platform-builder session (no externally supplied session ID).
-- Persona, branch and worktree: platform; task/launch-health; /Users/apple/workspace/vibe-coding/opendevin-launch-health.
+- Persona, branch and worktree: platform; task/launch-health; ../opendevin-launch-health.
 - Base SHA: 5730fca72c976cb0b0d0f48a5268a4dcb97af742. Submitted implementation commit: f9e977061c5300fd48ad9f862ffd4ae0ace8003a. Final handoff/status evidence is uncommitted because the second git add/commit was sandbox-denied.
 - Task card and requirement IDs: user assignment LAUNCH-HEALTH-PROJECTION; F12 OP-09/OP-11, launch spec-gap audit non-blocking #2. Board backlog is superseded by the explicit task assignment; board unmodified.
 - Status: review, pending Claude exact-commit review; not integrated or published.
@@ -23,7 +23,7 @@ Contract remains opendevin.health/m0.1 with additive fields, preserving existing
 
 ## Verification evidence
 
-Commands use /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python; UI uses that same path through REPOASK_TEST_PYTHON.
+Commands use ./.venv/bin/python; UI uses that same path through REPOASK_TEST_PYTHON.
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |

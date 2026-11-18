@@ -19,7 +19,7 @@ Reviewed commit: `bed98b7876404f9e28e439d9da4ce0ff8a8753ee` (`task/startup-recov
 - Dead-owner unexpired/expired profile-test checks: actual results above. Both contain the fake container; only the expired case resolves immediately. No real harness identity/termination proof is claimed by these checks.
 - Read AGENTS.md, workflow, quality-reviewer persona, master PRD, F05/F06/F07 specs, session contract, R1 review and handoff response. Reviewed the whole task diff, including asynchronous application recovery and cancellation synchronization. No additional blocking finding beyond the remaining reconciliation case.
 
-All requested suites ran concurrently with `PYTHONDONTWRITEBYTECODE=1` and `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p <file>`:
+All requested suites ran concurrently with `PYTHONDONTWRITEBYTECODE=1` and `./.venv/bin/python -m unittest discover -s tests -p <file>`:
 
 | File | Actual result |
 | --- | --- |

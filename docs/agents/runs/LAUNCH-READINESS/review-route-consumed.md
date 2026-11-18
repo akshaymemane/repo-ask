@@ -23,7 +23,7 @@ No blocking, major or minor defects found in this diff.
 
 ## Checks
 
-All Python commands used `PYTHONDONTWRITEBYTECODE=1` and `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python`, without installing packages.
+All Python commands used `PYTHONDONTWRITEBYTECODE=1` and `./.venv/bin/python`, without installing packages.
 
 - `-m unittest discover -s tests -p test_platform_foundation.py`: **17 passed**, 0.744s.
 - `-m unittest discover -s tests -p test_provider_claude_cli.py`: **9 passed**, 8.312s; migration-upgrade assertions use `LATEST_VERSION` and pass at 14.

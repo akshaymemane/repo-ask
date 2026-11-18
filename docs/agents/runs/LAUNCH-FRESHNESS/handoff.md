@@ -4,7 +4,7 @@
 
 - Author/harness: Codex, current runtime-builder session (no nested workers).
 - Persona: `docs/agents/personas/runtime.md`.
-- Branch/worktree: `task/launch-freshness`, `/Users/apple/workspace/vibe-coding/opendevin-launch-freshness`.
+- Branch/worktree: `task/launch-freshness`, `../opendevin-launch-freshness`.
 - Base SHA: `437ef2626cb8fe01815f494df48fb6cf9ac15e17`.
 - Submitted commit SHA: none; sandbox denied creating the linked worktree's Git index lock, so staging and commit are unavailable. HEAD remains the base SHA. Changes are ready to stage; they are NOT staged.
 - Task card: user's LAUNCH-FRESHNESS assignment; requirement F04 AC6 / ASK-08 and Launch handoff and freshness.
@@ -47,14 +47,14 @@ fields. No dependency installed, shared entrypoint changed or remote action take
 
 | Requirement | Command or scenario actually run | Result / evidence |
 | --- | --- | --- |
-| F04 AC6 backend | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p test_launch_freshness.py` | 6 tests passed; real SQLite/services with GitHub observation doubles. Covers equal, advanced refusal/no row or job, retained acknowledgement, unavailable/timeout, durable replay through a second service, API 409 shape and invalid acknowledgement. |
-| F04 AC6 UI | `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/launch-freshness.test.mjs` | 6 tests passed: both actions from both Start paths, focus/no silent retry, safe text rendering, session acknowledgement label. DOM fixtures, no real browser or live GitHub pilot. |
-| Regression UI | `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs` | Final run: 292 tests, 290 passed, 2 failed. Both failures are existing `session-services.test.mjs` fixtures failing synthetic execution-profile bootstrap (`execution_test_failed`), before freshness launch. |
-| Regression Python | `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests` | 620 tests in 487.584 seconds; 70 failures, 99 errors, 9 skips. Socket/process restrictions cause denied binds, denied `/bin/ps`, fixture startup failures, descriptor-leak assertions and timeouts. One failure was a schema-12 constant in the existing provider migration test; corrected afterward and verified by the focused migration run below. Full suite was not rerun after that test-only assertion correction. |
-| Migration regression after correction | `PYTHONPATH=tests /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest test_provider_claude_cli.ClaudeCliMigrationTests test_launch_freshness` | 7 tests passed, including v11-to-current upgrade preserving provider profiles and all 6 freshness cases. |
+| F04 AC6 backend | `./.venv/bin/python -m unittest discover -s tests -p test_launch_freshness.py` | 6 tests passed; real SQLite/services with GitHub observation doubles. Covers equal, advanced refusal/no row or job, retained acknowledgement, unavailable/timeout, durable replay through a second service, API 409 shape and invalid acknowledgement. |
+| F04 AC6 UI | `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/launch-freshness.test.mjs` | 6 tests passed: both actions from both Start paths, focus/no silent retry, safe text rendering, session acknowledgement label. DOM fixtures, no real browser or live GitHub pilot. |
+| Regression UI | `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/*.test.mjs` | Final run: 292 tests, 290 passed, 2 failed. Both failures are existing `session-services.test.mjs` fixtures failing synthetic execution-profile bootstrap (`execution_test_failed`), before freshness launch. |
+| Regression Python | `./.venv/bin/python -m unittest discover -s tests` | 620 tests in 487.584 seconds; 70 failures, 99 errors, 9 skips. Socket/process restrictions cause denied binds, denied `/bin/ps`, fixture startup failures, descriptor-leak assertions and timeouts. One failure was a schema-12 constant in the existing provider migration test; corrected afterward and verified by the focused migration run below. Full suite was not rerun after that test-only assertion correction. |
+| Migration regression after correction | `PYTHONPATH=tests ./.venv/bin/python -m unittest test_provider_claude_cli.ClaudeCliMigrationTests test_launch_freshness` | 7 tests passed, including v11-to-current upgrade preserving provider profiles and all 6 freshness cases. |
 | Sandbox boundary | Direct Python AF_UNIX socket bind in a temporary directory | `PermissionError: [Errno 1] Operation not permitted`; confirms Unix socket restriction affecting execution harness checks. |
 | Patch hygiene | `git diff --check`; `node --check repoask/web/ask.js` | Passed. |
-| Local Git write | `git add` for assigned code/tests/contract paths | Denied creating `/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/opendevin-launch-freshness/index.lock`: Operation not permitted. No bypass attempted. |
+| Local Git write | `git add` for assigned code/tests/contract paths | Denied creating `./.git/worktrees/opendevin-launch-freshness/index.lock`: Operation not permitted. No bypass attempted. |
 
 ## Risks and next action
 
@@ -114,11 +114,11 @@ Not integrated, approved, pushed or published.
 
 ### Round 1 verification
 
-- Focused Python: `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p test_launch_freshness.py`
+- Focused Python: `./.venv/bin/python -m unittest discover -s tests -p test_launch_freshness.py`
   — 8 tests passed. Covers refusal/no successor or job, invalid acknowledgement,
   saved observation after service restart, acknowledged successor/pinned base,
   acknowledged and unacknowledged replay, retry API 409 payload and 202 replay.
-- Full UI: `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python node --test tests/ui/*.test.mjs`
+- Full UI: `REPOASK_TEST_PYTHON=./.venv/bin/python node --test tests/ui/*.test.mjs`
   — 294 tests, 292 passed, 2 failed. Both `session-services.test.mjs` bridge fixtures
   fail at synthetic execution-profile bootstrap (`execution_test_failed`), before
   freshness behavior. All 8 freshness UI tests pass, covering both initial Start
@@ -129,7 +129,7 @@ Not integrated, approved, pushed or published.
 - Direct AF_UNIX bind in a temporary directory: `PermissionError: [Errno 1]
   Operation not permitted`. No permission bypass attempted.
 - Staging attempt denied creating the linked worktree's Git `index.lock` under
-  `/Users/apple/workspace/vibe-coding/repo-ask/.git/worktrees/`; changes remain unstaged.
+  `./.git/worktrees/`; changes remain unstaged.
 - Known gaps: no real browser/390px visual measurement, live GitHub, inference or
   container pilot. Responsive spacing is a CSS change and DOM behavior is tested;
   it is not presented as rendered-browser evidence. Independent Claude re-review
@@ -140,7 +140,7 @@ Not integrated, approved, pushed or published.
 - Requested commit attempted with title `fix(sessions): acknowledge advanced bases when retrying`
   and final trailer `Co-Authored-By: Codex <noreply@openai.com>`; Git reported no
   changes staged following the index-lock denial. No new commit was created.
-- Full Python (completed): `REPOASK_TEST_PYTHON=/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python /Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests`
+- Full Python (completed): `REPOASK_TEST_PYTHON=./.venv/bin/python ./.venv/bin/python -m unittest discover -s tests`
   — 622 tests in 408.505s; 69 failures, 99 errors, 9 skipped. No freshness test
   failures. The log contains socket/process permission denials, fixture-startup
   failures, resource warnings and runner timeout/assertion fallout, consistent with

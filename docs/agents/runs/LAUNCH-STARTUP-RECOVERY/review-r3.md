@@ -27,7 +27,7 @@ Inline checks used the existing real SQLite/jobs/profile services with `SessionC
 | Dead owner `runtime:deadbeef:0`, 600000ms unexpired test lease; provision job-labelled container, record only private instance ID (crash before recording container ID or starting harness) | PASS: harness absent, container terminated, confirmed=true, reconciled=true; job failed, check interrupted, error execution_test_interrupted; containers 0, provision count 1, agent runs [] |
 | Same dead-owner case, lease expiry set to clock()-1 | PASS: same contained, immediately terminal outcome; no rerun |
 
-All requested suites ran concurrently with `PYTHONDONTWRITEBYTECODE=1` and the exact command form `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p <file>`:
+All requested suites ran concurrently with `PYTHONDONTWRITEBYTECODE=1` and the exact command form `./.venv/bin/python -m unittest discover -s tests -p <file>`:
 
 | File | Actual result |
 | --- | --- |

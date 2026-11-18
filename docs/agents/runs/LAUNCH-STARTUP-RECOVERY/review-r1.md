@@ -22,7 +22,7 @@ Reviewed commit: `2c75faeeb139dee495832cdb4214a93fa67a644c` on `task/startup-rec
 
 ## Checks run and limits
 
-All five requested commands used `/Users/apple/workspace/vibe-coding/repo-ask/.venv/bin/python -m unittest discover -s tests -p <file>`, with `PYTHONDONTWRITEBYTECODE=1`. Independent files were run concurrently.
+All five requested commands used `./.venv/bin/python -m unittest discover -s tests -p <file>`, with `PYTHONDONTWRITEBYTECODE=1`. Independent files were run concurrently.
 
 | File | Actual result |
 | --- | --- |
