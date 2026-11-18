@@ -192,6 +192,11 @@ class Runtime:
             stale.append(row)
         report = {'interrupted': [], 'cancelled': [], 'containment_failed': [], 'orphans_removed': 0,
                   'profile_tests': []}
+        if startup and not (stale or pending):
+            # The startup orphan sweep needs Docker; a workspace that never ran a session has no
+            # containers of its own to sweep, so do not wait on a possibly unresponsive daemon.
+            with svc.store.read() as db:
+                startup = db.execute('SELECT 1 FROM sessions LIMIT 1').fetchone() is not None
         runner = self._runner() if (stale or pending or startup) else None
         owned = None
         if runner is not None:

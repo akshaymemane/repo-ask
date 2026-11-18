@@ -117,7 +117,13 @@ class ClaudeCliProviderTests(unittest.TestCase):
     def test_cancel_stops_the_cli_process_group(self):
         self.mode({'logged_in': True, 'run': 'sleep'})
         event = threading.Event()
-        threading.Timer(1.0, event.set).start()
+        def cancel_once_running():
+            # Cancel only after the fake CLI recorded its start; a fixed delay races slow process startup.
+            deadline = time.monotonic() + 10
+            while not self.calls() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            event.set()
+        threading.Thread(target=cancel_once_running, daemon=True).start()
         started = time.monotonic()
         with self.assertRaises(ProviderCancelled):
             self.service.generate('planning', MESSAGES, cancel_event=event)

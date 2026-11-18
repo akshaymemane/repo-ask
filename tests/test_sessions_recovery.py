@@ -44,6 +44,25 @@ class RecoveryTests(SessionCase):
                        "VALUES (?,?,?,?,?,'running',1)", (sid, self.sessions.instance_id(), handle.container_id, harness.pid, identity))
         return sid, lease, harness
 
+    def test_startup_without_session_history_never_waits_on_docker(self):
+        from repoask.sessions import SessionService
+        calls=[]
+        def factory(iid):
+            calls.append(iid)
+            return FakeRunner(iid, self.world)
+        def fresh():
+            svc = SessionService(self.platform, self.index, self.github, self.providers, self.plans, self.profiles,
+                                 runner_factory=factory, adapter_factory=lambda: None, poll_interval=0.05)
+            self.addCleanup(svc.close)
+            return svc
+        self.sessions.close()
+        first = fresh(); first.start(); first.close()
+        self.assertEqual(calls, [], 'a workspace that never ran a session needs no Docker sweep')
+        _, version = self.ready_plan()
+        self.sessions.launch(version['id'], version['content_hash'], 'k-history')
+        second = fresh(); second.start(); second.close()
+        self.assertTrue(calls, 'with session history the startup sweep still runs')
+
     def test_restart_contains_recorded_harness_and_container_without_rerun(self):
         sid, lease, harness = self.crashed_session()
         report = self.sessions.start()

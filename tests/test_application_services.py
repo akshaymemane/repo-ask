@@ -34,8 +34,41 @@ class ApplicationServiceTests(TestCase):
         self.assertEqual(services.api.dispatch('GET','/api/sessions').body['items'],[])
         with self.assertRaises(RuntimeError):services.enable_execution(profiles,sessions)
         services.start()
-        try:self.assertEqual((sessions.started,sessions.closed),(1,0))
+        try:
+            deadline=time.monotonic()+5
+            while services.recovering and time.monotonic()<deadline:time.sleep(0.01)
+            self.assertEqual((sessions.started,sessions.closed),(1,0))
         finally:services.close()
+        self.assertEqual((sessions.started,sessions.closed),(1,1))
+
+    def test_slow_session_recovery_does_not_delay_serving(self):
+        release=Event()
+        class Sessions:
+            def __init__(self):self.started=self.closed=0
+            def runtime_status(self):return {'status':'running' if self.started and not self.closed else 'stopped'}
+            def start(self):release.wait(5);self.started+=1;return self.runtime_status()
+            def close(self):self.closed+=1;return self.runtime_status()
+            def list_sessions(self,limit=50,cursor=None):return {'items': [], 'next_cursor': None}
+        class Context:
+            vectors=type('Vectors',(),{'close':lambda self:None})()
+            def run_index(self,job,context):return {}
+        class Conversations:
+            def run_answer(self,job,context):return {}
+            def purge_repository(self,ident):return None
+        platform=Platform.open(None);self.addCleanup(platform.close)
+        services=ApplicationServices(platform);services.enable_context(Context())
+        services.enable_ask(object(),object(),Conversations())
+        sessions=Sessions();services.enable_execution(type('Profiles',(),{})(),sessions)
+        started=time.monotonic();services.start()
+        try:
+            self.assertLess(time.monotonic()-started,1,'start() must not wait for session recovery')
+            self.assertEqual(services.execution_status()['runtime'],{'status':'starting'})
+            release.set()
+            deadline=time.monotonic()+5
+            while services.recovering and time.monotonic()<deadline:time.sleep(0.01)
+            self.assertEqual(services.execution_status()['runtime'],{'status':'running'})
+        finally:
+            release.set();services.close()
         self.assertEqual((sessions.started,sessions.closed),(1,1))
 
     def test_execution_requires_context_ask_and_paired_injection(self):

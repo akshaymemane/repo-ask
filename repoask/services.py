@@ -50,6 +50,8 @@ class ApplicationServices:
         self.stop_event = Event()
         self.thread = None
         self.error_code = None
+        self.recovery_error = None
+        self.recovering = False
         self.handlers = {'github.refresh': self.github.run_refresh, 'github.purge': self.github.run_purge}
 
     def _before_start(self):
@@ -121,6 +123,8 @@ class ApplicationServices:
         if self.sessions is None:
             return {'status': 'not_available',
                     'reason': 'Implementation sessions are not configured.'}
+        if getattr(self, 'recovering', False):
+            return {'status': 'available', 'runtime': {'status': 'starting'}}
         runtime = self.sessions.runtime_status() if callable(getattr(self.sessions, 'runtime_status', None)) else {'status': 'stopped'}
         return {'status': 'available', 'runtime': runtime}
 
@@ -282,15 +286,33 @@ class ApplicationServices:
             raise RuntimeError('Services already started.')
         self.worker = Worker(self.platform.jobs, {kind: self._maintained(fn) for kind, fn in self.handlers.items()},
                              worker_id=new_id('worker'), lease_ms=120000)
-        if self.sessions is not None:
-            self.sessions.start()
-        # Lost or expired publication runs are reconciled against GitHub before new work is claimed.
-        if self.publications is not None and callable(getattr(self.publications, 'recover', None)):
-            self.publications.recover()
+        # Recovery can wait on Docker or GitHub (up to their control timeouts); it runs on the
+        # background thread so the web app serves immediately. Jobs are claimed only afterwards.
+        self.recovering = self.sessions is not None or self.publications is not None
         self.thread = Thread(target=self._run, name='opendevin-background-jobs')
         self.thread.start()
 
+    def _recover(self):
+        try:
+            if self.sessions is not None and not self.stop_event.is_set():
+                try:
+                    self.sessions.start()
+                except Exception:
+                    self.recovery_error = 'session_runtime_unavailable'
+                if self.stop_event.is_set():
+                    self.sessions.close()  # close() ran before the runtime started
+            # Lost or expired publication runs are reconciled against GitHub before new work is claimed.
+            if self.publications is not None and callable(getattr(self.publications, 'recover', None)) and not self.stop_event.is_set():
+                try:
+                    self.publications.recover()
+                except Exception:
+                    self.recovery_error = 'publication_recovery_unavailable'
+        finally:
+            self.error_code = self.recovery_error
+            self.recovering = False
+
     def _run(self):
+        self._recover()
         next_poll = 0
         while not self.stop_event.is_set():
             try:
@@ -300,7 +322,7 @@ class ApplicationServices:
                     if self.scheduler is not None:
                         self.scheduler.run_once()
                 worked = self.worker.run_once()
-                self.error_code = None
+                self.error_code = self.recovery_error
             except Exception:
                 # Network/source/credential messages must never enter diagnostics.
                 self.error_code = 'background_unavailable'
