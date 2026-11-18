@@ -49,4 +49,4 @@ The PRD reference specifies 250 metadata records, 25 code-indexed repositories, 
 
 - Full benchmark command above: exit 0, 700 warm catalog reads and 250 warm routing calls.
 - `../repo-ask/.venv/bin/python -m unittest discover -s tests -p test_benchmark_latency.py`: 1 test passed in 3.508s; reduced workload uses the same 250/25 fixture, two prompts and two repetitions/reads. No performance threshold assertion.
-- Full regression suite: outcome recorded in handoff.
+- `../repo-ask/.venv/bin/python -m unittest discover -s tests`: exit 1; 644 tests in 366.535s, 69 failures, 101 errors, 9 skips. Many explicit sandbox socket-binding and `/bin/ps` denials; execution/session assertions also failed. Not all failures were individually diagnosed. The benchmark smoke test passed in this suite. Full outcome and follow-up are recorded in handoff.
