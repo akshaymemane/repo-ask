@@ -174,9 +174,10 @@ class IndexingTests(unittest.TestCase):
         run = self.service.request_index(self.repo,limits={'disk_bytes':1})
         Worker(self.jobs,{'index.run':self.service.run_index},worker_id='old').run_once()
         self.assertEqual(self.service.get_run(run['id'])['state'],'paused')
-        # Simulate a run persisted before the default was raised.
+        # Simulate a run persisted before the default was raised (no provenance marker).
         with self.store.transaction() as db:
             caps = json.loads(db.execute('SELECT limits_json FROM index_runs WHERE id=?',(run['id'],)).fetchone()[0])
+            caps.pop('defaults_version')
             db.execute('UPDATE index_runs SET limits_json=? WHERE id=?',(json.dumps({**caps,'disk_bytes':old}),run['id']))
         self.service.resume(run['id'])
         with self.store.read() as db:
@@ -192,6 +193,21 @@ class IndexingTests(unittest.TestCase):
         Worker(self.jobs,{'index.run':self.service.run_index},worker_id='low2').run_once()
         result = self.service.get_run(run['id'])
         self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+
+    def test_explicit_512_mib_cap_survives_resume(self):
+        cap = 512*1024*1024
+        self.store.used_bytes = lambda: 600*1024*1024
+        run = self.service.request_index(self.repo,limits={'disk_bytes':cap})
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='explicit').run_once()
+        self.assertEqual(self.service.get_run(run['id'])['state'],'paused')
+        self.service.resume(run['id'])
+        with self.store.read() as db:
+            caps = json.loads(db.execute('SELECT limits_json FROM index_runs WHERE id=?',(run['id'],)).fetchone()[0])
+        self.assertEqual(caps['disk_bytes'],cap)
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='explicit2').run_once()
+        result = self.service.get_run(run['id'])
+        self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+        self.assertNotIn('defaults_version',result['progress'].get('limits',{}))
 
     def test_unreadable_free_space_pauses_instead_of_failing(self):
         def broken():

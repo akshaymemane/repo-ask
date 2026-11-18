@@ -8,13 +8,13 @@ Command, from the worktree root with the repository virtual environment:
 python scripts/benchmark_latency.py --catalog-reads 100 --routing-repeats 5 --source-chunks 100000 --assert
 ```
 
-Exit 0 on both runs. Full distributions: [measurements.json](measurements.json) (after the routing fix) and
+Exit 0 on both runs. Aggregate, per-page and per-prompt summaries: [measurements.json](measurements.json) (after the routing fix) and
 [measurements-before.json](measurements-before.json) (same workload, before it).
 
 ## Reference workload (Master PRD §11)
 
 250 repository metadata records, 25 indexed repositories, **100,000 chunks** (4,000 per repository) in 5,025 files,
-built through the production reader → chunker → FTS ingestion path. Database 1.10 GB. Indexing all 25 took 81–90 s
+fed by an injected synthetic snapshot reader through the production ingestion, chunker and FTS path. Database 1.10 GB. Indexing all 25 took 81–90 s
 (lexical only; no embeddings). All 50 labelled routing prompts, 5 warm repeats each; catalog as in LAUNCH-PERF-BASELINE.
 
 | Operation | Phase | Samples | p50 (ms) | p95 (ms) | max (ms) | Gate |
@@ -24,7 +24,7 @@ built through the production reader → chunker → FTS ingestion path. Database
 | routing | cold | 50 | 786 | 920 | 1,191 | |
 | routing | warm | 250 | 783 | **936** | 978 | p95 < 2,000 ✅ |
 
-Before the routing fix, warm routing was p50 1,008 / p95 1,410 / max 1,883 ms: passing, but one prompt was within
+Before the routing fix, warm routing was p50 1,007 / p95 1,410 / max 1,883 ms: passing, but one prompt was within
 120 ms of the gate.
 
 ## Defects found and fixed by this run
@@ -33,8 +33,9 @@ Before the routing fix, warm routing was p50 1,008 / p95 1,410 / max 1,883 ms: p
    could only be lowered. 100,000 chunks of typical code take about 1.1 GB, so indexing paused with `disk_limit` at
    ~38,000 chunks. Real repositories in this workspace average 0.7–2.3 KB per chunk; the fixture uses ~2.4 KB, about the
    same as this repository. Fix: 4 GiB default, live-page accounting (a deleted index frees headroom), a 1 GiB
-   free-space reserve, plain-language pause copy, and runs persisted with the superseded default adopt the new one on
-   resume (user-lowered caps are kept).
+   free-space reserve, and plain-language pause copy. Runs created before this change carry no provenance marker; on
+   resume or retry they adopt the new default in place of the old 512 MiB default. Runs created after it keep every
+   stored cap, including an explicit 512 MiB.
 2. **Routing recomputed eligibility for every repository per candidate and per hit** (5,220 full-map builds for 10
    routes at 20,000 chunks, about half of routing time). `is_eligible` now checks one row. Search also evaluates path
    exclusions once per file instead of per chunk.

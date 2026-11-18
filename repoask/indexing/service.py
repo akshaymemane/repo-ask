@@ -7,7 +7,7 @@ import time
 from ..platform.clock import now_ms, new_id
 from ..platform.errors import PlatformError, NotFound, LeaseLost
 from ..platform.worker import CancelledError
-from .safety import DEFAULTS, DISK_RESERVE, SUPERSEDED_DEFAULTS, CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
+from .safety import DEFAULTS, DEFAULTS_VERSION, DISK_RESERVE, SUPERSEDED_DEFAULTS, CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
 from .snapshots import local_snapshot, github_snapshot
 from .vectors import VectorStore, VectorUnavailable
 
@@ -164,7 +164,7 @@ class IndexService:
                 self._discard_staging(db,sid)
             ident, now = new_id('ix'), self.clock()
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': ident}, priority=priority, idempotency_key=ident + ':0')
-            db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at,scheduling_intent) VALUES(?,?,?,'queued',?,?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded(caps), now, now, scheduling_intent))
+            db.execute("INSERT INTO index_runs(id,repository_id,job_id,state,requested_revision,profile_version_id,limits_json,created_at,updated_at,scheduling_intent) VALUES(?,?,?,'queued',?,?,?,?,?,?)", (ident, repository_id, job.id, revision, embedding_version_id, encoded({**caps, 'defaults_version': DEFAULTS_VERSION}), now, now, scheduling_intent))
             return self._public_run(self._one(db, 'index_runs', ident))
 
     def _public_run(self, row):
@@ -214,9 +214,10 @@ class IndexService:
                 checkpoint.pop('retry',None)
                 db.execute('UPDATE index_runs SET checkpoint_json=? WHERE id=?',(encoded(checkpoint),run_id))
             caps = json.loads(run['limits_json'])
-            upgraded = {k: DEFAULTS[k] for k, superseded in SUPERSEDED_DEFAULTS.items() if caps.get(k) in superseded}
-            if upgraded:
-                db.execute('UPDATE index_runs SET limits_json=? WHERE id=?', (encoded({**caps, **upgraded}), run_id))
+            if 'defaults_version' not in caps:
+                upgraded = {k: DEFAULTS[k] for k, superseded in SUPERSEDED_DEFAULTS.items() if caps.get(k) in superseded}
+                db.execute('UPDATE index_runs SET limits_json=? WHERE id=?',
+                           (encoded({**caps, **upgraded, 'defaults_version': DEFAULTS_VERSION}), run_id))
             continuation = run['continuation'] + 1
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': run_id}, idempotency_key=f'{run_id}:{continuation}')
             db.execute("UPDATE index_runs SET state='queued',job_id=?,continuation=?,error_code=NULL,retry_at=NULL,updated_at=? WHERE id=?", (job.id,continuation,self.clock(),run_id))
@@ -459,6 +460,7 @@ class IndexService:
     def _run_index(self, job, context):
         run, source = self._boundary(job, context)
         caps = json.loads(run['limits_json'])
+        caps.pop('defaults_version', None)  # Provenance marker, not a limit.
         started = time.monotonic()
         with self.store.transaction() as db:
             self._fence(db,job,context)

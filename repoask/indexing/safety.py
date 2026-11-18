@@ -12,8 +12,11 @@ DEFAULTS = dict(files=2000, file_bytes=256*1024, source_bytes=16*1024*1024,
                 embedding_tokens=8*1024*1024, elapsed_ms=81920, disk_bytes=4*1024**3)
 # Indexing pauses before leaving less than this free on the data volume.
 DISK_RESERVE = 1024**3
-# Earlier defaults persisted in runs; continuing a run adopts the current default
-# in their place. Values a user lowered differ from these and are kept.
+# Runs persist expanded caps. Runs created before DEFAULTS_VERSION 2 carry no
+# marker; continuing one adopts the current default for a superseded default
+# value (512 MiB was then also the highest allowed, so it was never a reduction).
+# Marked runs keep every stored cap, including an explicit 512 MiB.
+DEFAULTS_VERSION = 2
 SUPERSEDED_DEFAULTS = {'disk_bytes': {512*1024*1024}}
 BLOCKED = {'node_modules', 'vendor', 'dist', 'build', 'target', '__pycache__',
            '.git', '.svn', 'coverage', 'generated', '.next', 'venv', '.venv'}
