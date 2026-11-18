@@ -335,7 +335,8 @@ def main():
             server.services = services
             server.features = services.api
             services.start()
-            print(f"Registered {len(services.legacy_sources)} repositories. Open http://127.0.0.1:{args.port}", flush=True)
+            count = len(services.legacy_sources)
+            print(f"Registered {count} {'repository' if count == 1 else 'repositories'}. Open http://127.0.0.1:{args.port}", flush=True)
             def stop_server(_signum, _frame):
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
                 signal.signal(signal.SIGINT, signal.SIG_IGN)

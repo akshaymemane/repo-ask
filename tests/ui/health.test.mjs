@@ -35,3 +35,14 @@ test('System health keeps legacy-only builds readable and offers refresh', async
   host.querySelectorAll('button').find(x => x.textContent === 'Refresh health').click();
   await settle(); assert.equal(calls, 2);
 });
+
+test('repeated health failures replace the message instead of stacking it', async () => {
+  const b = createBrowser('<!doctype html><html><body><main id=host></main></body></html>', {respond: () => ({status:404, body:{}})});
+  install(b);
+  const host = b.document.getElementById('host');
+  const page = createSettingsPage({host,sections:{},request:async () => { throw new Error('offline'); }});
+  await page.show('health'); await settle();
+  for (let i = 0; i < 2; i++) { host.querySelectorAll('button').find(x => x.textContent === 'Refresh health').click(); await settle(); }
+  assert.equal(visibleText(host).match(/Health status is unavailable/g).length, 1);
+  assert.equal(host.querySelectorAll('button').filter(x => x.textContent === 'Refresh health').length, 1);
+});

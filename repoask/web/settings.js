@@ -152,7 +152,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
       for (const failure of data.recent_failures ?? []) box.append(el("p", `Recent job failure: ${words(failure.code)}.`));
       button(box, "Refresh health", refresh);
     }, () => {
-      box.append(el("p", "Health status is unavailable. Try refreshing health."));
+      box.replaceChildren(el("h2", "System health"), el("p", "Health status is unavailable. Try refreshing health."));
       button(box, "Refresh health", refresh);
     });
     refresh();
