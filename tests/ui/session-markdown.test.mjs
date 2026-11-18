@@ -105,8 +105,9 @@ test('inline parsing stays linear on adversarial input (caps lifted so the parse
       assert.ok(ms < 1000, `${JSON.stringify(unit)} × ${input.length} chars took ${ms.toFixed(1)} ms`);
       assert.ok(root.children.length > 0, 'something rendered');
     }
-    // Doubling the input roughly doubles the work; a quadratic scan would quadruple it.
-    // Per-call average over enough repetitions (>= 40 ms per sample) that runner noise does not dominate.
+    // Quadrupling the input: linear work grows ~4x, a quadratic scan ~16x. The wide gap keeps the check
+    // meaningful on shared CI runners, where GC and memory pressure skew any single doubling.
+    // Each sample is a per-call average over >= 40 ms of repeated calls.
     const time = n => { const input = ' **a'.repeat(n); let best = Infinity;
       for (let i = 0; i < 3; i++) {
         let calls = 0; const t = performance.now();
@@ -114,8 +115,8 @@ test('inline parsing stays linear on adversarial input (caps lifted so the parse
         best = Math.min(best, (performance.now() - t) / calls);
       }
       return best; };
-    time(8192); const small = Math.max(time(32768), 1), large = time(65536);
-    assert.ok(large < small * 3.5, `32k→64k units: ${small.toFixed(1)} ms → ${large.toFixed(1)} ms`);
+    time(8192); const small = Math.max(time(16384), 0.5), large = time(65536);
+    assert.ok(large < small * 10, `16k→64k units: ${small.toFixed(1)} ms → ${large.toFixed(1)} ms`);
   } finally { Object.assign(MARKDOWN_LIMITS, saved); }
 });
 
