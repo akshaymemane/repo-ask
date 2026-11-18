@@ -104,6 +104,19 @@ class FoundationHTTPTests(unittest.TestCase):
         self.assertNotIn('cursor', json.dumps(health))
 
 
+class LoopbackBindTests(unittest.TestCase):
+    def test_server_binds_without_reverse_dns(self):
+        from unittest.mock import patch
+        from repoask.__main__ import LoopbackHTTPServer, RequestHandler
+        with patch('socket.getfqdn', side_effect=AssertionError('reverse DNS lookup during bind')):
+            server = LoopbackHTTPServer(('127.0.0.1', 0), RequestHandler)
+        try:
+            self.assertEqual(server.server_name, '127.0.0.1')
+            self.assertEqual(server.server_port, server.server_address[1])
+        finally:
+            server.server_close()
+
+
 class ApplicationLifecycleTests(unittest.TestCase):
     def start_process(self, directory, *args):
         with socket.socket() as sock:
