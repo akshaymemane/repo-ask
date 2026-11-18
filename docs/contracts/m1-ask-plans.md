@@ -179,7 +179,9 @@ Conversation.get also returns pending_route (additive, launch readiness): null, 
 routing decision for an unscoped, undeleted conversation is needs_selection/no_match and
 no user message was sent after it. The UI restores the repository choice and the waiting
 question from it after a reload. Choosing repositories or sending a message clears it;
-deletion and repository purge already blank the stored prompt. Catalog reasons list only
+deletion and repository purge already blank the stored prompt. Choosing repositories records
+routing_decisions.consumed_at (migration 14); the routing outcome (status/selection) is never rewritten, so
+GET /api/route/{id} keeps reporting what routing decided. Catalog reasons list only
 non-generic matched terms, fields separated by "; ".
 
 The reserved M2 launch body is {plan_version_id,content_hash,idempotency_key}; the

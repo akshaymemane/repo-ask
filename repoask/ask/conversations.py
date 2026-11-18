@@ -97,8 +97,8 @@ class ConversationService:
         if row['deleted_at'] is not None or json.loads(row['scope_json']):
             return None
         with self.store.read() as db:
-            latest=db.execute('SELECT id,status,prompt,created_at FROM routing_decisions WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',(row['id'],)).fetchone()
-            if not latest or latest['status'] not in ('needs_selection','no_match') or not latest['prompt']:
+            latest=db.execute('SELECT id,status,prompt,created_at,consumed_at FROM routing_decisions WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',(row['id'],)).fetchone()
+            if not latest or latest['consumed_at'] is not None or latest['status'] not in ('needs_selection','no_match') or not latest['prompt']:
                 return None
             answered=db.execute('SELECT 1 FROM conversation_messages WHERE conversation_id=? AND role=? AND created_at>=?',(row['id'],'user',latest['created_at'])).fetchone()
         if answered:
@@ -120,7 +120,8 @@ class ConversationService:
             db.execute('UPDATE conversations SET scope_json=?,scope_revision=scope_revision+1,updated_at=? WHERE id=?',(encode(scope),self.clock(),ident))
             if scope:
                 # The user chose repositories: a question waiting for a choice is consumed, even if the scope is cleared later.
-                db.execute("UPDATE routing_decisions SET status='resolved' WHERE conversation_id=? AND status IN ('needs_selection','no_match')",(ident,))
+                # The routing outcome itself stays as decided.
+                db.execute("UPDATE routing_decisions SET consumed_at=? WHERE conversation_id=? AND consumed_at IS NULL AND status IN ('needs_selection','no_match')",(self.clock(),ident))
             for row in db.execute("SELECT id FROM answer_runs WHERE conversation_id=? AND state IN ('queued','running')",(ident,)).fetchall():
                 self._stop(db,row[0],'scope_changed')
         return self.get(ident)

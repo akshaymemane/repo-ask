@@ -42,6 +42,11 @@ MIGRATIONS += (Migration(12, "claude_cli_provider_adapter", PROVIDER_ADAPTER_V12
 MIGRATIONS += (Migration(13, "launch_base_observations", (
     "CREATE TABLE launch_base_observations (idempotency_key TEXT PRIMARY KEY, launch_hash TEXT NOT NULL, observation_json TEXT NOT NULL)",
 )),)
+MIGRATIONS += (Migration(14, "routing_decision_consumption", (
+    "ALTER TABLE routing_decisions ADD COLUMN consumed_at INTEGER",
+    # Decisions retired before this column existed were marked resolved without a selection.
+    "UPDATE routing_decisions SET status='needs_selection', consumed_at=created_at WHERE status='resolved' AND selected_json='[]' AND prompt<>''",
+)),)
 LATEST_VERSION = MIGRATIONS[-1].version
 
 

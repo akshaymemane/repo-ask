@@ -77,6 +77,12 @@ class AskTests(unittest.TestCase):
         # Choosing repositories resolves it.
         self.service.update_scope(conv,[self.repo],1)
         self.assertIsNone(self.service.get(conv)['pending_route'])
+        # The historical decision keeps its routing outcome; consumption is recorded separately.
+        history=self.routing.get(decision['id'])
+        self.assertEqual((history['status'],history['selected_repository_ids'],history['next_action']),('needs_selection',[],'select_repositories'))
+        self.assertEqual(history['question'],'Which repositories should provide context?')
+        with self.store.read() as db:
+            self.assertIsNotNone(db.execute('SELECT consumed_at FROM routing_decisions WHERE id=?',(later['id'],)).fetchone()[0])
         # Clearing the scope later does not resurrect the consumed question.
         self.service.update_scope(conv,[],2)
         self.assertIsNone(self.service.get(conv)['pending_route'])
@@ -97,6 +103,18 @@ class AskTests(unittest.TestCase):
         self.service.send(self.conv,'Plan retries','plan-intent',intent='plan')
         runs=self.service.get(self.conv)['runs']
         self.assertEqual([r['intent'] for r in runs],['plan'])
+    def test_migration_14_restores_interim_resolved_decisions_as_consumed(self):
+        from repoask.platform import migrations
+        backfill=next(m for m in migrations.MIGRATIONS if m.version==14).statements[1]
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO routing_decisions (id,conversation_id,prompt,selected_json,candidates_json,catalog_generation,status,created_at) VALUES ('route_interim',NULL,'mail delivery','[]','[]','g','resolved',7)")
+            db.execute("INSERT INTO routing_decisions (id,conversation_id,prompt,selected_json,candidates_json,catalog_generation,status,created_at) VALUES ('route_real',NULL,'acme/mail-worker','[\"gh:1\"]','[]','g','resolved',8)")
+            db.execute("INSERT INTO routing_decisions (id,conversation_id,prompt,selected_json,candidates_json,catalog_generation,status,created_at) VALUES ('route_purged',NULL,'','[]','[]','g','no_match',9)")
+            db.execute(backfill)
+            rows={r['id']:(r['status'],r['consumed_at']) for r in db.execute("SELECT id,status,consumed_at FROM routing_decisions WHERE id LIKE 'route_%'")}
+        self.assertEqual(rows['route_interim'],('needs_selection',7))
+        self.assertEqual(rows['route_real'],('resolved',None))
+        self.assertEqual(rows['route_purged'],('no_match',None))
     def test_routing_pins_collision_missing_revoked(self):
         self.assertEqual(self.routing.route('acme/mail-worker')['selected_repository_ids'],[self.repo])
         self.assertEqual(self.routing.route('mail delivery')['status'],'needs_selection')
