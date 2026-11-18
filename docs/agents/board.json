@@ -1735,14 +1735,18 @@
       "id": "LAUNCH-SESSION-PURGE",
       "milestone": "launch",
       "title": "Let users purge a finished session's retained content",
-      "state": "running",
+      "state": "integrated",
       "branch": "task/session-purge",
       "base_sha": "dbfa110",
       "feature_ids": ["F12"],
       "planned_persona": "platform",
       "planned_harness": "codex",
       "depends_on": ["LAUNCH-FRESHNESS"],
-      "next_action": "Codex builder running. F12 OP-10: expose terminal-session purge reusing tombstone/redaction; schedule after LAUNCH-FRESHNESS (shared sessions/ scope)."
+      "submitted_sha": "232f7a4",
+      "reviewer_session": "Claude coordinator review; r1 (UI dead-end Retry, duplicate date) and r2 (plan scan) changes requested, r3 approved",
+      "review_verdict": "approved",
+      "integration_sha": "79b3217",
+      "next_action": "Integrated. POST /api/sessions/{id}/purge for finished sessions; migration 15 fences publications. Previously: F12 OP-10: expose terminal-session purge reusing tombstone/redaction; schedule after LAUNCH-FRESHNESS (shared sessions/ scope)."
     },
     {
       "id": "LAUNCH-ROUTE-CONSUMED",
@@ -1779,14 +1783,30 @@
       "id": "LAUNCH-STARTUP-RECOVERY",
       "milestone": "launch",
       "title": "Never delay serving the UI on Docker during startup recovery",
-      "state": "review",
+      "state": "integrated",
       "feature_ids": ["F05", "F12"],
       "planned_persona": "runtime",
       "planned_harness": "claude",
       "branch": "task/startup-recovery",
       "base_sha": "5730fca",
       "handoff": "docs/agents/runs/LAUNCH-STARTUP-RECOVERY/handoff.md",
-      "next_action": "Found by first GitHub CI run (macOS CLI ready after 35s). r1 changes requested (profile-test containers with zero sessions) fixed in 7137092/bed98b7; Codex r2 review running."
+      "submitted_sha": "7679c70",
+      "reviewer_session": "fresh independent Codex runtime reviewer; r1 and r2 changes requested, r3 approved; unrestricted suites by coordinator",
+      "review_verdict": "approved",
+      "integration_sha": "89ae294",
+      "next_action": "Integrated with polish 89ae294 (health error replace, plural startup message). Found by first GitHub CI run (macOS CLI ready after 35s). r1 changes requested (profile-test containers with zero sessions) fixed in 7137092/bed98b7; Codex r2 review running."
+    },
+    {
+      "id": "LAUNCH-FAST-BIND",
+      "milestone": "launch",
+      "title": "Serve without a reverse DNS lookup at bind time",
+      "state": "review",
+      "feature_ids": ["F12"],
+      "planned_persona": "platform",
+      "planned_harness": "claude",
+      "branch": "task/fast-bind",
+      "base_sha": "79b3217",
+      "next_action": "Root cause of remaining macOS CI failures (faulthandler dump in CI run 44230622917: HTTPServer.server_bind -> socket.getfqdn). Verifying on ci/fast-bind; Codex review running."
     }
   ],
   "dependency_semantics": "depends_on gates start; completion_depends_on permits fixture-first parallel work but blocks review/integration until real dependencies are integrated. Exclusive write ownership is an additional gate.",
