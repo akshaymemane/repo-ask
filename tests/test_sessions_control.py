@@ -48,8 +48,11 @@ class StopTests(SessionCase):
         self.assertEqual({f['path'] for f in self.sessions.diff(sid)['files']}, {'calc.py'})
         self.assertEqual([v['status'] for v in self.sessions.validations(sid)['items']], ['not_run'])
         self.assertEqual(self.world.containers, {})
-        with self.store.read() as db:
-            self.assertEqual(db.execute("SELECT state FROM jobs WHERE kind='session.run'").fetchone()[0], 'succeeded')
+        # The worker finishes its job just after the session reaches its terminal state.
+        def job_state():
+            with self.store.read() as db:
+                return db.execute("SELECT state FROM jobs WHERE kind='session.run'").fetchone()[0]
+        self.wait(lambda: job_state() == 'succeeded', timeout=5, message='session job succeeded')
 
     def test_unverified_container_stop_is_reported_and_blocks_new_launch(self):
         self.world.script = ['hang']

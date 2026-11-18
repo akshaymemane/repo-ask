@@ -677,11 +677,13 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual('failed', self.platform.jobs.get(self.requested['job_id']).state)
 
     def test_live_lease_renewal_prevents_reclaim_during_long_probe(self):
-        self.create(); self.adapter.mode = 'block'; self.adapter.block_for = 1.4
-        self.request(); self.start_work(lease_ms=1000)
-        time.sleep(1.1)
-        self.assertIsNone(self.platform.jobs.claim('rival', kinds={'execution.test'}, lease_ms=1000))
-        self.worker_thread.join(2)
+        # The probe outlives the lease; renewal must keep ownership. Scaled for slow CI runners,
+        # where a 1 s lease left too little slack for the renewal thread.
+        self.create(); self.adapter.mode = 'block'; self.adapter.block_for = 2.8
+        self.request(); self.start_work(lease_ms=2000)
+        time.sleep(2.2)
+        self.assertIsNone(self.platform.jobs.claim('rival', kinds={'execution.test'}, lease_ms=2000))
+        self.worker_thread.join(5)
         self.assertFalse(self.worker_thread.is_alive())
         # No code was changed, but the lengthy operation kept its live ownership.
         self.assertEqual('succeeded', self.platform.jobs.get(self.requested['job_id']).state)
