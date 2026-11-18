@@ -389,3 +389,15 @@ test('publication review shows a bounded omitted generated path list and total',
   assert.equal(button(area, 'Publish draft PR').disabled, false);
   ui.close();
 });
+
+test('sensitive content preview rejection explains the block without source contents', async () => {
+  const b = setup((m, u) => {
+    if (u === '/api/sessions/s/publication') return notFound;
+    if (u === '/api/sessions/s/publication-preview') return conflict('sensitive_content');
+  });
+  const {ui, area} = await open(b);
+  button(area, 'Create draft PR').click(); await settle();
+  assert.match(visibleText(area), /Sensitive content was detected in the changes, so this change can't be published\./);
+  assert.equal(button(area, 'Publish draft PR'), undefined);
+  ui.close();
+});

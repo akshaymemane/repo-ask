@@ -3,6 +3,8 @@ import base64
 import binascii
 import json
 
+from repoask.execution.runner import validate_relative_path
+
 from .errors import SessionError
 from .redaction import contains_secret
 from .workspace import REGULAR_MODES, publication_rejection, sha256
@@ -65,7 +67,7 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
             raise ValueError()
         total_bytes = 0
         for path in paths:
-            if publication_rejection(path, manifest):
+            if publication_rejection(path, manifest) or validate_relative_path(path) != path:
                 raise SessionError('rejected_paths')
             mode, item = modes[path], files[path]
             original = manifest['files'].get(path)
@@ -85,7 +87,7 @@ def verify_capture(repo, checkpoint, patch, outcome, limits):
                         or sha256(data) != item['sha256'] or len(data) != item['bytes']):
                     raise ValueError()
                 if contains_secret(data):
-                    raise SessionError('rejected_paths')
+                    raise SessionError('sensitive_content')
         if (pt['stats']['files'] != len(paths) or pt['stats']['rejected'] != len(omitted)
                 or pt['stats']['additions'] != sum(f['additions'] for f in files.values())
                 or pt['stats']['deletions'] != sum(f['deletions'] for f in files.values())):

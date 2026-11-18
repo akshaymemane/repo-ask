@@ -195,11 +195,14 @@ class PublicationSnapshotTests(SessionCase):
         self.mutate_artifact(sid, 'patch', rename_pt)
         self.denied(sid, 'rejected_paths')
 
-    def test_patch_base_and_byte_count_are_verified(self):
+    def test_database_rejects_inconsistent_artifact_byte_count(self):
         sid = self.completed()
         with self.assertRaises(sqlite3.IntegrityError), self.store.transaction() as db:
             db.execute("UPDATE session_artifacts SET byte_count=0 WHERE session_id=? AND kind='patch'", (sid,))
         self.assertTrue(self.sessions.publication_snapshot(sid)['source_available'])
+
+    def test_patch_base_is_verified(self):
+        sid = self.completed()
         self.mutate_artifact(sid, 'patch', lambda pt: pt.update(base_sha='a' * 40))
         self.denied(sid, 'stale_artifacts')
 
@@ -278,3 +281,85 @@ class PublicationSnapshotTests(SessionCase):
                 outcome = json.loads(attempt.svc.transition.call_args.kwargs['outcome_json'])
                 self.assertEqual(outcome['rejected_paths'], count)
                 self.assertEqual(outcome['publication_eligible'], eligible)
+
+    def test_outcome_rejection_count_alone_blocks(self):
+        sid = self.completed()
+        self.outcome(sid, rejected_paths=1)
+        self.denied(sid, 'rejected_paths')
+
+    def test_workspace_and_file_count_bounds(self):
+        sid = self.completed()
+        with self.store.read() as db:
+            original = json.loads(db.execute('SELECT limits_json FROM sessions WHERE id=?', (sid,)).fetchone()[0])
+        for key, value in [('workspace_mib', 0), ('max_files', 0)]:
+            with self.subTest(limit=key):
+                limits = json.loads(canonical(original))
+                limits['runner'][key] = value
+                with self.store.transaction() as db:
+                    db.execute('UPDATE sessions SET limits_json=? WHERE id=?', (canonical(limits), sid))
+                self.denied(sid, 'session_snapshot_invalid')
+        with self.store.transaction() as db:
+            db.execute('UPDATE sessions SET limits_json=? WHERE id=?', (canonical(original), sid))
+        self.assertTrue(self.sessions.publication_snapshot(sid)['source_available'])
+
+    def test_invalid_publication_policy(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute('UPDATE sessions SET publication_json=? WHERE id=?',
+                       (canonical({'policy': 'invented'}), sid))
+        self.denied(sid, 'session_snapshot_invalid')
+
+    def test_zero_and_multiple_write_repositories(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute("UPDATE session_repositories SET role='read' WHERE session_id=?", (sid,))
+        # Isolate repository cardinality from the live-authority gate.
+        with mock.patch.object(self.sessions, 'source_policy', return_value={'available': True}):
+            self.denied(sid, 'session_snapshot_invalid')
+            with self.store.transaction() as db:
+                db.execute("UPDATE session_repositories SET role='write' WHERE session_id=?", (sid,))
+                other = 'demo:second'
+                db.execute("INSERT INTO index_sources(id,kind,name,created_at,updated_at) VALUES(?,'demo','second',1,1)", (other,))
+                db.execute("INSERT INTO session_repositories(session_id,repository_id,role,base_sha) VALUES(?,?,'write',?)",
+                           (sid, other, self.remote.commit))
+            self.denied(sid, 'session_snapshot_invalid')
+
+    def test_missing_runner_row(self):
+        sid = self.completed()
+        with self.store.transaction() as db:
+            db.execute('DELETE FROM session_runners WHERE session_id=?', (sid,))
+        self.denied(sid, 'containment_unverified')
+
+    def test_secret_content_has_distinct_content_free_error(self):
+        sid = self.completed()
+        data = ('ghp_' + 'a' * 30).encode()
+        self.mutate_artifact(sid, 'checkpoint', lambda cp: cp['changed'].update({'run.sh': base64.b64encode(data).decode()}))
+        def update_patch(pt):
+            item = next(f for f in pt['files'] if f['path'] == 'run.sh')
+            item.update(sha256=sha256(data), bytes=len(data))
+        self.mutate_artifact(sid, 'patch', update_patch)
+        self.denied(sid, 'sensitive_content')
+
+    def test_noncanonical_key_is_rejected_before_export(self):
+        sid = self.completed()
+        def rename(cp):
+            cp['changed']['./run.sh'] = cp['changed'].pop('run.sh')
+            cp['modes']['./run.sh'] = cp['modes'].pop('run.sh')
+        self.mutate_artifact(sid, 'checkpoint', rename)
+        self.mutate_artifact(sid, 'patch', lambda pt: next(f for f in pt['files'] if f['path'] == 'run.sh').update(path='./run.sh'))
+        self.denied(sid, 'rejected_paths')
+
+    def test_automatic_eligible_snapshot_through_publication_consumer(self):
+        from repoask.publication.service import PublicationService
+        sid = self.completed()
+        self.outcome(sid, publication_eligible=True)
+        with self.store.transaction() as db:
+            db.execute('UPDATE sessions SET publication_json=? WHERE id=?',
+                       (canonical({'policy': 'on_success_draft'}), sid))
+            db.execute("INSERT INTO validation_runs(id,session_id,ordinal,command_json,source,status,required,environment_json) "
+                       "VALUES('passed',?,1,'{}','proposed','passed',1,'{}')", (sid,))
+        consumer = PublicationService.__new__(PublicationService)
+        consumer.sessions = self.sessions
+        snap = consumer._snapshot(sid)
+        self.assertEqual(snap['policy'], 'on_success_draft')
+        self.assertTrue(consumer._automatic_ok(snap))

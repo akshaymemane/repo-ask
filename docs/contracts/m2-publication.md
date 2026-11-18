@@ -42,7 +42,9 @@ checkpoint hashes must match the recorded session repository and artifacts. The 
 fails if source is unavailable, the repository was purged or excluded, artifacts are
 missing/redacted/stale, the runner is not verifiably contained, the session is not
 terminal, or any changed path is rejected. It reuses the current live source policy and
-returns no host path or runner identifier.
+returns no host path or runner identifier. Exported path keys must be canonical relative
+paths; non-canonical keys fail with `rejected_paths`. Secret-content detection fails
+with `sensitive_content`, without file contents or diagnostic details.
 
 Generated artifacts (coordinator decision, M2-PILOT, 2026-11-17): a rejected path whose
 reason is `excluded_generated` **and** whose status is `added` (a new untracked artifact such as

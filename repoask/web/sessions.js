@@ -176,6 +176,7 @@ const PUBLICATION_TEXT = {
   stale_diff: "The session's changes no longer match the preview you reviewed.",
   idempotency_conflict: 'A different publish request already exists for this session.',
   source_unavailable: 'Source is unavailable under the current repository access or retention policy.',
+  sensitive_content: "Sensitive content was detected in the changes, so this change can't be published.",
   rejected_paths: "Some changed paths were rejected by the artifact policy, so this change can't be published.",
   session_snapshot_invalid: "The session's saved checkpoint couldn't be verified for publishing.",
   session_unavailable: "The session's saved changes aren't available for publishing.",

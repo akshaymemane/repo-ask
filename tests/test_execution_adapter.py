@@ -558,6 +558,7 @@ assert sys.argv[sys.argv.index('--permission-prompts') + 1] == 'none'
     def test_slow_metadata_cannot_push_the_agent_past_the_session_deadline(self):
         for name, query in self.QUERIES:
             with self.subTest(query=name):
+                (self.root / 'agent.ran').unlink(missing_ok=True)
                 binary, _, ran = self.slow_query_cli(
                     query, 2, 'print(' + repr(json.dumps(self.init())) + ', flush=True)\ntime.sleep(30)\n')
                 start = time.monotonic()
