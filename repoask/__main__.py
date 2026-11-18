@@ -17,7 +17,7 @@ from .ask import RoutingService, PlanService, ConversationService
 from .platform import Platform
 from .platform.clock import now_ms
 from .platform.errors import PlatformError
-from .platform.workspace import apply_github_status, build_workspace_summary, build_health
+from .platform.workspace import apply_github_status, build_workspace_summary, build_health, apply_service_health
 from .api import error_status
 from .services import ApplicationServices
 from .platform.keyring_backend import OSKeyringBackend
@@ -126,6 +126,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                             result["navigation"].append({"id": "sessions", "label": "Sessions",
                                                          "href": "#/sessions", "status": "available"})
                     else:
+                        apply_service_health(result, services)
                         result["components"]["jobs"]["workers_running"] = int(services.running)
                         result["components"]["jobs"]["error_code"] = services.error_code
                         if services.error_code:

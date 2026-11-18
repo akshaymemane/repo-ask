@@ -1,0 +1,4 @@
+Task LAUNCH-HEALTH-PROJECTION: running. Codex platform builder; coordinator/reviewer Claude.
+Branch task/launch-health; assigned base 5730fca. Scope is the user-assigned health composition, Settings health section, tests and this run directory. No workers delegated.
+Contract: retain opendevin.health/m0.1 with additive fields and existing keys. No active probes. Runtime status currently supplies only worker state, so unavailable Docker/agent evidence must remain explicitly not_checked rather than inferred ready.
+Projection implemented. Existing execution_status() contains runtime worker state only, no Docker/agent probe evidence; health reports not_checked for those codes and queries active session count without exposing session records. No probes added. Index buckets include catalog metadata without index rows; latest active/failed run takes precedence over retained usable snapshots.

@@ -122,6 +122,43 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
     return box;
   }
 
+  function systemHealth() {
+    const box = el("section", undefined, "setting-card");
+    // Preserve the existing loading/error presentation until fresh health arrives.
+    if (sections.health) box.append(sections.health);
+    else box.append(el("p", "Checking system health…"));
+    const refresh = () => request("/api/health").then((data) => {
+      if (!data.components) return;
+      const c = data.components;
+      const words = (value) => String(value ?? "unknown").replaceAll("_", " ");
+      box.replaceChildren(el("h2", "System health"), el("p", `Overall: ${words(data.status)}.`));
+      const index = c.index ?? {};
+      box.append(el("p", index.persistent
+        ? `Saved index: ${index.repository_count} repositories. Ready: ${index.counts?.ready ?? 0}; indexing: ${index.counts?.indexing ?? 0}; failed: ${index.counts?.failed ?? 0}; not indexed: ${index.counts?.not_indexed ?? 0}.`
+        : `Index: ${index.repository_count ?? 0} repositories, rebuilt at startup.`));
+      if (index.latest_failure_code) box.append(el("p", `Latest index failure: ${words(index.latest_failure_code)}.`));
+      for (const [role, label] of [["ask", "Answers"], ["planning", "Planning"]]) {
+        const model = c.model?.roles?.[role] ?? (role === "ask" ? c.model : null);
+        box.append(el("p", `${label}: ${words(model?.status ?? "not_configured")}${model?.adapter ? `, ${words(model.adapter)}` : ""}${model?.destination ? `, ${words(model.destination)} destination` : ""}.`));
+      }
+      const execution = c.execution;
+      box.append(el("p", execution
+        ? `Execution: ${words(execution.status)}. Runtime: ${words(execution.runtime_status)}. Docker: ${words(execution.docker_code)}. Coding agent: ${words(execution.agent_code)}. Active sessions: ${execution.active_session_count}.`
+        : "Execution is not configured."));
+      for (const [key, label] of [["storage", "Storage"], ["jobs", "Background jobs"], ["secrets", "Credentials"]]) {
+        box.append(el("p", `${label}: ${words(c[key]?.status)}.`));
+      }
+      if (c.jobs) box.append(el("p", `Background workers: ${c.jobs.workers_running ?? 0}.`));
+      for (const failure of data.recent_failures ?? []) box.append(el("p", `Recent job failure: ${words(failure.code)}.`));
+      button(box, "Refresh health", refresh);
+    }, () => {
+      box.append(el("p", "Health status is unavailable. Try refreshing health."));
+      button(box, "Refresh health", refresh);
+    });
+    refresh();
+    return box;
+  }
+
   const builders = {
     github: () => {
       const wrap = el("div");
@@ -137,7 +174,7 @@ export function createSettingsPage({ host, request, sections, submitForm = defau
     models: () => sections.models ?? el("p", "Model settings aren't available in this build."),
     agent: () => sections.agent ?? el("p", "The coding agent isn't available in this build.", "detail-muted"),
     privacy,
-    health: () => sections.health ?? el("p", "Health status is unavailable."),
+    health: systemHealth,
   };
 
   return {
