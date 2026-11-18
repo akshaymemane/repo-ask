@@ -8,6 +8,18 @@ const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'bl
 const inside = (root, child) => { for (let n = child; n; n = n.parentNode) if (n === root) return true; return false; };
 const time = value => value ? new Date(value).toLocaleString() : 'unknown';
 const human = value => String(value ?? 'unknown').replaceAll('_', ' ');
+// Plain-language explanations for session errors a user can reach; other codes fall back to their words.
+const ERROR_TEXT = {
+  retry_exists: 'A newer attempt of this session already exists; open it to continue.',
+  session_active: 'This session is still running; stop it or wait for it to finish first.',
+  runtime_in_use: 'Another OpenDevin process on this data directory is running sessions.',
+  plan_not_ready: 'The saved plan is not ready to start; open it to see what needs fixing.',
+  publication_in_progress: 'A pull request is still being published for this session; wait for it to finish.',
+  purged: 'This session’s content was deleted.',
+  idempotency_conflict: 'A different request already used this action; reload the session and try again.',
+  source_unavailable: 'The repository source is not available under the current sharing settings.',
+};
+const errorText = code => ERROR_TEXT[code] || human(code);
 const scalar = value => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : 'unknown';
 const storage = {
   get(key) { try { return JSON.parse(window.sessionStorage?.getItem(key) || 'null'); } catch { return null; } },
@@ -19,7 +31,7 @@ export async function executionRequest(path, method = 'GET', body, {signal} = {}
   catch { throw new Error(method === 'GET' ? 'Connection unavailable. Reconnect to reload saved state.' : 'Connection lost; outcome unknown. Retry the same request to reconcile saved state.'); }
   let value;
   try { value = await response.json(); } catch { throw new Error('Response unavailable; outcome unknown. Reload saved state or retry the same request.'); }
-  if (!response.ok) { const code = /^[a-z_]{1,80}$/.test(value?.code) ? value.code : `http_${response.status}`; const e = new Error(human(code)); e.status = response.status; e.code = code; e.details = value?.details; throw e; }
+  if (!response.ok) { const code = /^[a-z_]{1,80}$/.test(value?.code) ? value.code : `http_${response.status}`; const e = new Error(errorText(code)); e.status = response.status; e.code = code; e.details = value?.details; throw e; }
   return value;
 }
 function link(parent, text, hash) { const a = el('a', text); a.setAttribute('href', hash); a.dataset.focus = hash; parent.append(a); return a; }
@@ -1054,7 +1066,10 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
           onError: error => say(error.message)});
         return;
       }
-      if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); } throw e; }
+      if (live(t) && e.status >= 400 && e.status < 500) { retryKey = null; storage.set(`session-retry-${openedID}`, null); }
+      // Another tab or an earlier click created the next attempt: reload so the page links to it.
+      if (live(t) && e.code === 'retry_exists') { say(e.message); await refresh(t); return; }
+      throw e; }
   });
   function filtersActive() { return Boolean(listFilters && (listFilters.query.value.trim() || listFilters.state.value || listFilters.repository.value || listFilters.date.value)); }
   function renderRepositoryFilter() {
