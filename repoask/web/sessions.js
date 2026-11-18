@@ -641,6 +641,10 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       titleNode.textContent = 'Session';
       meta.replaceChildren(el('span', s.id), el('span', human(s.state)), el('span', `Plan version ${s.plan_version_id}`), el('p', `Content deleted on ${time(s.purged_at)}`, 'session-purge-status'));
       for (const r of repos(s)) meta.append(el('span', `${r.repository_id} · Base ${r.base_sha}`));
+      const note = el('p', 'Start a new session from the ', 'detail-muted');
+      if (s.plan_id) link(note, 'saved plan', `#/plans/${enc(s.plan_id)}/${enc(s.plan_version_id)}`);
+      else link(note, 'saved plans in Ask', '#/ask');
+      note.append('.'); meta.append(note);
       if (prAction) prAction.hidden = true;
       return;
     }
@@ -671,7 +675,7 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
         try {
           const deleted = await request(`/api/sessions/${enc(id)}/purge`, 'POST', {});
           if (!live(token) || currentID !== id) return;
-          current = {id, state: current.state, plan_version_id: current.plan_version_id, repositories: repos(current).map(r => ({repository_id:r.repository_id,role:r.role,base_sha:r.base_sha})), purged:true, purged_at:deleted.purged_at, source_available:false};
+          current = {id, state: current.state, plan_id: current.plan_id, plan_version_id: current.plan_version_id, repositories: repos(current).map(r => ({repository_id:r.repository_id,role:r.role,base_sha:r.base_sha})), purged:true, purged_at:deleted.purged_at, source_available:false};
           showPurged(); await refresh(token);
         } catch (e) { if (live(token)) { say(`Content deletion failed: ${e.code || e.message}`); b.disabled = false; } }
       });
@@ -989,8 +993,8 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
   function showPurged() {
     sourceAllowed = false; plan = {}; lastChecks = null; clearSource();
     summary.replaceChildren(); result.replaceChildren(); publication.replaceChildren();
-    ended.replaceChildren(); stop.disabled = true; retry.disabled = true;
-    renderHeader(); say(`Content deleted on ${time(current.purged_at)}`);
+    ended.replaceChildren(); stop.hidden = stop.disabled = true; retry.hidden = retry.disabled = true;
+    renderHeader(); say('');
   }
   async function refresh(token = epoch) {
     if (!live(token) || refreshBusy || !currentID) return;
@@ -1000,7 +1004,27 @@ export function createSessionPanel({host, request = executionRequest, onAvailabl
       if (!live(token)) return;
       if (data.id !== currentID || typeof data.state !== 'string') throw new Error('Unsupported session response.');
       onAvailable(); current = data; lastConfirmed = Date.now();
-      if (data.purged) { showPurged(); return; }
+      if (data.purged) {
+        showPurged();
+        // Tombstones retain the version id only. Resolve its plan without changing the API contract.
+        if (!data.plan_id) {
+          let next = null;
+          do {
+            const page = await request(`/api/plans?limit=100${next ? `&cursor=${enc(next)}` : ''}`);
+            if (!live(token) || current !== data) return;
+            for (const candidate of page.items || []) {
+              try {
+                const saved = await request(`/api/plans/${enc(candidate.id)}?version_id=${enc(data.plan_version_id)}`);
+                if (!live(token) || current !== data) return;
+                if (saved.version?.id !== data.plan_version_id) continue;
+                data.plan_id = candidate.id; renderHeader(); return;
+              } catch { /* This version belongs to another plan or is unavailable. */ }
+            }
+            next = page.next_cursor;
+          } while (next);
+        }
+        return;
+      }
       if (plan === null) { plan = {loading: true}; request(`/api/plans/${enc(data.plan_id)}?version_id=${enc(data.plan_version_id)}`).then(p => { if (!live(token) || current?.purged) return; plan = p?.id === data.plan_id && p.version?.id === data.plan_version_id ? p : {}; if (typeof plan.title === 'string' && plan.title.trim()) planTitles.set(plan.id, plan.title.trim()); renderSummary(); }, () => { if (live(token)) { plan = {}; renderProgress(); } }); }
       if (data.source_available === false) { if (sourceAllowed) clearSource(); sourceAllowed = false; }
       else if (!sourceAllowed) { sourceAllowed = true; events.clear(); history.clear(); cursor = 0; messageCursor = null; }

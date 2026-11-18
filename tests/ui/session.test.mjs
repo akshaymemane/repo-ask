@@ -270,7 +270,30 @@ test('finished session content deletion confirms scope and renders durable delet
  assert.equal(confirmations.length,1);assert.match(confirmations[0],/PR on GitHub is not affected/);
  assert.match(confirmations[0],/validation output/);assert.match(visibleText(ui.panel),/Content deleted on/);
  assert.equal(button(ui.panel,'Delete session content'),undefined);
+ assertPurgedView(ui.panel);
  assert.deepEqual(JSON.parse(b.requests.find(r=>r.url.endsWith('/purge')).body),{});
+ ui.close();
+});
+
+function assertPurgedView(panel) {
+ const text=visibleText(panel);
+ assert.equal((text.match(/Content deleted on/g)||[]).length,1);
+ assert.match(visibleText(panel.querySelector('.session-header')),/Content deleted on/);
+ assert.doesNotMatch(text,/Retry|Create draft PR|Stop session|Delete session content/);
+ assert.match(text,/Start a new session from the saved plan/);
+ assert.equal(panel.querySelector('a[href="#/plans/p/v"]').textContent,'saved plan');
+}
+
+test('opening a purged session hides content actions and links its retained saved version',async()=>{
+ const b=setup((m,u)=>{
+  if(u==='/api/sessions/s')return {id:'s',state:'failed',plan_version_id:'v',purged:true,purged_at:1700000000000,repositories:[]};
+  if(u==='/api/plans?limit=100')return {items:[{id:'p',latest_version_id:'newer'}],next_cursor:null};
+  if(u==='/api/plans/p?version_id=v')return {id:'p',version:{id:'v'}};
+  return basic(m,u);
+ });
+ const ui=createSessionPanel({host:b.document.getElementById('sessions-content'),request:requestFor(b),pollMs:1e6});ui.open();await settle();
+ assertPurgedView(ui.panel);await ui.refresh();assertPurgedView(ui.panel);
+ assert.equal(b.requests.some(r=>/\/(retry|publications)$/.test(r.url)&&r.method==='POST'),false);
  ui.close();
 });
 
