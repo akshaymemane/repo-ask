@@ -59,6 +59,12 @@ class SiteTests(unittest.TestCase):
                           if t == 'link' and a.get('rel') == 'stylesheet']
                 self.assertEqual(len(styles), 1, 'Every page shares one stylesheet')
                 self.assertEqual((path.parent / styles[0]).resolve(), ROOT / 'assets/styles.css')
+                icons = [a for t, a in doc.tags
+                         if t == 'link' and 'icon' in a.get('rel', '').split()]
+                self.assertEqual(len(icons), 1, 'Every page declares a local favicon')
+                self.assertEqual(icons[0].get('type'), 'image/svg+xml')
+                self.assertEqual((path.parent / icons[0].get('href', '')).resolve(),
+                                 ROOT / 'assets/favicon.svg')
                 self.assertTrue(any(t == 'a' and a.get('href') == '#main' for t, a in doc.tags))
                 self.assertTrue(any(a.get('aria-current') == 'page' for _, a in doc.tags))
 

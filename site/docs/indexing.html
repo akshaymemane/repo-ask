@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Repository indexing · OpenDevin</title>
 <meta name="description" content="Answers refer to committed snapshots, not a live view of uncommitted working files.">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <link rel="stylesheet" href="../assets/styles.css">
 </head>
 <body><a class="skip" href="#main">Skip to content</a>
@@ -27,6 +28,7 @@
 </header>
 <h2 id="select">Select source</h2>
 <p>Enable <strong>Use in Ask</strong> on Repositories. Open a repository’s details to inspect its index and use <strong>Index now</strong> or <strong>Reindex now</strong>. Active runs offer Pause or Resume where applicable. Review coverage and skipped-file information before treating the index as complete.</p>
+<p>The default index size cap is 4 GiB, measured by live database pages; deleting a local index frees headroom. Indexing also pauses before the data volume would drop below 1 GB free. See <a href="troubleshooting.html#disk-limit">Indexing paused: disk limit</a> for recovery steps.</p>
 <h2 id="snapshots">Snapshots and citations</h2>
 <p>GitHub source is acquired through bounded tree/blob API reads and stored in SQLite. Explicit local checkouts are read at committed HEAD. Indexing never installs dependencies or runs repository scripts. Credential-like files, binary files, symlinks and generated artifacts are excluded before indexing and model calls.</p>
 <p>A new index activates as a new snapshot. A failed replacement keeps the previous active context available. An old citation resolves to its recorded snapshot while that source remains available; it does not silently follow the latest branch.</p>

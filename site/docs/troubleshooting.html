@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Troubleshooting · OpenDevin</title>
 <meta name="description" content="Use the reported state to decide what to retry. Do not treat missing checks as passed.">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <link rel="stylesheet" href="../assets/styles.css">
 </head>
 <body><a class="skip" href="#main">Skip to content</a>
@@ -27,6 +28,8 @@
 </header>
 <h2 id="storage">GitHub or credentials are unavailable</h2>
 <p>Restart with <code>--data-dir</code>, unlock your OS keychain or vault and retry setup. Install the full optional dependencies from <a href="getting-started.html#install">the setup instructions</a>. If secure storage is missing or locked, credential setup is blocked; a plaintext key file is not a fallback.</p>
+<h2 id="disk-limit">Indexing paused: disk limit</h2>
+<p>A paused run shows <strong>disk limit</strong> when it reaches the default 4 GiB index size cap or indexing would leave less than 1 GB free on the data volume. The cap counts live database pages, so deleting a local index frees headroom. On Repositories, free disk space or use <strong>Delete local index</strong> on repositories you no longer need, then <strong>Resume</strong>.</p>
 <h2 id="routing">“Choose a repository to continue”</h2>
 <p>Name the repository in your question, attach it with <strong>+</strong>, or pick a suggestion. Reasons show matching terms. Confirm <strong>Use in Ask</strong> is enabled and the index has usable source.</p>
 <h2 id="timeout">Answers or plans time out</h2>

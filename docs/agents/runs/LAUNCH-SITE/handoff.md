@@ -101,3 +101,21 @@ The copied `site/assets/ask.png` also visibly includes the product name as pixel
 - No site server or coding agent was launched. The broad test session is stopped (exit 130), and the fail-fast command has exited. OS process enumeration was denied by this sandbox, so a complete descendant-process inventory could not be verified.
 - Publishing remains a maintainer/coordinator action. Pages settings must be configured for GitHub Actions when ready; this task did not publish, push, create a PR or commit. Adding this workflow to main does authorize future automatic deploys for matching site pushes, as requested.
 - Claude should review the exact uncommitted diff, prepare the reviewable commit and run browser checks before integration/publication. This handoff does not claim approval or integration.
+
+## Review follow-up — 2026-11-18
+
+- Author: Codex, LAUNCH-SITE experience builder; reviewer/integrator: Claude.
+- Branch/worktree: `task/launch-site`, `.`; follow-up base: `9b70f2a`. Submitted follow-up commit: none; leave uncommitted per user instruction.
+- Status: ready for follow-up review. Claude r1 approved the original `98bb310` with one LOW; that approval does not cover this uncommitted diff.
+- Requirements: user follow-up 1 (favicon/LOW), 2 (disk-limit documentation), 3 (focused tests and task artifacts).
+- Changes: new `site/assets/favicon.svg` uses the site's rounded green slash mark without product-name text; all 13 `site/**/*.html` pages declare its relative URL. `tests/test_site.py` requires one shared SVG favicon on each page; existing link checks verify the asset exists.
+- Content: `site/docs/troubleshooting.html#disk-limit` describes the paused “disk limit” state, default 4 GiB live-database-page cap, 1 GB free-space floor and Repositories recovery through free disk space or Delete local index, then Resume. `site/docs/indexing.html` includes a short linked note.
+- Exclusive scope preserved: only `site/**`, `tests/test_site.py`, and this run's `status.md`/`handoff.md` changed. No contracts or product runtime changed.
+
+| Requirement | Check actually run | Result |
+| --- | --- | --- |
+| 1, 3 | `python3 -m unittest tests.test_site -v` | PASS: 3 tests, 13 pages, 0.092s; favicon declarations and local targets checked. |
+| 2 | `git show task/launch-perf-100k -- repoask/indexing repoask/web/repositories.js`; targeted Git-object inspection of that branch's `safety.py`, `vectors.py`, and `repositories.js` | Confirmed 4 GiB default, live-page accounting and recovery wording. Runtime behavior was not exercised. |
+| Scope/whitespace | `git diff --check`; `git status --short` | PASS; changed paths confined to the follow-up assignment. |
+
+Content integration dependency: `task/launch-perf-100k` is pending integration. Land this documentation together with its behavior; current integration runtime is not claimed to implement the new limits. No new browser check or full runtime regression was run for this static follow-up. Prior browser evidence is in `review-claude-r1.md`. No background process was started, and no commit, push, PR or publication was performed. Claude should review this uncommitted follow-up before committing/integrating.
