@@ -10,6 +10,14 @@ All notable user-visible changes are recorded here. The format follows
 - Open-source project files: contributing guide, security policy, code of conduct,
   third-party notices, issue and pull request templates, and CI for Python 3.10–3.13 on
   Linux and macOS plus UI tests and a package build check.
+- **Delete session content:** a finished session's events, guidance, diffs, checkpoints and
+  validation output can be deleted; its identity, base commit and pull request link remain.
+- **Base branch freshness:** starting or retrying a session whose base branch moved since the
+  plan was made asks whether to start on the saved base or regenerate the plan.
+- System health shows the saved index by state, the models assigned to Ask and planning, and
+  the session runtime, using status codes only.
+- Answer runs report whether they were a question or a plan request, so a failed plan says so;
+  model timeouts suggest a smaller or GPU-backed model.
 
 ### Fixed
 - Ask keeps a question that is waiting for a repository choice across reloads and restarts,
@@ -18,6 +26,11 @@ All notable user-visible changes are recorded here. The format follows
 - Credential detection is shared by indexing, session logs and exports, and now also catches
   `sk-…`, `github_pat_…`, Slack and Google API key formats before source is indexed.
 - The route bar stays on one line when the source panel is open.
+- Startup no longer waits for an unresponsive Docker daemon (up to 30 s) or for a reverse
+  DNS lookup (8 s+ on some hosts) before serving the web app.
+- A contained profile test left by a crashed process is resolved at startup instead of
+  staying "running" until its lease expires.
+- Quick-setup local Ollama chat profiles use a 600 s limit instead of 180 s.
 
 ## [0.1.0] — first public preview
 
