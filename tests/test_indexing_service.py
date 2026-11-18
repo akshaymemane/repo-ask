@@ -167,6 +167,45 @@ class IndexingTests(unittest.TestCase):
         self.assertLess(self.store.used_bytes(), used)
         self.assertLessEqual(self.store.used_bytes(), self.store.size_bytes())
 
+    def test_resume_adopts_current_default_for_superseded_cap(self):
+        from repoask.indexing import safety
+        old = 512*1024*1024
+        self.assertIn(old, safety.SUPERSEDED_DEFAULTS['disk_bytes'])
+        run = self.service.request_index(self.repo,limits={'disk_bytes':1})
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='old').run_once()
+        self.assertEqual(self.service.get_run(run['id'])['state'],'paused')
+        # Simulate a run persisted before the default was raised.
+        with self.store.transaction() as db:
+            caps = json.loads(db.execute('SELECT limits_json FROM index_runs WHERE id=?',(run['id'],)).fetchone()[0])
+            db.execute('UPDATE index_runs SET limits_json=? WHERE id=?',(json.dumps({**caps,'disk_bytes':old}),run['id']))
+        self.service.resume(run['id'])
+        with self.store.read() as db:
+            caps = json.loads(db.execute('SELECT limits_json FROM index_runs WHERE id=?',(run['id'],)).fetchone()[0])
+        self.assertEqual(caps['disk_bytes'],safety.DEFAULTS['disk_bytes'])
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='new').run_once()
+        self.assertEqual(self.service.get_run(run['id'])['state'],'completed')
+
+    def test_user_lowered_cap_survives_resume(self):
+        run = self.service.request_index(self.repo,limits={'disk_bytes':1})
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='low').run_once()
+        self.service.resume(run['id'])
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='low2').run_once()
+        result = self.service.get_run(run['id'])
+        self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+
+    def test_unreadable_free_space_pauses_instead_of_failing(self):
+        def broken():
+            raise FileNotFoundError('data directory vanished')
+        self.store.free_bytes = broken
+        run = self.service.request_index(self.repo)
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='probe').run_once()
+        result = self.service.get_run(run['id'])
+        self.assertEqual((result['state'],result['error_code']),('paused','disk_limit'))
+        del self.store.free_bytes
+        self.service.resume(run['id'])
+        Worker(self.jobs,{'index.run':self.service.run_index},worker_id='probe2').run_once()
+        self.assertEqual(self.service.get_run(run['id'])['state'],'completed')
+
     def test_free_space_reserve_pauses_until_space_returns(self):
         from repoask.indexing.safety import DISK_RESERVE
         free = self.store.free_bytes()

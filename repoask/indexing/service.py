@@ -7,7 +7,7 @@ import time
 from ..platform.clock import now_ms, new_id
 from ..platform.errors import PlatformError, NotFound, LeaseLost
 from ..platform.worker import CancelledError
-from .safety import DISK_RESERVE, CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
+from .safety import DEFAULTS, DISK_RESERVE, SUPERSEDED_DEFAULTS, CHUNKER, PARSER, digest, limits as validate_limits, exclusions as validate_exclusions, excluded, safe_path, decode, chunks, estimated_tokens
 from .snapshots import local_snapshot, github_snapshot
 from .vectors import VectorStore, VectorUnavailable
 
@@ -213,6 +213,10 @@ class IndexService:
                 checkpoint = json.loads(current['checkpoint_json'])
                 checkpoint.pop('retry',None)
                 db.execute('UPDATE index_runs SET checkpoint_json=? WHERE id=?',(encoded(checkpoint),run_id))
+            caps = json.loads(run['limits_json'])
+            upgraded = {k: DEFAULTS[k] for k, superseded in SUPERSEDED_DEFAULTS.items() if caps.get(k) in superseded}
+            if upgraded:
+                db.execute('UPDATE index_runs SET limits_json=? WHERE id=?', (encoded({**caps, **upgraded}), run_id))
             continuation = run['continuation'] + 1
             job = self.jobs.enqueue_in_transaction(db, 'index.run', {'run_id': run_id}, idempotency_key=f'{run_id}:{continuation}')
             db.execute("UPDATE index_runs SET state='queued',job_id=?,continuation=?,error_code=NULL,retry_at=NULL,updated_at=? WHERE id=?", (job.id,continuation,self.clock(),run_id))
@@ -443,7 +447,10 @@ class IndexService:
         """The index cap, or the volume's free-space reserve, would be crossed."""
         if self.store.used_bytes() + self.vectors.used_bytes() + incoming > caps['disk_bytes']:
             return True
-        free = self.store.free_bytes()
+        try:
+            free = self.store.free_bytes()
+        except OSError:
+            return True  # Unknown free space pauses resumably rather than failing the run.
         return free is not None and free - incoming < DISK_RESERVE
 
     def _pause_limit(self, db, run, code):

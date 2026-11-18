@@ -76,14 +76,15 @@ def fixture(source_chunks=0):
 
         vocabulary = sorted({w.lower().strip(',;.') for item in data['tasks'] + data['repositories']
                              for w in item.get('prompt', item.get('profile', '')).split() if len(w) > 3})
-        per_repository = source_chunks // 25
+        # Spread the total exactly; each indexed repository keeps its README chunk.
+        share = [source_chunks // 25 + (i < source_chunks % 25) for i in range(25)]
 
         def reader(source, revision, caps):
             i = int(source['id'].split(':')[1]) - 1
             repository = data['repositories'][i]
             files = [{'path': 'README.md', 'content': repository['profile'].encode()}]
-            if per_repository:
-                files += source_files(repository, vocabulary, per_repository - 1)
+            if source_chunks:
+                files += source_files(repository, vocabulary, share[i] - 1)
             return {'revision': 'a' * 40, 'revision_kind': 'git', 'branch': 'main', 'files': files}
 
         index = IndexService(test.platform.store, test.platform.jobs, test.service,
@@ -208,6 +209,13 @@ def positive(value):
     return number
 
 
+def source_total(value):
+    number = int(value)
+    if number != 0 and not 25 <= number <= 250_000:
+        raise argparse.ArgumentTypeError('must be 0 or 25-250000 (25 indexed repositories, 10,000 chunks each)')
+    return number
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--catalog-reads', type=positive, default=100,
@@ -215,7 +223,7 @@ def main():
     parser.add_argument('--routing-repeats', type=positive, default=5)
     parser.add_argument('--prompt-limit', type=positive, default=50,
                         help='reduce prompts for smoke checks; full baseline uses all 50')
-    parser.add_argument('--source-chunks', type=int, default=0,
+    parser.add_argument('--source-chunks', type=source_total, default=0,
                         help='total eligible chunks across the 25 indexed repositories, e.g. 100000 '
                              'for the PRD reference workload (default: README profiles only)')
     parser.add_argument('--assert', dest='assert_gates', action='store_true')
