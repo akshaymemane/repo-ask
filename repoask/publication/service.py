@@ -21,6 +21,7 @@ from repoask.platform.clock import new_id, now_ms
 from repoask.platform.worker import UnknownOutcomeError
 from .errors import PublicationError
 from repoask.sessions.publication import is_omitted
+from repoask.sessions.redaction import redact_text
 
 # One local coordinator process owns publication. Serialize recovery readers
 # with retries across service instances; SQLite still rechecks durable job identity.
@@ -160,15 +161,54 @@ class PublicationService:
                 and not outcome.get('artifacts_stale') and validations.get('fully_validated') is True)
 
     def _defaults(self, snap):
-        title = _text(snap.get('title') or 'OpenDevin session ' + snap['session_id'], 1, 256, 'title')
-        summary = self._stats(snap)
-        checks = snap['validations'].get('summary', {}) if isinstance(snap['validations'], dict) else {}
-        body = ('## Summary\n\nChanges from OpenDevin session `%s` (plan `%s`).\n\n'
-                '## Change statistics\n\n%s\n\n## Local validation\n\n%s\n' %
-                (snap['session_id'], snap['plan_version_id'], canonical(summary), canonical(checks)))
-        if snap.get('omitted'):
-            body += '\n## Omitted generated artifacts\n\n' + canonical(snap['omitted']) + '\n'
-        return title, body[:65536]
+        # Read the immutable version identified by the trusted snapshot, never latest.
+        with self.store.read() as db:
+            row = db.execute('SELECT content_json FROM plan_versions WHERE id=? AND plan_id=? AND deleted_at IS NULL',
+                             (snap['plan_version_id'], snap['plan_id'])).fetchone()
+        content = json.loads(row['content_json']) if row and row['content_json'] else {}
+
+        def safe(value, limit=300):
+            # Redact before truncating so a cut token cannot escape the detector.
+            return ' '.join(redact_text(value, None).split())[:limit]
+
+        goal = safe(content.get('goal') or '', 1000)
+        title = safe(goal or snap.get('title') or 'OpenDevin session ' + snap['session_id'], 256).rstrip('.').strip()
+        title = title or 'OpenDevin session'
+        lines = ['## Goal', '', goal or 'No plan goal recorded.', '', '## Plan steps', '']
+        steps = content.get('steps', [])
+        lines += ['- ' + safe(step.get('title', 'Untitled step'), 150) for step in steps[:20]]
+        if not steps:
+            lines.append('No plan steps recorded.')
+        if len(steps) > 20:
+            lines.append('- … %d more steps omitted.' % (len(steps) - 20))
+        lines += ['', '## Local validation', '']
+        checks = snap['validations'] if isinstance(snap['validations'], dict) else {}
+        items = checks.get('items', [])
+        limited = not items or checks.get('fully_validated') is not True
+        for item in items[:20]:
+            command = item.get('command', {})
+            argv = command.get('argv', []) if isinstance(command, dict) else command
+            command_text = ' '.join(str(arg) for arg in argv) if isinstance(argv, list) else str(argv)
+            status = item.get('status')
+            label = status if status in ('passed', 'failed') else 'not run'
+            limited = limited or label != 'passed'
+            lines.append('- %s — %s' % (safe(command_text or 'Unrecorded command', 150), label))
+        if not items:
+            lines.append('- No recorded validation commands — not run')
+        if len(items) > 20:
+            lines.append('- … %d more recorded checks omitted.' % (len(items) - 20))
+            limited = True
+        # Summary-only fixtures and historical records must also disclose failures.
+        limited = limited or any(n for status, n in checks.get('summary', {}).items() if status != 'passed')
+        omitted = snap.get('omitted', [])
+        if omitted:
+            lines += ['', '## Omitted generated artifacts (%d)' % len(omitted), '']
+            lines += ['- ' + safe(path, 150) for path in omitted[:20]]
+            if len(omitted) > 20:
+                lines.append('- … %d more paths omitted.' % (len(omitted) - 20))
+        if limited:
+            lines += ['', 'Limitations: Validation is incomplete or failed; review the recorded checks before merging.']
+        return title, redact_text('\n'.join(lines) + '\n', None)[:12000]
 
     # -------------------------------------------------------------- public
     def preview(self, session_id):

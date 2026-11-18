@@ -367,3 +367,25 @@ test('round-2 shapes: base observation, GitHub blocker codes, publication check 
     assert.match(visibleText(opened.area), new RegExp(`Local checks${shown}`)); assert.match(visibleText(opened.area), /Publishing stopped because/); assert.match(visibleText(opened.area), /Code: publication_stopped/); opened.ui.close();
   }
 });
+
+
+test('publication review shows a bounded omitted generated path list and total', async () => {
+  const omitted = Array.from({length: 25}, (_, i) => `build/generated-${i}.js`);
+  omitted[0] = '<img src=x onerror=alert(1)>';
+  const b = setup((m, u) => {
+    if (u.endsWith('/publication')) return notFound;
+    if (u.endsWith('/publication-preview')) return preview({omitted_paths: omitted});
+  });
+  const {ui, area} = await open(b);
+  button(area, 'Create draft PR').click(); await settle();
+  const text = visibleText(area);
+  assert.match(text, /Omitted generated paths \(25\)/);
+  assert.match(text, /These generated artifacts will not be published/);
+  assert.match(text, /5 more omitted paths/);
+  assert.ok(text.includes(omitted[0]));
+  assert.ok(text.includes(omitted[19]));
+  assert.ok(!text.includes(omitted[20]));
+  assert.equal(area.querySelector('img'), null);
+  assert.equal(button(area, 'Publish draft PR').disabled, false);
+  ui.close();
+});

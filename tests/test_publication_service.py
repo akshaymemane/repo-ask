@@ -2,6 +2,7 @@
 
 import base64
 import copy
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
@@ -125,6 +126,69 @@ class PublicationTests(TestCase):
 
     def run_job(self):
         self.assertTrue(Worker(self.platform.jobs,{'publication.run':self.svc.run},worker_id='pub').run_once())
+
+    def pinned_content(self, content):
+        plan = self.fixture.plan
+        self.sessions.value.update(plan_id=plan['id'], plan_version_id=plan['version']['id'])
+        with self.platform.store.transaction() as db:
+            db.execute('UPDATE plan_versions SET content_json=? WHERE id=?',
+                       (json.dumps(content), plan['version']['id']))
+
+    def test_defaults_use_pinned_goal_steps_and_redacted_results(self):
+        token = 'ghp_' + 'a' * 30
+        self.pinned_content({'goal': 'Fix login ' + token + '\nfor users.',
+                             'steps': [{'title': 'Update login'}, {'title': 'Verify behavior'}]})
+        self.sessions.value['validations'] = {'fully_validated': True, 'summary': {'passed': 1},
+            'items': [{'command': {'argv': ['python', '-m', 'unittest']}, 'status': 'passed',
+                       'output': 'SOURCE MUST NEVER APPEAR'}]}
+        preview = self.svc.preview('ses')
+        self.assertEqual(preview['title'], 'Fix login [redacted credential] for users')
+        self.assertIn('- Update login', preview['body'])
+        self.assertIn('python -m unittest — passed', preview['body'])
+        self.assertNotIn(token, str(preview))
+        self.assertNotIn('SOURCE MUST NEVER APPEAR', preview['body'])
+        self.assertNotIn('Limitations:', preview['body'])
+
+    def test_defaults_bound_long_goal_and_disclose_failed_and_not_run_checks(self):
+        self.pinned_content({'goal': 'Improve ' * 3000, 'steps': []})
+        for status in ('failed', 'not_run', 'timeout', 'unavailable'):
+            with self.subTest(status=status):
+                self.sessions.value['validations'] = {'fully_validated': False,
+                    'items': [{'command': {'argv': ['check', '/home/pilot/private', 'token=synthetic']}, 'status': status}]}
+                preview = self.svc.preview('ses')
+                self.assertLessEqual(len(preview['title']), 256)
+                self.assertLessEqual(len(preview['body']), 12000)
+                self.assertIn('Limitations:', preview['body'])
+                self.assertIn('— ' + ('failed' if status == 'failed' else 'not run'), preview['body'])
+                self.assertNotIn('/home/pilot', preview['body'])
+                self.assertNotIn('token=synthetic', preview['body'])
+
+    def test_defaults_ignore_newer_plan_version(self):
+        plan = self.fixture.plan
+        self.sessions.value.update(plan_id=plan['id'], plan_version_id=plan['version']['id'])
+        newer = copy.deepcopy(self.fixture.f.content)
+        newer['goal'] = 'Unrelated newer goal'
+        self.fixture.f.plans.save_version(plan['id'], newer, plan['version']['id'])
+        preview = self.svc.preview('ses')
+        self.assertEqual(preview['title'], self.fixture.f.content['goal'])
+        self.assertNotIn('Unrelated newer goal', preview['body'])
+
+    def test_body_bounds_keep_limitations_and_counts(self):
+        self.pinned_content({'goal': 'g' * 5000, 'steps': [{'title': 's' * 1000}] * 30})
+        snap = self.sessions.value
+        snap['validations'] = {'fully_validated': False,
+            'items': [{'command': {'argv': ['c' * 1000]}, 'status': 'not_run'}] * 30}
+        snap['omitted'] = ['build/' + 'p' * 1000] * 30
+        title, body = self.svc._defaults(snap)
+        self.assertLessEqual(len(body), 12000)
+        self.assertIn('Limitations:', body)
+        self.assertIn('10 more recorded checks omitted', body)
+        self.assertIn('10 more paths omitted', body)
+        self.assertIn('10 more steps omitted', body)
+
+    def test_defaults_fall_back_without_goal(self):
+        self.pinned_content({'steps': []})
+        self.assertEqual(self.svc.preview('ses')['title'], 'OpenDevin session ses')
 
     def test_preview_is_read_only_and_publish_is_atomic_idempotent(self):
         preview=self.svc.preview('ses')

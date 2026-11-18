@@ -66,6 +66,21 @@ repository instruction, or session follow-up cannot change the frozen policy.
   hash and stats, checks, policy, a bounded default title/body, `intent_version=1`,
   current base observation/divergence, capability blockers, and `publishable`. It never
   creates a database row, mints a write token, or changes GitHub.
+  Default fields (M2-FOLLOWUPS-PR-DEFAULTS, PR-04/PR-07): the publisher reads only
+  `plan_versions.content_json` matching the snapshot's `plan_id` and `plan_version_id`,
+  never the latest plan. The editable `title` is the goal normalized to one line,
+  capped at 256 characters with trailing periods removed; absent goals retain the
+  existing session-title fallback. The editable Markdown `body` contains the goal
+  (1,000 characters), up to 20 plan step titles, up to 20 recorded validation
+  commands with passed/failed/not run outcomes, and up to 20 omitted generated paths
+  with the total count. Step/command/path text is capped at 150 characters; omitted
+  entries are counted explicitly. Non-passed runtime statuses map to not run except
+  `failed`. Missing validation records, unsuccessful checks, incomplete validation,
+  or truncated check lists produce an explicit `Limitations:` line. All text passes
+  through session credential/host-path redaction before truncation; the body is capped
+  at 12,000 characters and excludes source contents, patches and validation output.
+  Preview retains `omitted_paths` as a list; the review UI displays its total and up
+  to 20 paths (300 characters each) before publication. This changes no request shape.
 - `publish(session_id,title,body,expected_diff_hash,intent_version,idempotency_key)`:
   atomically validates the exact preview/session state, stores one immutable intent,
   and enqueues an `external` `publication.run` job with `max_attempts=1`. Same key and

@@ -111,6 +111,11 @@ class PublicationIntegrationTests(SessionCase):
         preview = self.api.dispatch('POST', '/api/sessions/%s/publication-preview' % sid, body={}).body
         self.assertTrue(preview['publishable'], preview['blocking_reasons'])
         self.assertEqual(preview['changed_paths'], ['README.md', 'run.sh'])
+        self.assertEqual(preview['title'], 'Fix add')
+        self.assertIsInstance(preview['body'], str)
+        self.assertIn('## Plan steps', preview['body'])
+        self.assertIsInstance(preview['omitted_paths'], list)
+        self.assertEqual(preview['intent_version'], 1)
         body = {'title': preview['title'], 'body': preview['body'], 'expected_diff_hash': preview['diff_hash'],
                 'intent_version': 1, 'idempotency_key': 'integration-key'}
         return self.api.dispatch('POST', '/api/sessions/%s/pull-requests' % sid, body=body).body

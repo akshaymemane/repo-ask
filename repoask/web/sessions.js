@@ -289,6 +289,14 @@ function createPublicationArea({section, sessionID, request, pollMs, isLive, onC
     if (!paths.length) body.append(el('p', 'No changed paths reported; nothing would be published.'));
     else if (paths.length <= 6) { body.append(el('h4', `Changed paths (${paths.length})`), list); }
     else { const more = el('details'); const summary = el('summary', `${paths.length} changed paths`); summary.dataset.focus = 'paths'; more.append(summary, list); body.append(more); }
+    const omitted = Array.isArray(p.omitted_paths) ? p.omitted_paths.filter(x => typeof x === 'string') : [];
+    if (omitted.length) {
+      body.append(el('h4', `Omitted generated paths (${omitted.length})`), el('p', 'These generated artifacts will not be published.', 'detail-muted'));
+      const omittedList = el('ul', undefined, 'publication-paths');
+      for (const path of omitted.slice(0, 20)) omittedList.append(el('li', path.slice(0, 300)));
+      body.append(omittedList);
+      if (omitted.length > 20) body.append(el('p', `${omitted.length - 20} more omitted paths.`, 'detail-muted'));
+    }
     renderChecks(body, p.checks);
     const reasons = Array.isArray(p.blocking_reasons) ? p.blocking_reasons : [];
     if (reasons.length || p.publishable !== true) {
